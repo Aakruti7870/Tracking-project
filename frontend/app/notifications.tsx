@@ -61,7 +61,7 @@ export default function Notifications() {
         ) : data && data.items.length === 0 ? (
           <Card style={{ alignItems: "center", paddingVertical: spacing.xl, gap: spacing.sm }}>
             <Ionicons name="notifications-off-outline" size={30} color={colors.onSurfaceTertiary} />
-            <AppText variant="bodyMuted">You're all caught up</AppText>
+            <AppText variant="bodyMuted">You&apos;re all caught up</AppText>
           </Card>
         ) : (
           data?.items.map((n) => (
