@@ -30,7 +30,6 @@ class User(BaseDocument):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
-    # HMAC keys of email/phone for lookup without storing raw sensitive index
     identifier_keys: List[str] = Field(default_factory=list)
     roles: List[str] = Field(default_factory=list)
     primary_role: str
@@ -41,7 +40,7 @@ class User(BaseDocument):
 
 class OtpChallenge(BaseDocument):
     identifier_key: str
-    channel: str  # email | sms
+    channel: str
     code_hash: str
     attempts: int = 0
     consumed: bool = False
@@ -68,7 +67,7 @@ class Plant(BaseDocument):
     grades: List[str] = Field(default_factory=list)
     contact_phone: str
     service_area_km: float = 25.0
-    status: str = "active"        # active | suspended
+    status: str = "active"
     verified: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -93,25 +92,23 @@ class Order(BaseDocument):
 
 class KycProfile(BaseDocument):
     user_id: str
-    purpose: str          # CUSTOMER | DRIVER | PLANT
+    purpose: str
     status: str = KycStatus.NOT_STARTED
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-# ---- Request/response schemas ----
-
 class RequestOtpBody(BaseModel):
-    identifier: str = Field(min_length=1, max_length=254)
+    identifier: str = Field(min_length=3, max_length=254)
 
 
 class VerifyOtpBody(BaseModel):
-    identifier: str = Field(min_length=1, max_length=254)
+    identifier: str = Field(min_length=3, max_length=254)
     code: str = Field(min_length=4, max_length=10, pattern=r"^\d+$")
 
 
 class CreateOrderBody(BaseModel):
     plant_id: str = Field(min_length=1, max_length=128)
-    grade: str = Field(min_length=2, max_length=32)
+    grade: str = Field(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)$")
     quantity: float = Field(gt=0, le=10000)
     site_name: str = Field(min_length=1, max_length=160)
     site_address: str = Field(min_length=1, max_length=500)
@@ -120,7 +117,7 @@ class CreateOrderBody(BaseModel):
     delivery_date: str = Field(min_length=8, max_length=32)
     delivery_time: Optional[str] = Field(default=None, max_length=32)
     contact_person: Optional[str] = Field(default=None, max_length=160)
-    contact_mobile: Optional[str] = Field(default=None, max_length=32)
+    contact_mobile: Optional[str] = Field(default=None, pattern=r"^\+?[0-9][0-9 -]{7,19}$")
     notes: Optional[str] = Field(default=None, max_length=2000)
     save_draft: bool = False
 
@@ -149,7 +146,7 @@ class PodBody(BaseModel):
     delivered_quantity: float = Field(gt=0, le=10000)
     remarks: Optional[str] = Field(default=None, max_length=2000)
     photo_path: Optional[str] = Field(default=None, max_length=512)
-    signature: Optional[str] = Field(default=None, max_length=250000)  # vector stroke JSON
+    signature: Optional[str] = Field(default=None, max_length=250000)
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
@@ -160,7 +157,7 @@ class GeoBody(BaseModel):
 
 
 class SosBody(BaseModel):
-    type: str = Field(min_length=1, max_length=64)  # Emergency | Accident | Breakdown | Safety
+    type: Literal["Emergency", "Accident", "Breakdown", "Safety"]
     remark: Optional[str] = Field(default=None, max_length=2000)
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
@@ -173,7 +170,7 @@ class ProductionBatchBody(BaseModel):
 
 class PaymentBody(BaseModel):
     amount: float = Field(gt=0, le=1000000000)
-    method: Optional[str] = Field(default="cash", max_length=64)
+    method: Literal["cash", "card", "upi", "bank_transfer", "cheque"] = "cash"
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
@@ -195,7 +192,7 @@ class MaterialBody(BaseModel):
 
 
 class StockAdjustBody(BaseModel):
-    delta: float = Field(ge=-1000000000, le=1000000000)  # +ve = stock in, -ve = stock out
+    delta: float = Field(ge=-1000000000, le=1000000000)
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
