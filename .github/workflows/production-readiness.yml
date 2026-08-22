@@ -53,7 +53,7 @@ jobs:
           cache-dependency-path: backend/requirements-ci.txt
       - name: Install backend dependencies
         working-directory: backend
-        run: python -m pip install --upgrade pip && pip install -r requirements-ci.txt
+        run: python -m pip install --upgrade pip -q && pip install -q -r requirements-ci.txt
       - name: Python import/compile validation
         run: python -m compileall -q backend
       - name: Focused production-hardening unit tests
@@ -77,10 +77,32 @@ jobs:
           exit 1
       - name: Full backend integration suite
         working-directory: backend
-        run: pytest -n 0 -q
+        shell: bash
+        run: |
+          set +e
+          pytest -n 0 -q --tb=short --junitxml=/tmp/backend-pytest.xml > /tmp/backend-pytest.log 2>&1
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "--- backend pytest failure summary ---"
+            tail -n 220 /tmp/backend-pytest.log
+          else
+            cat /tmp/backend-pytest.log
+          fi
+          exit $status
+      - name: Upload backend test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-diagnostics
+          path: |
+            /tmp/backend-pytest.xml
+            /tmp/backend-pytest.log
+            /tmp/trackmyrmc-api.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: API log on failure
         if: failure()
-        run: cat /tmp/trackmyrmc-api.log || true
+        run: tail -n 160 /tmp/trackmyrmc-api.log || true
 
   frontend:
     name: Expo typecheck + lint + config + build
