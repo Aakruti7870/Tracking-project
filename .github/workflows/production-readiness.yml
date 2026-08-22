@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      EXPO_PUBLIC_BACKEND_URL: https://rmc-fleet-ops.preview.emergentagent.com
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -120,11 +120,14 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --non-interactive
-      - name: Verify preview backend target
+      - name: Verify preview backend if configured
         shell: bash
         run: |
           set -euo pipefail
-          test "$EXPO_PUBLIC_BACKEND_URL" = "https://rmc-fleet-ops.preview.emergentagent.com"
+          if [ "$EXPO_PUBLIC_BACKEND_URL" = "https://api.example.invalid" ]; then
+            echo "::notice::PREVIEW_BACKEND_URL is not configured; running build-only validation."
+            exit 0
+          fi
           curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
           cat /tmp/preview-health.json
       - name: TypeScript
@@ -148,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      EXPO_PUBLIC_BACKEND_URL: https://rmc-fleet-ops.preview.emergentagent.com
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
       CI: "1"
     steps:
       - uses: actions/checkout@v4
@@ -164,11 +167,14 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --non-interactive
-      - name: Verify preview backend target
+      - name: Verify preview backend if configured
         shell: bash
         run: |
           set -euo pipefail
-          test "$EXPO_PUBLIC_BACKEND_URL" = "https://rmc-fleet-ops.preview.emergentagent.com"
+          if [ "$EXPO_PUBLIC_BACKEND_URL" = "https://api.example.invalid" ]; then
+            echo "::notice::PREVIEW_BACKEND_URL is not configured; compiling Android only."
+            exit 0
+          fi
           curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
           cat /tmp/preview-health.json
       - name: Generate Android native project
@@ -195,6 +201,7 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
       - name: Upload Android preview APK
+        if: env.EXPO_PUBLIC_BACKEND_URL != 'https://api.example.invalid'
         uses: actions/upload-artifact@v4
         with:
           name: trackmyrmc-2.0.3-vc61-debug-apk
