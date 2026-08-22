@@ -67,6 +67,7 @@ vehicle_locations = db.vehicle_locations
 materials = db.materials
 stock_movements = db.stock_movements
 quality_tests = db.quality_tests
+storage_objects = db.storage_objects
 
 
 async def next_sequence(name: str) -> int:
@@ -85,12 +86,13 @@ async def ensure_indexes() -> None:
     """Create indexes used by auth, tenant scoping, timelines and idempotency.
 
     Unique indexes intentionally enforce domain invariants. If existing data
-    violates an invariant, startup should surface that integrity problem rather
-    than silently permit ambiguous production behavior.
+    violates an invariant, startup surfaces that integrity problem rather than
+    silently permitting ambiguous production behavior.
     """
     # Auth/session lifecycle.
     await otps.create_index("expires_at", expireAfterSeconds=0)
     await sessions.create_index("expires_at", expireAfterSeconds=0)
+    await sessions.create_index([("user_id", 1), ("revoked", 1)])
     await otps.create_index([("identifier_key", 1), ("created_at", -1)])
     await otps.create_index(
         "identifier_key",
@@ -120,17 +122,23 @@ async def ensure_indexes() -> None:
     await driver_trips.create_index([("driver_id", 1), ("status", 1), ("updated_at", -1)])
     await trip_status_history.create_index([("trip_id", 1), ("created_at", 1)])
     await proof_of_delivery.create_index("trip_id", unique=True)
-    await proof_of_delivery.create_index("order_id")
+    await proof_of_delivery.create_index("order_id", unique=True)
     await vehicle_locations.create_index([("trip_id", 1), ("created_at", -1)])
     await vehicle_locations.create_index([("order_id", 1), ("created_at", -1)])
     await attendance.create_index([("driver_id", 1), ("date", 1)], unique=True)
     await driver_incidents.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
 
     # Commercial / production modules.
-    await challans.create_index("order_id")
+    await challans.create_index("order_id", unique=True)
     await invoices.create_index("order_id")
     await payments.create_index([("order_id", 1), ("created_at", -1)])
     await production_batches.create_index([("order_id", 1), ("created_at", 1)])
     await materials.create_index([("plant_id", 1), ("name", 1)])
     await stock_movements.create_index([("plant_id", 1), ("created_at", -1)])
     await quality_tests.create_index([("plant_id", 1), ("order_id", 1), ("created_at", -1)])
+
+    # Authenticated object metadata used for POD file authorization.
+    await storage_objects.create_index("path", unique=True)
+    await storage_objects.create_index([("trip_id", 1), ("purpose", 1)])
+    await storage_objects.create_index([("order_id", 1), ("purpose", 1)])
+    await storage_objects.create_index([("plant_id", 1), ("created_at", -1)])
