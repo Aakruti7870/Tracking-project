@@ -9,7 +9,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "doctor": "expo-doctor"
   },
   "dependencies": {
     "@expo/metro-runtime": "6.1.2",
@@ -26,12 +28,14 @@
     "expo-image-picker": "~17.0.11",
     "expo-linear-gradient": "15.0.8",
     "expo-linking": "8.0.12",
+    "expo-location": "~19.0.8",
     "expo-router": "6.0.24",
     "expo-secure-store": "15.0.8",
     "expo-splash-screen": "31.0.13",
     "expo-status-bar": "3.0.9",
     "expo-symbols": "1.0.8",
     "expo-system-ui": "6.0.9",
+    "expo-task-manager": "~14.0.9",
     "expo-web-browser": "15.0.11",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -60,8 +64,8 @@
     "uuid": "11.1.1",
     "undici": "6.27.0",
     "tar": "7.5.19",
-    "**/@eslint/eslintrc/js-yaml": "4.3.0",
-    "**/@expo/xcpretty/js-yaml": "4.3.0",
+    "**/@eslint/eslintrc/js-yaml": "3.15.0",
+    "**/@expo/xcpretty/js-yaml": "3.15.0",
     "**/@istanbuljs/load-nyc-config/js-yaml": "3.15.0",
     "shell-quote": "1.9.0"
   },
