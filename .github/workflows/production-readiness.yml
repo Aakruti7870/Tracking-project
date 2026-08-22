@@ -43,6 +43,7 @@ jobs:
       EXPO_PUBLIC_BACKEND_URL: http://127.0.0.1:8000
       STORAGE_MODE: local
       LOCAL_STORAGE_DIR: /tmp/trackmyrmc-storage
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
