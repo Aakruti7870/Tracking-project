@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 import security
-from models import LocationBody, PodBody, VehicleStatusBody
+from models import CreateOrderBody, LocationBody, PaymentBody, PodBody, SosBody, VehicleStatusBody
 from order_service import DELIVERED, DISPATCHED, can_transition
 from routers.driver import _validate_pod_payload
 from routers.maps import _valid_coords
@@ -95,21 +95,38 @@ def test_vehicle_status_is_allowlisted():
         VehicleStatusBody(status="deleted")
 
 
+def test_business_enums_and_grade_are_allowlisted():
+    assert SosBody(type="Emergency").type == "Emergency"
+    assert PaymentBody(amount=100, method="upi").method == "upi"
+    with pytest.raises(ValidationError):
+        SosBody(type="Anything")
+    with pytest.raises(ValidationError):
+        PaymentBody(amount=100, method="crypto")
+    with pytest.raises(ValidationError):
+        CreateOrderBody(
+            plant_id="p1",
+            grade="M999",
+            quantity=1,
+            site_name="Site",
+            site_address="Address",
+            delivery_date="2026-09-01",
+        )
+
+
 def test_terminal_order_cannot_transition():
     assert can_transition(DISPATCHED, "EN_ROUTE")
     assert not can_transition(DELIVERED, "DISPATCHED")
     assert not can_transition(DELIVERED, "CANCELLED")
 
 
-def test_pod_requires_owned_photo_and_signature():
-    uid = str(ObjectId())
+def test_pod_requires_pod_object_path_and_signature():
     good = PodBody(
         receiver_name="Site Engineer",
         delivered_quantity=6,
-        photo_path=f"trackmyrmc/uploads/{uid}/abc.jpg",
+        photo_path="trackmyrmc/pod/abc.jpg",
         signature='["M1,1 L2,2"]',
     )
-    _validate_pod_payload(good, uid)
+    _validate_pod_payload(good)
 
     with pytest.raises(HTTPException):
         _validate_pod_payload(
@@ -118,8 +135,7 @@ def test_pod_requires_owned_photo_and_signature():
                 delivered_quantity=6,
                 photo_path=None,
                 signature='["M1,1 L2,2"]',
-            ),
-            uid,
+            )
         )
 
     with pytest.raises(HTTPException):
@@ -127,10 +143,19 @@ def test_pod_requires_owned_photo_and_signature():
             PodBody(
                 receiver_name="Site Engineer",
                 delivered_quantity=6,
-                photo_path=f"trackmyrmc/uploads/{ObjectId()}/abc.jpg",
+                photo_path="trackmyrmc/uploads/user/abc.jpg",
                 signature='["M1,1 L2,2"]',
-            ),
-            uid,
+            )
+        )
+
+    with pytest.raises(HTTPException):
+        _validate_pod_payload(
+            PodBody(
+                receiver_name="Site Engineer",
+                delivered_quantity=6,
+                photo_path="trackmyrmc/pod/abc.jpg",
+                signature="[]",
+            )
         )
 
 
