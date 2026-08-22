@@ -136,6 +136,56 @@ jobs:
         working-directory: frontend
         run: yarn build:preview
 
+  android-native:
+    name: Android native preview build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPO_PUBLIC_BACKEND_URL: https://api.example.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: yarn
+          cache-dependency-path: frontend/package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --non-interactive
+      - name: Generate Android native project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install --non-interactive
+      - name: Verify Android identity and version
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R "com.trackmyrmc.concreteking" android/app/build.gradle android/app/build.gradle.kts >/dev/null 2>&1 || {
+            echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
+            exit 1
+          }
+          grep -R "versionCode 61\|versionCode = 61" android/app/build.gradle android/app/build.gradle.kts >/dev/null 2>&1 || {
+            echo "Expected Android versionCode 61 was not generated"
+            exit 1
+          }
+      - name: Compile debug APK
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload Android preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: trackmyrmc-2.0.3-vc61-debug-apk
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
   repository-security:
     name: Repository secret/signing guard
     runs-on: ubuntu-latest
