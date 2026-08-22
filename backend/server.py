@@ -28,6 +28,20 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.is_dev else None,
 )
 
+# Kubernetes liveness/readiness probes call the container root path directly
+# (there is no /api ingress prefix in front of the pod). These must exist at
+# the app root and stay dependency-free so probes pass even before MongoDB and
+# providers finish initializing.
+@app.get("/health")
+async def health_root():
+    return {"status": "healthy"}
+
+
+@app.get("/")
+async def root_root():
+    return {"service": "TrackMyRMC", "status": "ok"}
+
+
 # Health / meta
 meta = APIRouter(prefix="/api")
 

@@ -1,0 +1,6 @@
+# Never bake local/preview environment files into the deploy image.
+# Production runtime environment variables are injected by the platform.
+# (.env.example templates are intentionally NOT excluded.)
+backend/.env
+frontend/.env
+**/.env

@@ -234,6 +234,18 @@
 ##   test_sequence: 59
 ##   run_ui: false
 
+##   - task: "Deploy-blocker fix: root-level GET /health and GET / for K8s probes"
+##     implemented: true
+##     working: true
+##     file: "backend/server.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "testing"
+##         comment: "DEPLOY-BLOCKER FIX VERIFICATION COMPLETE - ALL 8 TESTS PASSED (8/8). 1) ✓ GET /health returns 200 with JSON {status:healthy} (K8s liveness/readiness probe path). 2) ✓ GET / returns 200 with JSON {service:TrackMyRMC, status:ok}. 3) ✓ GET /api/health still returns 200 with status=healthy and notifications.configured=false (existing endpoint unchanged). 4) ✓ GET /api/ still returns 200 with service info (existing endpoint unchanged). 5) ✓ Regression check PASSED: All protected /api routes correctly reject unauthenticated requests with 401 (/api/me, /api/customer/home, /api/driver/home, /api/staff/home). 6) ✓ Dev OTP login flow works end-to-end for Customer (+919000000001): request-otp returns 200 with dev_otp=402429, verify-otp returns 200 with access_token and role=customer, name='Rajesh Kumar'. 7) ✓ Dev OTP login flow works end-to-end for Plant Owner (owner@trackmyrmc.test): request-otp returns 200 with dev_otp=632436, verify-otp returns 200 with access_token and role=plant_owner, name='Concrete King (Owner)'. 8) ✓ MongoDB connectivity confirmed (OTP documents successfully inserted/verified). Root-level routes added before /api meta router do NOT break /api routing. K8s probes will now succeed. No code modifications made during testing."
+
 ## test_plan:
 ##   current_focus: []
 ##   stuck_tasks: []
@@ -251,4 +263,8 @@
 ##     message: "PREVIEW CONNECTIVITY SMOKE TEST COMPLETE - ALL 5 CHECKS PASSED. Frontend Expo React Native Web app successfully: (a) renders UI with login screen, (b) connects to preview backend (all /api/* calls returning 200), (c) completes passwordless OTP login flow end-to-end with +919000000001, landing on authenticated customer dashboard showing Rajesh Kumar's profile, active delivery, and seeded data. Dev OTP mode working correctly (dev_otp=354342 displayed and auto-filled). Zero console errors, only 2 deprecation warnings. Preview deployment is fully functional and ready for user testing. Android background GPS remains untested (requires physical device)."
 ##   - agent: "testing"
 ##     message: "LOGIN SCREEN REDESIGN VISUAL VERIFICATION COMPLETE - ALL CHECKS PASSED. Verified at https://8eb77ce9-d64a-466d-b331-fb6622397d67.preview.emergentagent.com/login: (1) ✓ White/grey concrete transit mixer truck image visible on dark studio background (1920x384px, loaded correctly). (2) ✓ TRACK MY RMC brand block with lime cube logo and subtitle 'Ready-Mix Concrete · Order · Dispatch · Deliver' visible and properly positioned. (3) ✓ Pill/badge overlay showing lime-green dot, 'READY MIX CONCRETE' bold white text, and 'Verified plants · Live tracking' grey subtext - all readable and correctly positioned. (4) ✓ Sign in card with 'Mobile number or email' input field and 'Send OTP' button renders correctly, hero blends smoothly into card with no visual issues. (5) ✓ Overall layout is polished and attractive - no broken images, no errors, smooth transitions. FUNCTIONAL TEST PASSED: Successfully entered +919000000001 and clicked Send OTP, advanced to OTP verification step with dev OTP auto-filled (913052). No code modifications made as instructed."
+##   - agent: "main"
+##     message: "DEPLOY-BLOCKER FIX: The K8s deployment probe calls GET /health at the container root (no /api prefix) and was getting 404 (health only existed at /api/health), so the pod never became healthy and deploys failed. Added root-level dependency-free routes @app.get('/health') -> {status: healthy} and @app.get('/') in backend/server.py (before the /api meta router). Also added /app/.dockerignore excluding backend/.env and frontend/.env so preview/dev env files are not baked into the deploy image (config.py load_dotenv override left as default False, unchanged). Please verify: (1) GET /health returns 200; (2) GET / returns 200; (3) existing /api/health still 200; (4) a few /api/* protected routes still behave (401 without auth) i.e. no regression from adding root routes."
+##   - agent: "testing"
+##     message: "DEPLOY-BLOCKER FIX VERIFICATION COMPLETE - ALL TESTS PASSED (8/8). Root-level routes for K8s probes working correctly: GET /health returns 200 {status:healthy}, GET / returns 200 {service:TrackMyRMC, status:ok}. Existing /api routes unchanged: /api/health and /api/ both return 200. Regression check passed: all protected /api routes (/api/me, /api/customer/home, /api/driver/home, /api/staff/home) correctly return 401 without auth. Dev OTP login flows work end-to-end for both Customer and Plant Owner accounts. MongoDB connectivity confirmed. Adding root routes before /api meta router did NOT break /api routing. K8s liveness/readiness probes will now succeed and deployment should complete successfully. Backend is production-ready for isolated preview deployment."
 
