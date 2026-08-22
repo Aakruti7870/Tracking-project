@@ -1,14 +1,12 @@
 """Google Maps proxy — keeps the API key server-side.
 
-The key is read from the GOOGLE_MAPS_KEY env var. When it is absent the service
-reports NOT_CONFIGURED and the frontend gracefully falls back to manual entry /
-the map placeholder. When a server-usable key is provided, Places autocomplete,
-place details and geocoding activate automatically — no code change needed.
+The key is read from GOOGLE_MAPS_KEY. Missing/disabled Google services degrade
+gracefully; ETA/distance/polyline are never fabricated.
 """
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from security import current_user
 
@@ -18,6 +16,10 @@ router = APIRouter(prefix="/api/maps", tags=["maps"])
 def _key() -> str | None:
     k = os.environ.get("GOOGLE_MAPS_KEY", "").strip()
     return k or None
+
+
+def _valid_coords(lat: float, lng: float) -> bool:
+    return -90 <= lat <= 90 and -180 <= lng <= 180
 
 
 def _fmt_duration(seconds: int) -> str:
@@ -34,10 +36,9 @@ def _fmt_distance(meters: int) -> str:
 
 
 async def compute_route(olat: float, olng: float, dlat: float, dlng: float) -> dict | None:
-    """Google Routes API: driving route origin->destination. Returns None when
-    the key is not configured or the request fails (caller falls back)."""
+    """Google Routes driving route. None means unavailable, never estimated."""
     key = _key()
-    if not key:
+    if not key or not _valid_coords(olat, olng) or not _valid_coords(dlat, dlng):
         return None
     try:
         async with httpx.AsyncClient(timeout=10) as http:
@@ -63,6 +64,8 @@ async def compute_route(olat: float, olng: float, dlat: float, dlng: float) -> d
         top = routes[0]
         secs = int(str(top.get("duration", "0s")).rstrip("s") or 0)
         dist = int(top.get("distanceMeters", 0))
+        if secs <= 0 or dist < 0:
+            return None
         return {
             "eta_seconds": secs,
             "eta_text": _fmt_duration(secs),
@@ -81,18 +84,22 @@ async def status(ctx: dict = Depends(current_user)):
 
 @router.get("/route")
 async def route(
-    olat: float, olng: float, dlat: float, dlng: float, ctx: dict = Depends(current_user)
+    olat: float = Query(ge=-90, le=90),
+    olng: float = Query(ge=-180, le=180),
+    dlat: float = Query(ge=-90, le=90),
+    dlng: float = Query(ge=-180, le=180),
+    ctx: dict = Depends(current_user),
 ):
     r = await compute_route(olat, olng, dlat, dlng)
     if r is None:
-        return {"configured": _key() is not None}
-    return {"configured": True, **r}
+        return {"configured": _key() is not None, "route_available": False}
+    return {"configured": True, "route_available": True, **r}
 
 
 @router.get("/autocomplete")
 async def autocomplete(
-    input: str = Query(min_length=1),
-    session_token: str = Query(default="rmc"),
+    input: str = Query(min_length=1, max_length=200),
+    session_token: str = Query(default="rmc", min_length=1, max_length=128),
     ctx: dict = Depends(current_user),
 ):
     key = _key()
@@ -108,7 +115,7 @@ async def autocomplete(
         raise HTTPException(502, "Places request failed")
     data = r.json()
     out = []
-    for s in data.get("suggestions", []):
+    for s in data.get("suggestions", [])[:20]:
         p = s.get("placePrediction")
         if p:
             out.append({"place_id": p.get("placeId"), "text": p.get("text", {}).get("text")})
@@ -116,7 +123,11 @@ async def autocomplete(
 
 
 @router.get("/place/{place_id}")
-async def place_details(place_id: str, session_token: str = Query(default="rmc"), ctx: dict = Depends(current_user)):
+async def place_details(
+    place_id: str = Path(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._:-]+$"),
+    session_token: str = Query(default="rmc", min_length=1, max_length=128),
+    ctx: dict = Depends(current_user),
+):
     key = _key()
     if not key:
         raise HTTPException(409, "Maps NOT_CONFIGURED")
@@ -130,11 +141,17 @@ async def place_details(place_id: str, session_token: str = Query(default="rmc")
         raise HTTPException(502, "Place details failed")
     d = r.json()
     loc = d.get("location", {})
-    return {"address": d.get("formattedAddress"), "lat": loc.get("latitude"), "lng": loc.get("longitude")}
+    lat, lng = loc.get("latitude"), loc.get("longitude")
+    if lat is not None and lng is not None and not _valid_coords(lat, lng):
+        raise HTTPException(502, "Place details returned invalid coordinates")
+    return {"address": d.get("formattedAddress"), "lat": lat, "lng": lng}
 
 
 @router.get("/geocode")
-async def geocode(address: str = Query(min_length=1), ctx: dict = Depends(current_user)):
+async def geocode(
+    address: str = Query(min_length=1, max_length=500),
+    ctx: dict = Depends(current_user),
+):
     key = _key()
     if not key:
         return {"configured": False}
@@ -150,4 +167,11 @@ async def geocode(address: str = Query(min_length=1), ctx: dict = Depends(curren
         return {"configured": True, "lat": None, "lng": None}
     top = data["results"][0]
     loc = top["geometry"]["location"]
-    return {"configured": True, "address": top.get("formatted_address"), "lat": loc["lat"], "lng": loc["lng"]}
+    if not _valid_coords(loc["lat"], loc["lng"]):
+        raise HTTPException(502, "Geocode returned invalid coordinates")
+    return {
+        "configured": True,
+        "address": top.get("formatted_address"),
+        "lat": loc["lat"],
+        "lng": loc["lng"],
+    }
