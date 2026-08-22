@@ -2,7 +2,12 @@
 
 Production uses the configured remote object store. CI/development may opt into
 STORAGE_MODE=local for deterministic tests without external credentials.
+
+POD uploads are bound to an authenticated driver + active trip and persisted in
+Mongo metadata for object-level authorization. File downloads require the
+Authorization header; JWTs are never accepted from query strings.
 """
+from datetime import datetime, timezone
 from io import BytesIO
 import mimetypes
 import os
@@ -11,13 +16,14 @@ import uuid
 
 import requests
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
 from config import settings
-from database import orders, plants, proof_of_delivery
+from database import driver_trips, orders, plants, proof_of_delivery, storage_objects
+from roles import Role
 from security import current_user
 
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -53,6 +59,14 @@ def init_storage():
     resp.raise_for_status()
     _storage_key = resp.json()["storage_key"]
     return _storage_key
+
+
+def _validate_object_path(path: str) -> None:
+    p = PurePosixPath(path)
+    if p.is_absolute() or ".." in p.parts:
+        raise HTTPException(404, "File not found")
+    if len(p.parts) < 3 or p.parts[0] != APP_NAME or p.parts[1] not in {"pod", "uploads"}:
+        raise HTTPException(404, "File not found")
 
 
 def _local_path(path: str) -> Path:
@@ -116,14 +130,6 @@ def _get(path: str) -> tuple[bytes, str]:
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
-def _validate_object_path(path: str) -> None:
-    p = PurePosixPath(path)
-    if p.is_absolute() or ".." in p.parts:
-        raise HTTPException(404, "File not found")
-    if len(p.parts) < 4 or p.parts[0] != APP_NAME or p.parts[1] != "uploads":
-        raise HTTPException(404, "File not found")
-
-
 def _validate_image(data: bytes) -> tuple[str, str]:
     if not data:
         raise HTTPException(422, "Empty image upload")
@@ -140,53 +146,117 @@ def _validate_image(data: bytes) -> tuple[str, str]:
     return ALLOWED_IMAGE_FORMATS[fmt]
 
 
-def _oid(value: str):
+def _oid(value: str | None):
+    if value is None:
+        return None
     try:
         return ObjectId(value)
     except Exception:
         return value
 
 
-async def _can_read_path(ctx: dict, path: str) -> bool:
-    """Authorize file access using uploader ownership or the POD/order relation."""
-    _validate_object_path(path)
-    uploader_id = PurePosixPath(path).parts[2]
-    if uploader_id == ctx["user_id"]:
+async def _authorized_for_relation(ctx: dict, *, owner_user_id: str | None, order_id: str | None, plant_id: str | None, driver_id: str | None = None) -> bool:
+    role = ctx.get("role")
+    if owner_user_id and owner_user_id == ctx["user_id"]:
         return True
-    if ctx.get("role") == "central_admin":
+    if role == Role.CENTRAL_ADMIN.value:
         return True
+    if role == Role.DRIVER.value and driver_id:
+        return driver_id == ctx["user_id"]
 
+    order = await orders.find_one({"_id": _oid(order_id)}) if order_id else None
+    if role == Role.CUSTOMER.value:
+        return bool(order and order.get("customer_id") == ctx["user_id"])
+    if role == Role.PLANT_OWNER.value:
+        pid = plant_id or (order.get("plant_id") if order else None)
+        if not pid:
+            return False
+        return bool(await plants.find_one({"_id": _oid(pid), "owner_id": ctx["user_id"]}))
+
+    scoped_staff = {
+        Role.ADMIN.value,
+        Role.DISPATCHER.value,
+        Role.OPERATOR.value,
+        Role.SUPERVISOR.value,
+        Role.ACCOUNTANT.value,
+        Role.QUALITY_ENGINEER.value,
+        Role.FLEET_MANAGER.value,
+        Role.STORE_MANAGER.value,
+    }
+    if role in scoped_staff:
+        relation_plant = plant_id or (order.get("plant_id") if order else None)
+        return bool(ctx.get("plant_id") and relation_plant and ctx["plant_id"] == relation_plant)
+    return False
+
+
+async def _can_read_path(ctx: dict, path: str) -> bool:
+    """Authorize new metadata-backed objects and legacy POD objects securely."""
+    _validate_object_path(path)
+    meta = await storage_objects.find_one({"path": path})
+    if meta:
+        return await _authorized_for_relation(
+            ctx,
+            owner_user_id=meta.get("owner_user_id"),
+            order_id=meta.get("order_id"),
+            plant_id=meta.get("plant_id"),
+            driver_id=meta.get("owner_user_id") if meta.get("purpose") == "POD" else None,
+        )
+
+    # Compatibility for older POD rows created before storage metadata existed.
     pod = await proof_of_delivery.find_one({"photo_path": path})
     if not pod:
         return False
     order = await orders.find_one({"_id": _oid(pod.get("order_id"))})
-    if not order:
-        return False
-
-    role = ctx.get("role")
-    if role == "customer":
-        return order.get("customer_id") == ctx["user_id"]
-    if role == "driver":
-        return pod.get("driver_id") == ctx["user_id"]
-    if role == "plant_owner":
-        plant = await plants.find_one(
-            {"_id": _oid(order.get("plant_id")), "owner_id": ctx["user_id"]}
-        )
-        return plant is not None
-
-    return bool(ctx.get("plant_id") and ctx.get("plant_id") == order.get("plant_id"))
+    return await _authorized_for_relation(
+        ctx,
+        owner_user_id=pod.get("driver_id"),
+        driver_id=pod.get("driver_id"),
+        order_id=pod.get("order_id"),
+        plant_id=order.get("plant_id") if order else None,
+    )
 
 
 router = APIRouter(prefix="/api", tags=["storage"])
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...), ctx: dict = Depends(current_user)):
+async def upload(
+    file: UploadFile = File(...),
+    purpose: str = Form(default="POD"),
+    trip_id: str = Form(default=""),
+    ctx: dict = Depends(current_user),
+):
+    if purpose != "POD" or ctx.get("role") != Role.DRIVER.value or not trip_id:
+        raise HTTPException(403, "Upload is not permitted")
+
+    trip = await driver_trips.find_one(
+        {"_id": _oid(trip_id), "driver_id": ctx["user_id"]}
+    )
+    if not trip or trip.get("status") not in ("ARRIVED", "UNLOADING", "POD_PENDING"):
+        raise HTTPException(404, "Active trip not found")
+
     data = await file.read()
     ext, detected_content_type = _validate_image(data)
-    path = f"{APP_NAME}/uploads/{ctx['user_id']}/{uuid.uuid4().hex}.{ext}"
+    supplied_type = (file.content_type or "").lower()
+    if supplied_type and supplied_type not in {detected_content_type, "application/octet-stream"}:
+        raise HTTPException(422, "File content does not match declared image type")
+
+    path = f"{APP_NAME}/pod/{uuid.uuid4().hex}.{ext}"
     try:
         await run_in_threadpool(_put, path, data, detected_content_type)
+        await storage_objects.insert_one(
+            {
+                "path": path,
+                "owner_user_id": ctx["user_id"],
+                "purpose": "POD",
+                "trip_id": str(trip["_id"]),
+                "order_id": trip.get("order_id"),
+                "plant_id": trip.get("plant_id"),
+                "content_type": detected_content_type,
+                "size_bytes": len(data),
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
     except HTTPException:
         raise
     except Exception:
@@ -195,14 +265,9 @@ async def upload(file: UploadFile = File(...), ctx: dict = Depends(current_user)
 
 
 @router.get("/files/{path:path}")
-async def files(
-    path: str,
-    token: str = Query(default="", max_length=4096),
-    authorization: str = Header(default=""),
-):
-    auth_header = authorization or (f"Bearer {token}" if token else "")
+async def files(path: str, authorization: str = Header(default="")):
     try:
-        ctx = await current_user(authorization=auth_header)
+        ctx = await current_user(authorization=authorization)
     except HTTPException:
         raise HTTPException(401, "Unauthorized")
     if not await _can_read_path(ctx, path):
