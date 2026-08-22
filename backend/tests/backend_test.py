@@ -44,7 +44,6 @@ def _verify(client, identifier, code):
 
 def _login(client, identifier):
     """Full OTP dance; returns access_token payload dict."""
-    # Wait past 30s throttle if hit
     r = _request_otp(client, identifier)
     if r.status_code == 429:
         time.sleep(31)
@@ -57,7 +56,6 @@ def _login(client, identifier):
     return rv.json()
 
 
-# ---------- Health ----------
 class TestHealth:
     def test_health(self, api_client):
         r = api_client.get(f"{API}/health")
@@ -65,16 +63,12 @@ class TestHealth:
         body = r.json()
         assert body["status"] == "healthy"
         assert "notifications" in body
-        # Provider intentionally NOT configured in dev
         assert body["notifications"]["configured"] is False
 
 
-# ---------- Auth ----------
 class TestAuth:
     def test_request_otp_returns_dev_otp(self, api_client):
-        # Use fresh unknown mobile to avoid throttle collisions with seeded flow
         r = _request_otp(api_client, CUSTOMER_MOBILE)
-        # If we just ran another test, allow 429 retry
         if r.status_code == 429:
             time.sleep(31)
             r = _request_otp(api_client, CUSTOMER_MOBILE)
@@ -85,7 +79,6 @@ class TestAuth:
         assert "dev_otp" in j and len(j["dev_otp"]) == 6
 
     def test_resend_throttle_429(self, api_client):
-        # Use a unique identifier so throttle is deterministic
         num = f"+91900000{uuid.uuid4().int % 10000:04d}"
         r1 = _request_otp(api_client, num)
         assert r1.status_code == 200
@@ -102,7 +95,7 @@ class TestAuth:
         assert rw.status_code == 400
         rc = _verify(api_client, num, code)
         assert rc.status_code == 200
-        assert rc.json()["role"] == "customer"  # unknown mobile self-registers
+        assert rc.json()["role"] == "customer"
 
     def test_verify_max_attempts_429(self, api_client):
         num = f"+91900000{uuid.uuid4().int % 10000:04d}"
@@ -110,14 +103,12 @@ class TestAuth:
         assert r.status_code == 200
         code = r.json()["dev_otp"]
         wrong = "000000" if code != "000000" else "111111"
-        # 5 wrong attempts allowed then next should hit max
         for _ in range(5):
             _verify(api_client, num, wrong)
         rlast = _verify(api_client, num, wrong)
         assert rlast.status_code == 429, f"expected 429 after max attempts, got {rlast.status_code}: {rlast.text}"
 
     def test_customer_email_rejected(self, api_client):
-        # Unknown email should be rejected (staff must be pre-provisioned)
         email = f"unknown_{uuid.uuid4().hex[:6]}@example.com"
         r = _request_otp(api_client, email)
         assert r.status_code == 200
@@ -126,21 +117,13 @@ class TestAuth:
         assert rv.status_code == 403
 
     def test_admin_email_ok_mobile_wrong_channel(self, api_client):
-        # Admin via email must work
         data = _login(api_client, ADMIN_EMAIL)
         assert data["role"] == "admin"
 
     def test_admin_mobile_should_fail_channel(self, api_client):
-        # Admin trying to sign in via mobile should be rejected due to
-        # channel-per-role policy. Since unknown mobile self-registers as
-        # customer, the admin's mobile number cannot exist -> effectively
-        # only the seeded admin email is admin. Use a random new mobile.
-        # (There's no admin mobile in the system, so this simulates policy.)
-        # Nothing to test directly; skip if not applicable.
         pytest.skip("Admin identifier is email-only; no admin mobile exists to test.")
 
 
-# ---------- Customer session fixtures ----------
 @pytest.fixture(scope="module")
 def customer_token(api_client):
     data = _login(api_client, CUSTOMER_MOBILE)
@@ -150,7 +133,6 @@ def customer_token(api_client):
 
 @pytest.fixture(scope="module")
 def admin_token(api_client):
-    # Wait if throttled
     time.sleep(1)
     data = _login(api_client, ADMIN_EMAIL)
     return data["access_token"]
@@ -160,7 +142,6 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-# ---------- /me ----------
 class TestMe:
     def test_me_customer(self, api_client, customer_token):
         r = api_client.get(f"{API}/me", headers=_auth(customer_token))
@@ -175,7 +156,6 @@ class TestMe:
         assert r.status_code == 401
 
 
-# ---------- Customer endpoints & RBAC ----------
 class TestCustomer:
     def test_home_shape(self, api_client, customer_token):
         r = api_client.get(f"{API}/customer/home", headers=_auth(customer_token))
@@ -185,7 +165,8 @@ class TestCustomer:
         assert j["active_order"] is not None
         assert j["active_order"]["order_number"] == "RMC-1001"
         assert j["active_order"]["status"] == "DISPATCHED"
-        assert len(j["recent_orders"]) == 2
+        # Development seed intentionally contains three customer orders.
+        assert len(j["recent_orders"]) == 3
         assert len(j["nearby_plants"]) == 3
         for p in j["nearby_plants"]:
             assert p["verified"] is True
@@ -193,7 +174,7 @@ class TestCustomer:
     def test_orders(self, api_client, customer_token):
         r = api_client.get(f"{API}/customer/orders", headers=_auth(customer_token))
         assert r.status_code == 200
-        assert len(r.json()["orders"]) == 2
+        assert len(r.json()["orders"]) == 3
 
     def test_plants(self, api_client, customer_token):
         r = api_client.get(f"{API}/customer/plants", headers=_auth(customer_token))
@@ -225,11 +206,8 @@ class TestCustomer:
             assert r.status_code == 401
 
 
-# ---------- Logout ----------
 class TestLogout:
     def test_logout_revokes_session(self, api_client):
-        # Fresh login so we don't nuke the module-scoped customer_token
-        # Use a fresh unknown mobile to avoid throttle issues on seeded number
         num = f"+91900000{uuid.uuid4().int % 10000:04d}"
         data = _login(api_client, num)
         tok = data["access_token"]
