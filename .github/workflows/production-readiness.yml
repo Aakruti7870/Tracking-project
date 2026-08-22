@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      EXPO_PUBLIC_BACKEND_URL: https://api.example.invalid
+      EXPO_PUBLIC_BACKEND_URL: https://rmc-fleet-ops.preview.emergentagent.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -120,6 +120,13 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --non-interactive
+      - name: Verify preview backend target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_BACKEND_URL" = "https://rmc-fleet-ops.preview.emergentagent.com"
+          curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
+          cat /tmp/preview-health.json
       - name: TypeScript
         working-directory: frontend
         run: yarn typecheck
@@ -141,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      EXPO_PUBLIC_BACKEND_URL: https://api.example.invalid
+      EXPO_PUBLIC_BACKEND_URL: https://rmc-fleet-ops.preview.emergentagent.com
       CI: "1"
     steps:
       - uses: actions/checkout@v4
@@ -157,6 +164,13 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --non-interactive
+      - name: Verify preview backend target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_BACKEND_URL" = "https://rmc-fleet-ops.preview.emergentagent.com"
+          curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
+          cat /tmp/preview-health.json
       - name: Generate Android native project
         working-directory: frontend
         run: npx expo prebuild --platform android --clean --no-install
