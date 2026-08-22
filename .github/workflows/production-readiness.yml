@@ -83,7 +83,7 @@ jobs:
         run: cat /tmp/trackmyrmc-api.log || true
 
   frontend:
-    name: Expo typecheck + lint + config
+    name: Expo typecheck + lint + config + build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -110,6 +110,9 @@ jobs:
       - name: Validate public Expo config
         working-directory: frontend
         run: npx expo config --type public >/tmp/expo-config.txt && test -s /tmp/expo-config.txt
+      - name: Build Expo web preview
+        working-directory: frontend
+        run: yarn build:preview
 
   repository-security:
     name: Repository secret/signing guard
