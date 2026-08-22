@@ -7,19 +7,18 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useFonts } from "expo-font";
 
+// Registers the background location task at JS module scope before any screen
+// mounts. TaskManager requires this for Android background execution.
+import "@/src/location/tripTracking";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider } from "@/src/theme/ThemeProvider";
 import { AuthProvider } from "@/src/auth/AuthContext";
 import { ToastProvider } from "@/src/components/ui/Toast";
 
-// Disable logbox errors etc so that users can see the app
-// and agent works as expected.
-LogBox.ignoreAllLogs(true);
+// Keep development previews quiet without hiding production diagnostics.
+if (__DEV__) LogBox.ignoreAllLogs(true);
 
 // Keep the native splash visible from cold start until icon fonts register.
-// Required because @expo/vector-icons' componentDidMount fallback fires
-// Font.loadAsync against a broken vendor path if any <Icon> mounts before
-// the family is registered — which throws on Android Expo Go.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -42,8 +41,6 @@ export default function RootLayout() {
     }
   }, [iconsReady, fontsReady]);
 
-  // If the CDN is unreachable we fall through on error rather than wedging
-  // the app — icons will tofu, but the app still boots.
   if (!iconsReady || !fontsReady) return null;
 
   return (
