@@ -7,12 +7,14 @@ entry, and emits notifications. The frontend can never set status arbitrarily.
 from datetime import datetime, timezone
 from typing import Optional
 
+import os
+
 from bson import ObjectId
 from fastapi import HTTPException
 
 from audit import write_audit
-from database import order_status_history, orders, plants
-from notifications import record_notification
+from database import order_status_history, orders, plants, users
+from notifications import delivery, record_notification
 
 # --- States ---
 DRAFT = "DRAFT"
@@ -114,8 +116,53 @@ async def transition_order(
             note or f"Your order is now {target.replace('_', ' ').title()}.",
         )
 
+    # Idempotent customer SMS on the two milestone events (best-effort, non-blocking).
+    if target in (DISPATCHED, DELIVERED):
+        await _customer_sms_once(order, target)
+
     order["status"] = target
     return order
+
+
+async def _customer_sms_once(order: dict, event: str) -> None:
+    """Send exactly one SMS per (order, event). Claims the flag atomically so
+    retries never duplicate; delivery failure never blocks the status update."""
+    if not delivery.sms_configured or not order.get("customer_id"):
+        return
+    claimed = await orders.find_one_and_update(
+        {"_id": order["_id"], f"sms_flags.{event}": {"$ne": True}},
+        {"$set": {f"sms_flags.{event}": True}},
+    )
+    if not claimed:
+        return  # already sent for this event
+    try:
+        cust = await users.find_one({"_id": ObjectId(order["customer_id"])})
+        phone = cust.get("phone") if cust else None
+        if not phone:
+            return
+        num = order.get("order_number")
+        if event == DISPATCHED:
+            base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+            link = f"{base}/track/{order['_id']}" if base else ""
+            tm = order.get("tm_number")
+            msg = f"TrackMyRMC: Order {num} DISPATCHED"
+            if tm:
+                msg += f" (Mixer {tm})"
+            msg += f". {order.get('quantity')} m3 {order.get('grade')} en route to {order.get('site_name') or 'your site'}."
+            if link:
+                msg += f" Track live: {link}"
+        else:  # DELIVERED
+            qty = order.get("delivered_quantity") or order.get("quantity")
+            base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+            link = f"{base}/order/{order['_id']}" if base else ""
+            msg = f"TrackMyRMC: Order {num} DELIVERED. {qty} m3 {order.get('grade')} delivered successfully."
+            if link:
+                msg += f" View delivery proof: {link}"
+            else:
+                msg += " Thank you!"
+        await delivery.send("sms", phone, msg)
+    except Exception:  # noqa: BLE001 — never block a status update on SMS
+        pass
 
 
 async def owner_plant_ids(user_id: str) -> list[str]:

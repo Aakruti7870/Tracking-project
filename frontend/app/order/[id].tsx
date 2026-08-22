@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiPost } from "@/src/api/client";
+import { fileUrl } from "@/src/api/upload";
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
@@ -27,6 +28,14 @@ type Detail = {
   contact_person?: string;
   contact_mobile?: string;
   notes?: string;
+  pod?: {
+    receiver_name?: string;
+    delivered_quantity?: number;
+    remarks?: string;
+    photo_path?: string;
+    signature?: string;
+    at?: string;
+  } | null;
   history: HistoryEntry[];
 };
 
@@ -123,6 +132,33 @@ export default function OrderDetail() {
             </Card>
           </View>
 
+          {/* Proof of Delivery — shown to customer & owner once delivered */}
+          {data.pod ? (
+            <View style={{ gap: spacing.sm }}>
+              <AppText variant="heading">Proof of Delivery</AppText>
+              <Card style={{ gap: spacing.md }}>
+                {data.pod.photo_path && token ? (
+                  <Image
+                    testID="pod-photo"
+                    source={{ uri: fileUrl(data.pod.photo_path, token) }}
+                    style={styles.podPhoto}
+                    resizeMode="cover"
+                  />
+                ) : null}
+                <Row icon="person-outline" label="Received by" value={data.pod.receiver_name || "—"} colors={colors} />
+                <Row icon="cube-outline" label="Delivered quantity" value={`${data.pod.delivered_quantity ?? o.quantity} m³`} colors={colors} />
+                {data.pod.at ? <Row icon="time-outline" label="Delivered at" value={new Date(data.pod.at).toLocaleString()} colors={colors} /> : null}
+                {data.pod.remarks ? <Row icon="chatbubble-ellipses-outline" label="Remarks" value={data.pod.remarks} colors={colors} /> : null}
+                {data.pod.signature ? (
+                  <View style={{ gap: 4 }}>
+                    <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }}>Receiver signature</AppText>
+                    <Image testID="pod-signature" source={{ uri: data.pod.signature }} style={[styles.podSign, { borderColor: colors.border }]} resizeMode="contain" />
+                  </View>
+                ) : null}
+              </Card>
+            </View>
+          ) : null}
+
           {/* Actions */}
           {isOwner ? (
             o.status === "PENDING" ? (
@@ -209,4 +245,6 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
+  podPhoto: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: "#0002" },
+  podSign: { width: "100%", height: 90, borderRadius: radius.sm, borderWidth: 1, backgroundColor: "#fff" },
 });

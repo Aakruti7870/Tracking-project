@@ -20,9 +20,73 @@ def _key() -> str | None:
     return k or None
 
 
+def _fmt_duration(seconds: int) -> str:
+    m = max(1, round(seconds / 60))
+    if m < 60:
+        return f"{m} min"
+    return f"{m // 60}h {m % 60}m"
+
+
+def _fmt_distance(meters: int) -> str:
+    if meters < 1000:
+        return f"{meters} m"
+    return f"{meters / 1000:.1f} km"
+
+
+async def compute_route(olat: float, olng: float, dlat: float, dlng: float) -> dict | None:
+    """Google Routes API: driving route origin->destination. Returns None when
+    the key is not configured or the request fails (caller falls back)."""
+    key = _key()
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.post(
+                "https://routes.googleapis.com/directions/v2:computeRoutes",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": key,
+                    "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline",
+                },
+                json={
+                    "origin": {"location": {"latLng": {"latitude": olat, "longitude": olng}}},
+                    "destination": {"location": {"latLng": {"latitude": dlat, "longitude": dlng}}},
+                    "travelMode": "DRIVE",
+                    "routingPreference": "TRAFFIC_AWARE",
+                },
+            )
+        if r.status_code >= 400:
+            return None
+        routes = r.json().get("routes") or []
+        if not routes:
+            return None
+        top = routes[0]
+        secs = int(str(top.get("duration", "0s")).rstrip("s") or 0)
+        dist = int(top.get("distanceMeters", 0))
+        return {
+            "eta_seconds": secs,
+            "eta_text": _fmt_duration(secs),
+            "distance_m": dist,
+            "distance_text": _fmt_distance(dist),
+            "polyline": (top.get("polyline") or {}).get("encodedPolyline"),
+        }
+    except Exception:
+        return None
+
+
 @router.get("/status")
 async def status(ctx: dict = Depends(current_user)):
     return {"configured": _key() is not None}
+
+
+@router.get("/route")
+async def route(
+    olat: float, olng: float, dlat: float, dlng: float, ctx: dict = Depends(current_user)
+):
+    r = await compute_route(olat, olng, dlat, dlng)
+    if r is None:
+        return {"configured": _key() is not None}
+    return {"configured": True, **r}
 
 
 @router.get("/autocomplete")

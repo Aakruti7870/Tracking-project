@@ -35,6 +35,46 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 12 (Customer Proof-of-Delivery view) ✅
+- Customers (and owners) now see a **Proof of Delivery** card on the order detail once
+  DELIVERED: site photo, receiver name, delivered quantity, timestamp, remarks and the
+  receiver's signature. Backend `customer/orders/{id}` now returns a `pod` object.
+- The **DELIVERED SMS** now includes a "View delivery proof" link to the order screen so
+  customers can open the app and see the proof. Backend verified.
+
+### 2026-06 — PHASE 11 (Google Maps LIVE) ✅
+- Server-usable key configured (`GOOGLE_MAPS_KEY` backend + `EXPO_PUBLIC_GOOGLE_MAPS_KEY`
+  client). LIVE and tested: **address autocomplete** (Places New) + **geocoding** on New
+  Order; **live tracking map** (real Google map via iframe on web / WebView on native) with
+  mixer marker, site marker and route polyline; graceful ETA.
+- Fixed web rendering: `LiveMap` renders an `<iframe srcDoc>` on web (react-native-webview
+  has no web support) and WebView on native. `MapPlaceholder` chip now reads "Live map"
+  when a key is present. `loading=async` added to the Maps JS URL.
+- **Routes API is DISABLED** on the user's Google project → Live ETA/distance cards stay
+  hidden (route=null, graceful). They activate automatically once the user enables
+  **Routes API** in Google Cloud (no code change needed).
+- Tests: iteration 10 + 11 — all maps review items PASS.
+
+### 2026-06 — PHASE 10 (Delivery SMS alerts + Live Route ETA plumbing) 
+- **Dispatch/Delivered SMS (LIVE & idempotent)** ✅ — the order state machine now sends
+  exactly ONE customer SMS on `DISPATCHED` (order ref + mixer + live-tracking link) and ONE
+  on `DELIVERED` (success confirmation). Idempotency via an atomic `sms_flags.{event}` claim
+  on the order — retries never duplicate. SMS failure never blocks the status update. The
+  broad per-notification SMS was removed. Verified: 1 dispatch SMS + 1 delivered SMS, flags set.
+- **Live Route ETA (key-ready)** — `GET /api/maps/route` + `compute_route()` use Google Routes
+  API (server key) returning road distance, ETA and encoded polyline; customer tracking
+  response now carries a `route` field. Frontend `LiveMap` renders a real Google map
+  (mixer marker, site marker, route polyline) via Maps JS in a WebView when
+  `EXPO_PUBLIC_GOOGLE_MAPS_KEY` is set, else the on-brand placeholder. Tracking screen shows
+  Live ETA + remaining distance + mixer coords + last-update time, and stops at DELIVERED.
+- Env added: `APP_PUBLIC_URL` (tracking link base), `EXPO_PUBLIC_GOOGLE_MAPS_KEY` (client map).
+- **KYC**: inspected — the app uses a **manual review flow** (kyc_profiles + Authority
+  approve/reject), NOT an automated DigiLocker API. Left untouched per instruction; the
+  `KYC_API_KEY` secret is stored but a real DigiLocker integration needs provider endpoints.
+- **STILL BLOCKED**: live map visual + real ETA need a **server-usable Google Maps key**
+  (`GOOGLE_MAPS_KEY`) and a **client key** (`EXPO_PUBLIC_GOOGLE_MAPS_KEY`). Current key is
+  referrer-restricted. Awaiting the promised separate key.
+
 ### 2026-06 — PHASE 9 (Twilio SMS live) ✅
 - **Twilio SMS wired** via the provider-agnostic adapter (Messaging API, async, best-effort).
   Real SMS now sent for **OTP codes** and **order alerts** (every in-app notification also

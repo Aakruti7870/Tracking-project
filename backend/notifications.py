@@ -76,8 +76,9 @@ delivery = SmsEmailAdapter()
 
 
 async def record_notification(user_id: str, event: str, title: str, body: str) -> None:
-    """Persist an in-app notification (durable) and, when SMS is configured,
-    also push an SMS to the user's phone on a best-effort basis."""
+    """Persist an in-app notification (durable). SMS for specific customer
+    events (dispatch/delivered) is sent from the order state machine so it is
+    idempotent — not fired on every in-app notification."""
     await notifications.insert_one(
         {
             "user_id": user_id,
@@ -88,16 +89,6 @@ async def record_notification(user_id: str, event: str, title: str, body: str) -
             "created_at": datetime.now(timezone.utc),
         }
     )
-    if delivery.sms_configured:
-        try:
-            from bson import ObjectId
-
-            user = await users.find_one({"_id": ObjectId(user_id)})
-            phone = user.get("phone") if user else None
-            if phone:
-                await delivery.send("sms", phone, f"TrackMyRMC: {title} — {body}")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("notification SMS skipped: %s", exc)
 
 
 def provider_status() -> dict:

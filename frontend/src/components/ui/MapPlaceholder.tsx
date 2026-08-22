@@ -27,6 +27,7 @@ export function MapPlaceholder({
   const { colors } = useTheme();
 
   const grid = colors.isDark ? "rgba(204,255,0,0.06)" : "rgba(18,18,18,0.05)";
+  const mapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY;
 
   return (
     <View style={[styles.wrap, { borderColor: colors.border }, style]}>
@@ -54,9 +55,9 @@ export function MapPlaceholder({
       </View>
 
       <View style={[styles.chip, { backgroundColor: colors.surface + "CC", borderColor: colors.border }]}>
-        <Ionicons name="warning-outline" size={12} color={colors.warning} />
+        <Ionicons name={mapsConfigured ? "map-outline" : "warning-outline"} size={12} color={mapsConfigured ? colors.brand : colors.warning} />
         <AppText style={{ fontFamily: fonts.medium, fontSize: 10, color: colors.onSurfaceTertiary }}>
-          Maps: not configured
+          {mapsConfigured ? "Live map" : "Maps: not configured"}
         </AppText>
       </View>
     </View>

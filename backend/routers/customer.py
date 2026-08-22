@@ -12,6 +12,7 @@ from database import (
     order_status_history,
     orders,
     plants,
+    proof_of_delivery,
     vehicle_locations,
     next_sequence,
 )
@@ -203,11 +204,24 @@ async def order_detail(order_id: str, ctx: dict = Depends(customer_only)):
     if not order:
         raise HTTPException(404, "Order not found")
     history = await order_status_history.find({"order_id": order_id}).sort("created_at", 1).to_list(100)
+    pod = None
+    if order.get("status") == "DELIVERED":
+        p = await proof_of_delivery.find_one({"order_id": order_id})
+        if p:
+            pod = {
+                "receiver_name": p.get("receiver_name"),
+                "delivered_quantity": p.get("delivered_quantity"),
+                "remarks": p.get("remarks"),
+                "photo_path": p.get("photo_path"),
+                "signature": p.get("signature"),
+                "at": p.get("created_at").isoformat() if p.get("created_at") else None,
+            }
     return {
         "order": _serialize_order(order),
         "contact_person": order.get("contact_person"),
         "contact_mobile": order.get("contact_mobile"),
         "notes": order.get("notes"),
+        "pod": pod,
         "history": [
             {
                 "from": h.get("from_status"),
@@ -251,11 +265,17 @@ async def track_order(order_id: str, ctx: dict = Depends(customer_only)):
         raise HTTPException(404, "Order not found")
     active = order.get("status") in ACTIVE_TRACK
     loc = None
+    route_info = None
     if active:
         last = await vehicle_locations.find({"order_id": order_id}).sort("created_at", -1).to_list(1)
         if last:
             loc = {"lat": last[0]["lat"], "lng": last[0]["lng"],
                    "at": last[0]["created_at"].isoformat() if last[0].get("created_at") else None}
+            # Live road ETA/distance + polyline via Google Routes (server key).
+            if order.get("lat") is not None and order.get("lng") is not None:
+                from routers.maps import compute_route
+
+                route_info = await compute_route(loc["lat"], loc["lng"], order["lat"], order["lng"])
     return {
         "active": active,
         "status": order.get("status"),
@@ -265,6 +285,7 @@ async def track_order(order_id: str, ctx: dict = Depends(customer_only)):
         "destination": {"lat": order.get("lat"), "lng": order.get("lng"),
                         "site_name": order.get("site_name"), "address": order.get("site_address")},
         "location": loc,
+        "route": route_info,
     }
 
 

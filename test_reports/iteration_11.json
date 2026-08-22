@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 11 — RETEST of LiveMap web rendering + MapPlaceholder chip. ALL 4 REVIEW ITEMS PASS. (1) LIVE MAP RENDERS ON WEB: Customer +919000000001 logged in via dev_otp, navigated to /track/6a898ffb579bf734d81b162b — the DOM now contains exactly 1 iframe[data-testid='live-map'] (previously 0). The iframe has a populated srcdoc (1492 chars) that loads the Google Maps JS API and renders a real map showing Powai (delivery site marker) and Kurla (mixer marker) inside the 358x260 iframe. Console confirms Google Maps API loaded ('Google Maps JavaScript API has been loaded...'). The 'React Native WebView does not support this platform' fallback string is GONE. The info card renders correctly: 'On the way' + EN ROUTE badge, Destination='Hiranandani Site — Powai Mumbai', Transit Mixer='TSTESTF5F351', Driver='Suresh Driver', Mixer location='19.07600, 72.87770', Last GPS update='12:03:08 PM'. (2) NO CRASH / GRACEFUL ETA: 'Live ETA' and 'Distance to site' cards are correctly ABSENT (Routes API disabled → route=null). No red screen, no runtime error. (3) MAPPLACEHOLDER CHIP: Customer Home 'Active Delivery' card now shows the chip 'Live map' — 'Maps: not configured' string is no longer present anywhere on the home screen (verified via body.innerText scan). (4) ADDRESS AUTOCOMPLETE regression: /new-order → picked first plant → typed 'Powai' in [data-testid=neworder-address] → 5 real Google Places suggestions rendered (data-testid^='suggest-') matching last iteration. Console still emits the pre-existing shadow*/pointerEvents deprecation warnings and a new Google Maps advisory about google.maps.Marker being deprecated (non-blocking; Google states it's not scheduled for discontinuation).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "google.maps.Marker deprecation (LiveMap srcdoc)", "issue": "Google Maps JS console warning: 'As of February 21st, 2024, google.maps.Marker is deprecated. Please use google.maps.marker.AdvancedMarkerElement instead.' Not scheduled for discontinuation, non-blocking. Reference: /app/frontend/src/components/LiveMap.tsx:43-45. Optional migration to AdvancedMarkerElement (requires mapId).", "priority": "LOW"},
+      {"component": "Google Maps JS loaded synchronously", "issue": "Console advisory: 'Google Maps JavaScript API has been loaded directly without loading=async.' Non-blocking. Reference: /app/frontend/src/components/LiveMap.tsx:51 — script tag already has async attribute but Google recommends passing loading=async in the query string as well.", "priority": "LOW"},
+      {"component": "shadow*/pointerEvents deprecation warnings (carryover from iter 6-10)", "issue": "Console still emits 'shadow* style props are deprecated. Use boxShadow' and 'props.pointerEvents is deprecated. Use style.pointerEvents'. No user impact.", "priority": "LOW"}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_11.json",
+    "/app/test_reports/it11_01_login.png",
+    "/app/test_reports/it11_02_home.png",
+    "/app/test_reports/it11_03_track.png",
+    "/app/test_reports/it11_04_track_full.png",
+    "/app/test_reports/it11_05_neworder.png",
+    "/app/test_reports/it11_06_autocomplete.png"
+  ],
+  "action_items": [
+    "OPTIONAL — Add &loading=async to the Maps JS URL in LiveMap.tsx (line 51) to silence Google's advisory and improve load performance.",
+    "OPTIONAL — Migrate google.maps.Marker → google.maps.marker.AdvancedMarkerElement in LiveMap srcdoc (requires setting mapId on the Map).",
+    "OPTIONAL (carryover) — Migrate deprecated shadow*/pointerEvents style props in shared UI primitives (Card/Button/Skeleton) to boxShadow / style.pointerEvents."
+  ],
+  "critical_code_review_comments": [
+    "LiveMap.tsx:66-77 — Platform.OS==='web' branch correctly renders <iframe data-testid='live-map' srcDoc={html}> via React.createElement so the same testID is exposed on web. Native branch continues to use react-native-webview's WebView. Fix is clean and minimal.",
+    "MapPlaceholder.tsx:30,58-60 — chip now derives text from `mapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY`. When the key is set the chip reads 'Live map' with the map-outline icon; when unset it falls back to 'Maps: not configured' with the warning icon. Correct behaviour verified on Home 'Active Delivery' preview.",
+    "LiveMap srcdoc uses gm_authFailure fallback and disables default UI + enables greedy gesture handling — good UX for embedded map in a scroll view.",
+    "iframe height is hard-coded to 260px on web while the outer wrap has minHeight 240px + track screen passes minHeight 240 — consider making the web iframe height derive from the surrounding style to stay parity with native. Non-blocking."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "Not retested this iteration (frontend-only request). Prior iter 10: 5/5 endpoints (100%).",
+    "frontend": "4/4 review items PASS (LiveMap on web, graceful ETA, MapPlaceholder chip, autocomplete regression) — 100%"
+  },
+  "seed_data_creation": "None. Reused active order id 6a898ffb579bf734d81b162b (EN_ROUTE).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test creds: customer +919000000001 (mobile OTP, dev_otp auto-filled). Active tracking order id = 6a898ffb579bf734d81b162b. LiveMap now renders on web via <iframe data-testid='live-map' srcDoc={html}>; native still uses react-native-webview. MapPlaceholder chip conditionally reads 'Live map' or 'Maps: not configured' based on EXPO_PUBLIC_GOOGLE_MAPS_KEY. Routes API is disabled → Live ETA/Distance cards intentionally hidden. Do NOT trigger dispatch/deliver (Twilio SMS live). testIDs: login-identifier-input, login-send-otp-button, login-verify-button, neworder-plant-<id>, neworder-address, suggest-<placeId>, live-map, track-call-driver, track-back.",
+  "rca_of_issue": "Previous iteration 10 blocker was that LiveMap.tsx unconditionally used react-native-webview's WebView, which has no browser implementation (prints 'React Native WebView does not support this platform.'). Fix applied by main agent: added a Platform.OS==='web' branch that renders React.createElement('iframe', { 'data-testid': 'live-map', srcDoc: html, style: {...} }) inside a <View> wrap, while native code continues to use <WebView>. MapPlaceholder chip fix: chip now reads mapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY and swaps icon+label accordingly. Both fixes verified end-to-end on the Expo web preview at 390x844 viewport."
+}
