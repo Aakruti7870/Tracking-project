@@ -1,5 +1,15 @@
 // API client for TrackMyRMC. Base URL from env; all routes under /api.
-const BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
+const RAW_BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
+
+function apiBase(): string {
+  if (!RAW_BACKEND) {
+    throw {
+      status: 0,
+      detail: "TrackMyRMC backend is not configured for this build",
+    } as ApiError;
+  }
+  return `${RAW_BACKEND.replace(/\/$/, "")}/api`;
+}
 
 export type ApiError = { status: number; detail: string };
 
@@ -19,7 +29,7 @@ async function handle<T>(res: Response): Promise<T> {
 }
 
 export async function requestOtp(identifier: string) {
-  const res = await fetch(`${BASE}/auth/request-otp`, {
+  const res = await fetch(`${apiBase()}/auth/request-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ identifier }),
@@ -34,7 +44,7 @@ export async function requestOtp(identifier: string) {
 }
 
 export async function verifyOtp(identifier: string, code: string) {
-  const res = await fetch(`${BASE}/auth/verify-otp`, {
+  const res = await fetch(`${apiBase()}/auth/verify-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ identifier, code }),
@@ -49,20 +59,20 @@ export async function verifyOtp(identifier: string, code: string) {
 }
 
 export async function apiGet<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return handle<T>(res);
 }
 
 export async function apiPost<T>(path: string, token: string, body?: any): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   return handle<T>(res);
 }
