@@ -33,6 +33,14 @@ async def request_otp(body: RequestOtpBody):
     key = identifier_key(value)
     now = utcnow()
 
+    # Mongo's TTL monitor is asynchronous, so an expired challenge may remain
+    # physically present for a short period. Mark it consumed before relying on
+    # the unique partial index; otherwise TTL cleanup lag could block a resend.
+    await otps.update_many(
+        {"identifier_key": key, "consumed": False, "expires_at": {"$lte": now}},
+        {"$set": {"consumed": True, "expired_at": now}},
+    )
+
     # Resend throttle. One-active-OTP uniqueness is also enforced in Mongo so
     # concurrent requests cannot race around this check.
     existing = await otps.find_one(
