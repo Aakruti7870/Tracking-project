@@ -2,98 +2,106 @@
 _Last updated: 2026-06_
 
 A production-grade **Ready Mix Concrete (RMC)** platform. One common OTP login →
-backend resolves the user's role → routes to a role-specific dashboard. Strict
-server-side RBAC, order/trip state machines, challan, POD, live tracking pipeline,
-billing and role dashboards for **all 13 roles**.
+the backend resolves the user's role → routes to a role-specific dashboard. Strict
+server-side RBAC, order/trip state machines, digital challan, Proof of Delivery, live
+map tracking, billing, and dashboards for **all 13 roles**.
 
 **Stack:** Expo (React Native) + expo-router · FastAPI · MongoDB · JWT passwordless OTP.
 
 ---
 
-## 1. What's built (feature by feature)
+## 1. Feature summary (by area)
 
 ### Authentication & RBAC
-- One common OTP login screen. Backend detects channel (email vs mobile), resolves
-  the account, enforces channel-per-role policy, issues a JWT session (revocable).
-- Customers/drivers → mobile OTP; all staff/authority/admin → email OTP.
-- Every protected API authorizes server-side. Unknown mobile self-registers as Customer.
+- One common OTP login. Backend auto-detects channel (customers/drivers = **mobile OTP**,
+  all staff/authority/admin = **email OTP**), issues a revocable JWT session, enforces
+  channel-per-role. Every protected API authorizes server-side.
 
-### Customer app (Home / Orders / Plants / More)
-- Browse verified plants, KYC gating, create order (plant + grade + quantity + date/time
-  + site details), save draft, order detail with a vertical status timeline, cancel,
-  live tracking screen, view challan.
+### Customer app
+- Browse verified plants, **KYC-gated** order creation with **Google Places address
+  autocomplete + geocoding** (pins exact site lat/lng), drafts, order detail with a status
+  timeline, cancel, **live map tracking**, digital challan, and **Proof of Delivery** view
+  (photo, receiver, delivered qty, signature, time) once delivered.
 
-### Plant Owner app (Home / Orders / Operations / More)
-- KPI dashboard, approve/reject orders, full **dispatch workflow**: assign Transit
-  Mixer → assign Driver → generate digital **Challan** → Dispatch.
-- **Production board** (start → batches → complete), **Invoice & Ledger** (rate card +
-  18% GST, record payments, billed/received/outstanding), **Incidents** (driver SOS).
+### Plant Owner app
+- KPI dashboard + **"This Week" insights chart** (Ordered vs Delivered volume + payments).
+- Approve/reject orders, full **dispatch workflow** (assign Transit Mixer → Driver →
+  generate **Challan** → Dispatch), **production board**, **Invoice & Ledger** (rate card +
+  18% GST, payments, outstanding), and **incidents** (driver SOS).
 
-### Driver app (Home / Trips / Attendance / More)
-- Active trip + **trip state machine**: Start → Reached Site → Unloading → Delivered.
-- **Proof of Delivery**: receiver, delivered qty, site photo (Emergent Object Storage)
-  + drawn signature. **SOS** (emergency/accident/breakdown/safety + GPS). Daily attendance.
-- Live location endpoint feeding the customer tracking screen.
+### Driver app
+- Active trip + **trip state machine** (Start → Reached → Unloading → Delivered), live GPS
+  location feed, **Proof of Delivery** capture (site photo via Object Storage + signature),
+  **SOS** (emergency/accident/breakdown/safety + GPS), daily attendance.
 
-### 🆕 All 10 staff role dashboards (this build)
-Each role has its own email-OTP login and a bottom-tab dashboard with real, plant-scoped data:
+### All 13 role dashboards
+- Customer, Driver, Plant Owner **plus** the 10 staff roles below — each with its own login,
+  KPI grid, list tabs, notifications bell, and role-appropriate **actions**:
 
-| Role | Home KPIs | Tabs |
-|------|-----------|------|
-| **Admin** | Total/Pending/In-Transit/Delivered | Home · Orders · Fleet · More |
-| **Dispatcher** | Ready · Dispatched today · En route · Available TMs | Home · Dispatch · Fleet · More |
-| **Operator** | To produce · In production · Produced today · Completed | Home · Production · More |
-| **Supervisor** | Active deliveries · Open incidents · Delivered today · Dispatched | Home · Operations · Incidents · More |
-| **Accountant** | Billed · Received · Outstanding · Invoices | Home · Billing · Ledger · More |
-| **Quality Engineer** | Delivered · Grades · Active batches · Volume | Home · Quality · More |
-| **Fleet Manager** | Total/Available/On-trip TMs · Drivers | Home · Fleet · Drivers · More |
-| **Store Manager** | Materials · Low stock · Reorder alerts · SKUs OK | Home · Stock · More |
-| **Authority** | Plants · Verified · Pending KYC · Customers | Home · Plants · KYC · More |
-| **Central Admin** | Plants · Users · Orders · Open incidents | Home · Plants · Users · More |
+| Role | Can do |
+|------|--------|
+| **Admin** | View all orders + fleet |
+| **Dispatcher** | Assign mixer → driver → challan → **dispatch** (self-service) |
+| **Operator** | Start / Complete production |
+| **Supervisor** | Monitor operations + incidents |
+| **Accountant** | Record payments against invoices |
+| **Quality Engineer** | Record quality tests (slump, 7/28-day cube, water/cement, Pass/Fail) |
+| **Fleet Manager** | Add mixers, toggle Available/Maintenance, view drivers |
+| **Store Manager** | Add materials, Stock In/Out (with over-issue guard) |
+| **Authority** | Approve/Reject pending KYC, view plants |
+| **Central Admin** | Suspend/Activate users, platform-wide view |
 
-- Plant-scoped roles see their plant only; **Authority & Central Admin** see the whole platform.
-- Store Manager has a real **materials** inventory (6 SKUs, with LOW/OK stock badges).
+- Plant-scoped roles see only their plant; **Authority & Central Admin** see the whole platform.
+- **Search box + status filter chips** on big lists (Orders, Users, etc.).
 
----
-
-## 2. Architecture
-
-**Backend** (`/app/backend`): layered `config → database → models → security/rbac →
-services (audit, notifications) → routers`.
-- Routers: `auth, me, customer, owner, driver, staff, storage`.
-- `staff.py` is DRY: one role-aware `home` + one generic `collection/{kind}` endpoint
-  power all 10 dashboards from existing collections.
-
-**Frontend** (`/app/frontend`): expo-router file-based routing. Explicit role folders
-`app/{role}/` (no route groups) to avoid URL collisions across 13 roles. Shared
-`src/screens/StaffTabs|StaffHome|StaffCollection|StaffMore` keep per-role files tiny.
-Custom charcoal + electric-lime theme, glass bottom tab bar, light/dark modes.
-
-**Key collections:** users, sessions, otps, plants, orders, order_status_history,
-vehicles, driver_trips, challans, proof_of_delivery, attendance, driver_incidents,
-invoices, payments, production_batches, vehicle_locations, **materials**, kyc_profiles.
+### Cross-cutting
+- **In-app notifications** feed (bell + unread badge on every dashboard).
+- **Live tracking map** (real Google map: mixer marker, site marker, route polyline) with
+  Live ETA + remaining distance + last-update time; stops at DELIVERED.
 
 ---
 
-## 3. Test accounts (dev OTP auto-returned)
-Customer `+919000000001` · Driver `+919000000002` · Owner `owner@trackmyrmc.test`.
-Staff (email): admin / dispatcher / operator / supervisor / accountant / quality /
-fleet / store / authority / central `@trackmyrmc.test`. Full list in
-`/app/memory/test_credentials.md`.
+## 2. Live integrations
+- **Google Maps** ✅ LIVE — address autocomplete (Places New) + geocoding + live map display.
+  Key stored server-side (`GOOGLE_MAPS_KEY`) and client (`EXPO_PUBLIC_GOOGLE_MAPS_KEY`).
+- **Twilio SMS** ✅ LIVE — real OTP delivery + **idempotent** DISPATCHED and DELIVERED
+  customer alerts (order ref, mixer, live-tracking link / delivery-proof link). Best-effort:
+  an SMS failure never blocks a status change; one SMS per event via an atomic claim flag.
+- **Emergent Object Storage** ✅ — POD photos.
+
+## 3. Gated / pending (external, on user)
+- 🔴 **Google Routes API DISABLED** on the user's project → Live ETA/distance/route line are
+  built but hidden (graceful) until the user enables Routes API. No code change needed after.
+- 🟡 **SendGrid email** — adapter dormant; activates on `EMAIL_PROVIDER_API_KEY`.
+- 🟡 **DigiLocker KYC** — current KYC is a **manual Authority review flow** (not an automated
+  API). `KYC_API_KEY` stored; real DigiLocker needs its API/OAuth details.
+- 🟡 **Maps key lock-down** — set to open during setup; should be domain-restricted for prod.
 
 ---
 
-## 4. Test status
-- **Backend:** 36/36 pytest pass for staff dashboards (+ prior phases green).
-- **Frontend:** login→dashboard→tabs→logout verified E2E for representative roles;
-  all roles share the same verified shell.
+## 4. Architecture
+- **Backend** (`/app/backend`): `config → database → models → security/rbac → services
+  (audit, notifications, order_service) → routers`. Routers: `auth, me, customer, owner,
+  driver, staff, notify, maps, storage`. `staff.py` is DRY — one role-aware `home` + one
+  generic `collection/{kind}` + action endpoints power all 10 staff dashboards.
+- **Frontend** (`/app/frontend`): expo-router file-based routing; explicit `app/{role}/`
+  folders (no route groups) to avoid URL collisions across 13 roles. Shared
+  `src/screens/Staff*` + reusable components (`OwnerDispatchPanel` with `basePath`,
+  `LiveMap`, `WeeklyInsights`). Charcoal + electric-lime theme, glass tab bar, light/dark.
+- **Order state machine** is the single choke point for status changes, notifications and
+  milestone SMS — nothing sets status directly from the client.
 
-## 5. Known limitations / pending
-- **Live Google Maps:** blocked — the provided API key is HTTP-referrer restricted and
-  cannot be used server-side or from the preview domain. Needs a server-usable key
-  (Application restriction None/IP + Places New, Geocoding, Routes enabled). Tracking
-  uses the on-brand placeholder meanwhile.
-- **Notifications:** SMS/Email adapter is provider-agnostic and currently NOT_CONFIGURED
-  (logs only). Real delivery pending user keys/provider choice.
-- **KYC review actions:** Authority sees KYC requests read-only; approve/reject UI deferred.
-- **Styling:** minor non-blocking RN-web `shadow*` → `boxShadow` cleanup outstanding.
+## 5. Test accounts (dev OTP auto-returned)
+Customer `+919000000001` · Driver `+919000000002` · Owner `owner@trackmyrmc.test` ·
+staff emails: admin / dispatcher / operator / supervisor / accountant / quality / fleet /
+store / authority / central `@trackmyrmc.test`. (See `/app/memory/test_credentials.md`.)
+
+## 6. Test status
+- Backend: staff dashboards 36/36; actions 21/22 (1 skip); dispatcher flow + RBAC verified;
+  SMS idempotency verified (1 dispatch + 1 delivered, flags set); maps endpoints verified.
+- Frontend: iterations 8–11 green — dashboards, actions, dispatcher, search/filter, insights,
+  Google Maps autocomplete + live map render, POD card compiles.
+
+## 7. What's next (suggested)
+- Enable Routes API (user) → Live ETA. · Downloadable PDF delivery receipt. · Post-delivery
+  star rating. · Real DigiLocker KYC. · Lock Maps key to production domain.
