@@ -84,12 +84,13 @@ export default function PodScreen() {
     if (!photo) return setErr("Capture or select the site delivery photo");
     if (strokes.length === 0 && !current) return setErr("Capture the receiver's signature");
     if (!token) return setErr("Your session has expired. Sign in again.");
+    if (!id) return setErr("Trip is unavailable. Return to the driver dashboard and retry.");
 
     setSubmitting(true);
     try {
       let photoPath: string;
       try {
-        photoPath = await uploadImage(photo, token);
+        photoPath = await uploadImage(photo, token, String(id));
       } catch {
         throw { detail: "Site photo upload failed. Delivery was not marked complete." };
       }
