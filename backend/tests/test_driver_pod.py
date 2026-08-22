@@ -22,7 +22,7 @@ OWNER_EMAIL = "owner@trackmyrmc.test"
 def _req_otp(s, identifier):
     r = s.post(f"{API}/auth/request-otp", json={"identifier": identifier})
     if r.status_code == 429:
-        time.sleep(31)
+        time.sleep(2)
         r = s.post(f"{API}/auth/request-otp", json={"identifier": identifier})
     return r
 
@@ -75,10 +75,11 @@ def owner_tok(session):
     return _login(session, OWNER_EMAIL)
 
 
-def _upload_site_photo(session, driver_tok):
+def _upload_site_photo(session, driver_tok, trip_id):
     r = session.post(
         f"{API}/upload",
         headers=_h(driver_tok),
+        data={"purpose": "POD", "trip_id": trip_id},
         files={"file": ("delivery.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
     )
     assert r.status_code == 200, r.text
@@ -87,24 +88,12 @@ def _upload_site_photo(session, driver_tok):
 
 class TestUpload:
     def test_upload_no_auth_401(self, session):
-        r = session.post(f"{API}/upload", files={"file": ("x.jpg", b"x", "image/jpeg")})
-        assert r.status_code == 401
-
-    def test_upload_non_image_422(self, session, driver_tok):
         r = session.post(
             f"{API}/upload",
-            headers=_h(driver_tok),
-            files={"file": ("x.txt", b"hello", "text/plain")},
+            data={"purpose": "POD", "trip_id": "missing"},
+            files={"file": ("x.jpg", b"x", "image/jpeg")},
         )
-        assert r.status_code == 422, r.text
-
-    def test_upload_and_serve_roundtrip(self, session, driver_tok):
-        path = _upload_site_photo(session, driver_tok)
-        assert path.startswith("trackmyrmc/uploads/")
-        g = session.get(f"{BASE_URL}/api/files/{path}", params={"token": driver_tok})
-        assert g.status_code == 200
-        assert len(g.content) > 0
-        assert session.get(f"{BASE_URL}/api/files/{path}").status_code == 401
+        assert r.status_code == 401
 
 
 class TestDriverHome:
@@ -207,7 +196,6 @@ class TestDriverProgression:
         unload = session.post(f"{API}/driver/trips/{trip_id}/unload", headers=_h(driver_tok))
         assert unload.status_code == 200 and unload.json()["status"] == "UNLOADING", unload.text
 
-        # Production contract requires both a driver-owned site photo and signature.
         no_photo = session.post(
             f"{API}/driver/trips/{trip_id}/pod",
             headers=_h(driver_tok),
@@ -219,21 +207,42 @@ class TestDriverProgression:
         )
         assert no_photo.status_code == 422, no_photo.text
 
-        photo_path = _upload_site_photo(session, driver_tok)
+        bad_upload = session.post(
+            f"{API}/upload",
+            headers=_h(driver_tok),
+            data={"purpose": "POD", "trip_id": trip_id},
+            files={"file": ("x.txt", b"hello", "text/plain")},
+        )
+        assert bad_upload.status_code == 422, bad_upload.text
+
+        photo_path = _upload_site_photo(session, driver_tok, trip_id)
+        assert photo_path.startswith("trackmyrmc/pod/")
+
+        media = session.get(f"{API}/files/{photo_path}", headers=_h(driver_tok))
+        assert media.status_code == 200 and len(media.content) > 0
+        assert session.get(f"{API}/files/{photo_path}", params={"token": driver_tok}).status_code == 401
+
+        pod_payload = {
+            "receiver_name": "TEST Receiver",
+            "delivered_quantity": 6,
+            "signature": '["M10,10 L20,20"]',
+            "remarks": "TEST ok",
+            "photo_path": photo_path,
+        }
         pod = session.post(
             f"{API}/driver/trips/{trip_id}/pod",
             headers=_h(driver_tok),
-            json={
-                "receiver_name": "TEST Receiver",
-                "delivered_quantity": 6,
-                "signature": '["M10,10 L20,20"]',
-                "remarks": "TEST ok",
-                "photo_path": photo_path,
-            },
+            json=pod_payload,
         )
         assert pod.status_code == 200 and pod.json()["status"] == "DELIVERED", pod.text
 
-        # Terminal trip rejects additional location updates.
+        replay = session.post(
+            f"{API}/driver/trips/{trip_id}/pod",
+            headers=_h(driver_tok),
+            json=pod_payload,
+        )
+        assert replay.status_code == 200 and replay.json().get("idempotent") is True, replay.text
+
         assert session.post(
             f"{API}/driver/trips/{trip_id}/location",
             headers=_h(driver_tok),
