@@ -82,7 +82,49 @@ async def next_sequence(name: str) -> int:
 
 
 async def ensure_indexes() -> None:
+    """Create indexes used by auth, tenant scoping, timelines and idempotency.
+
+    Unique indexes are limited to invariants the application already assumes:
+    one KYC profile per (user,purpose), one driver trip per order, one POD per
+    trip, and one attendance row per driver/day.
+    """
+    # Auth/session lifecycle.
     await otps.create_index("expires_at", expireAfterSeconds=0)
     await sessions.create_index("expires_at", expireAfterSeconds=0)
     await otps.create_index([("identifier_key", 1), ("created_at", -1)])
     await users.create_index("identifier_keys")
+    await users.create_index([("plant_id", 1), ("primary_role", 1), ("status", 1)])
+
+    # Core tenant/order access paths.
+    await plants.create_index([("status", 1), ("verified", 1)])
+    await plants.create_index("owner_id")
+    await orders.create_index([("customer_id", 1), ("created_at", -1)])
+    await orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
+    await orders.create_index("order_number")
+    await order_status_history.create_index([("order_id", 1), ("created_at", 1)])
+
+    # KYC and notifications.
+    await kyc_profiles.create_index([("user_id", 1), ("purpose", 1)], unique=True)
+    await notifications.create_index([("user_id", 1), ("read", 1), ("created_at", -1)])
+    await audit_logs.create_index([("actor_id", 1), ("created_at", -1)])
+
+    # Dispatch / driver / POD.
+    await vehicles.create_index([("plant_id", 1), ("status", 1)])
+    await driver_trips.create_index("order_id", unique=True)
+    await driver_trips.create_index([("driver_id", 1), ("status", 1), ("updated_at", -1)])
+    await trip_status_history.create_index([("trip_id", 1), ("created_at", 1)])
+    await proof_of_delivery.create_index("trip_id", unique=True)
+    await proof_of_delivery.create_index("order_id")
+    await vehicle_locations.create_index([("trip_id", 1), ("created_at", -1)])
+    await vehicle_locations.create_index([("order_id", 1), ("created_at", -1)])
+    await attendance.create_index([("driver_id", 1), ("date", 1)], unique=True)
+    await driver_incidents.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
+
+    # Commercial / production modules.
+    await challans.create_index("order_id")
+    await invoices.create_index("order_id")
+    await payments.create_index([("order_id", 1), ("created_at", -1)])
+    await production_batches.create_index([("order_id", 1), ("created_at", 1)])
+    await materials.create_index([("plant_id", 1), ("name", 1)])
+    await stock_movements.create_index([("plant_id", 1), ("created_at", -1)])
+    await quality_tests.create_index([("plant_id", 1), ("order_id", 1), ("created_at", -1)])
