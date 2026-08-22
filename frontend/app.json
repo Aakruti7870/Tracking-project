@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.rmcfleetops.m06ads"
+      "bundleIdentifier": "com.emergent.rmcfleetops.m06ads",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Capture site photos for proof of delivery",
+        "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +22,8 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.rmcfleetops.m06ads"
+      "package": "com.emergent.rmcfleetops.m06ads",
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",

@@ -8,6 +8,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 const ROUTED_ROLES: Record<string, string> = {
   customer: "/customer",
   plant_owner: "/owner",
+  driver: "/driver",
 };
 
 export default function Index() {

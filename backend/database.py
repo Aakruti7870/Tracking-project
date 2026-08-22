@@ -57,6 +57,8 @@ vehicles = db.vehicles
 driver_trips = db.driver_trips
 trip_status_history = db.trip_status_history
 challans = db.challans
+proof_of_delivery = db.proof_of_delivery
+attendance = db.attendance
 
 
 async def next_sequence(name: str) -> int:

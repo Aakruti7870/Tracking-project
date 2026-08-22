@@ -11,7 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import settings
 from database import ensure_indexes
 from notifications import provider_status
-from routers import auth, customer, me, owner
+from routers import auth, customer, driver, me, owner, storage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +44,8 @@ app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
+app.include_router(driver.router)
+app.include_router(storage.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +59,13 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    try:
+        from routers.storage import init_storage
+
+        init_storage()
+        logger.info("object storage initialized")
+    except Exception as exc:
+        logger.warning("object storage init failed (uploads may fail): %s", exc)
     if settings.is_dev:
         from seed import run_seed
 

@@ -142,3 +142,18 @@ class ChallanBody(BaseModel):
     supervisor: Optional[str] = None
     quality_engineer: Optional[str] = None
     remarks: Optional[str] = None
+
+
+class PodBody(BaseModel):
+    receiver_name: str = Field(min_length=1)
+    delivered_quantity: float = Field(gt=0)
+    remarks: Optional[str] = None
+    photo_path: Optional[str] = None
+    signature: Optional[str] = None  # JSON string of stroke points (vector signature)
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+class GeoBody(BaseModel):
+    lat: Optional[float] = None
+    lng: Optional[float] = None

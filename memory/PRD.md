@@ -35,6 +35,24 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 4 (Driver App + Proof of Delivery) ✅
+- Driver tab shell (`/driver`: Home / Trips / Attendance / More) with role routing.
+- Driver **trip state machine**: DISPATCHED → EN_ROUTE (Start Trip) → ARRIVED
+  (Reached Site) → UNLOADING (Start Unloading) → DELIVERED (via POD). Each driver
+  step advances the linked ORDER state (EN_ROUTE/AT_SITE/UNLOADING/DELIVERED),
+  records trip history + audit, and notifies the customer; guards reject invalid jumps.
+- **Proof of Delivery**: receiver name, delivered quantity, remarks, site photo
+  (expo-image-picker → uploaded to **Emergent Object Storage** via /api/upload,
+  served via tokenized /api/files) and a drawn **signature** (react-native-svg vector,
+  stored as JSON). On submit → order DELIVERED, vehicle returns to available.
+- Driver **Attendance** check-in/out (server-timestamped, one per day).
+- Object Storage helper (init/put/get with stale-key retry) + authenticated
+  upload/serve routes (header for native, ?token= for web). Camera/photos permission
+  handled contextually with Open-Settings fallback.
+- Tests: driver+POD backend 8/8 pass; full driver + POD UI E2E verified (signature draw,
+  stage progression, delivered). Note: POD photo/native camera only testable on a real
+  build, not Expo Go/web.
+
 ### 2026-06 — PHASE 3 (Assign & Dispatch) ✅
 - Owner **dispatch workflow** on approved orders: assign Transit Mixer → assign
   Driver (creates a `driver_trip`) → generate digital **Challan** (CH-xxxx, unique) →
