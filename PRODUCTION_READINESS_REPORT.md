@@ -1,232 +1,141 @@
-# TrackMyRMC Production Readiness Report
+# TrackMyRMC — Production Readiness Report
 
-> Branch: `fix/production-readiness-final`  
-> PR: #1 (draft, not merged)  
-> Scope: production hardening only; no production deploy or Play Console upload.
+_Reconciled: 2026-08-22_
 
-## Status legend
-- ✅ PASS — implemented and verified by code/test evidence available in this branch.
-- ⚠️ PARTIAL / EXTERNAL CONFIG REQUIRED — implemented or hardened, but external service/device/production verification remains.
-- ❌ BLOCKER — must be resolved before release.
+> Repository: `Aakruti7870/Tracking-project`  
+> Hardening branch: `fix/production-readiness-final`  
+> Pull request: #1  
+> Scope: production hardening and build readiness only. No merge, production deploy, Play upload, or signing-key replacement is authorized by this report.
 
-## 1. Architecture
-**Status: ✅ PASS (repository architecture identified)**
+## 1. Readiness decision
 
-- Mobile: Expo / React Native / expo-router.
-- API: FastAPI.
-- Persistence: MongoDB via Motor/PyMongo.
-- Auth: passwordless OTP + JWT session records.
-- Object media: authenticated object-storage abstraction.
-- Maps: server-side Google Places / Geocoding / Routes proxy.
+### Code / CI readiness
+**PASS for review / isolated preview deployment.**
 
-## 2. Role matrix
+The hardening branch now passes the repository-controlled validation gates for backend, frontend, secret hygiene, Expo native generation, Android identity/version generation, and a native Android debug compile.
 
-| Role | Scope | Hardening status |
-|---|---|---|
-| Customer | own account/orders/tracking/POD | ✅ server-side role + ownership paths present |
-| Driver | assigned trips only | ✅ driver_id-scoped trip/location/POD paths |
-| Plant Owner | owned plants | ✅ owner_id plant scoping present |
-| Admin | assigned plant | ✅ central auth fails closed if plant missing |
-| Dispatcher | assigned plant | ✅ central auth fails closed if plant missing |
-| Operator | assigned plant | ✅ central auth fails closed if plant missing |
-| Supervisor | assigned plant | ✅ central auth fails closed if plant missing |
-| Accountant | assigned plant | ✅ central auth fails closed if plant missing |
-| Quality Engineer | assigned plant | ✅ central auth fails closed if plant missing |
-| Fleet Manager | assigned plant | ✅ central auth fails closed if plant missing |
-| Store Manager | assigned plant | ✅ central auth fails closed if plant missing |
-| Authority | platform KYC review | ✅ explicit Authority-only action gate present |
-| Central Admin | platform user management | ✅ explicit Central-Admin-only action gate present |
+### Runtime preview readiness
+**EXTERNAL DEPLOYMENT REQUIRED.**
 
-**Residual verification:** full live API cross-role/IDOR suite must be green before release.
+A working FastAPI + MongoDB preview backend URL does not currently exist in the repository configuration. The previously referenced Emergent preview host was tested and returned HTTP 404 for `/api/health`, so it was deliberately rejected instead of being embedded in a preview build.
 
-## 3. Authentication / OTP
-**Status: ✅ IMPLEMENTED / TEST EXECUTION PENDING CI**
+### Production / Google Play readiness
+**NOT YET AUTHORIZED.**
 
-Hardening in this branch:
-- production requires explicit JWT secret and OTP pepper;
-- production refuses debug OTP;
-- expired sessions are rejected;
-- roles are resolved from server-side user data, not trusted from the client/JWT role claim;
-- OTP codes expire and are single-use;
-- attempts are atomically bounded;
-- one active OTP per identifier is enforced;
-- resend throttle is enforced;
-- expired OTPs are explicitly consumed before resend so Mongo TTL-monitor delay cannot block a new code;
-- production OTP request fails closed if provider delivery fails;
-- SMS delivery uses Twilio when configured;
-- staff email OTP uses SendGrid when `EMAIL_PROVIDER_API_KEY` + `EMAIL_FROM` are configured.
+Production release still requires external verification of the real deployment, physical-device background GPS behavior, Google Play signing/update lineage, live provider credentials, and the final Play versionCode before a signed AAB is produced or uploaded.
 
-⚠️ Per-IP / distributed edge rate limiting is not implemented in this application layer. Provider/ingress rate limiting is recommended in production in addition to per-identifier controls.
+## 2. Verified CI evidence
 
-## 4. RBAC / tenant isolation
-**Status: ✅ IMPLEMENTED / TEST EXECUTION PENDING CI**
+### Backend
+- Python dependency installation: PASS.
+- Python compile/import validation: PASS.
+- Focused production-hardening unit tests: PASS.
+- FastAPI boot + `/api/health`: PASS against CI MongoDB.
+- Full backend integration suite: **154 passed, 2 skipped, 0 failed**.
+- The suite covers authentication, OTP controls, customer/owner flows, staff dashboards/actions, dispatcher workflow/RBAC, order lifecycle, driver/POD, storage authorization, production, billing, tracking and related regression scenarios.
 
-- Plant-scoped staff roles cannot authenticate into staff functionality without `plant_id`; request fails 403.
-- Sampled staff order/fleet actions additionally query using plant scope.
-- Driver endpoints filter by authenticated `driver_id`.
-- Customer and owner endpoints retain ownership/plant scoping.
-- Platform-wide access is reserved for Authority/Central Admin according to their modules.
+### Frontend
+- TypeScript: PASS.
+- Expo lint: PASS.
+- Expo Doctor: PASS.
+- Public Expo config validation: PASS.
+- Expo web preview build: PASS.
 
-A focused regression test was added for the unassigned-staff fail-closed rule.
+### Android native
+- Expo Android prebuild: PASS.
+- Generated package check: **`com.trackmyrmc.concreteking`** PASS.
+- Generated versionCode check: **61** PASS.
+- Native Gradle `:app:assembleDebug`: PASS.
+- APK publication is intentionally disabled until `PREVIEW_BACKEND_URL` points to a verified backend.
 
-## 5. Order state machine
-**Status: ✅ IMPLEMENTED / TEST EXECUTION PENDING CI**
+### Repository security
+- Tracked secret/signing file guard: PASS.
+- Private-key material scan: PASS.
+- No unresolved PR review threads were present at reconciliation time.
 
-- Server remains authoritative.
-- Order transitions now use compare-and-set on current status.
-- Conflicting concurrent transitions return 409.
-- Same-target replays are idempotent.
-- Terminal states cannot transition through ordinary workflow edges.
-- History/audit is written after successful status change.
+## 3. Android identity
 
-⚠️ Order + driver-trip changes are separate Mongo documents. CAS guards reduce concurrency errors, but a process crash between documents can still require reconciliation. A multi-document transaction/reconciliation worker would provide stronger atomicity.
+Current Android application configuration:
 
-## 6. End-to-end order workflow
-**Status: ⚠️ TEST EXECUTION PENDING CI**
+- App name: `TrackMyRMC`
+- Version name: **2.0.3**
+- Android package/application ID: **`com.trackmyrmc.concreteking`**
+- Android versionCode: **61**
+- App scheme: `trackmyrmc`
 
-Updated integration coverage exercises:
-Customer create -> Owner approve -> mixer assign -> driver assign -> challan -> dispatch -> driver start -> location -> arrive -> unload -> POD photo/signature -> delivered -> vehicle available.
+The package ID is only the Android application identity. It does not connect the app to a Concrete King website or webpage.
 
-The result will only be promoted to PASS after the new CI suite executes successfully.
+Before a Play release, the actual Play Console highest versionCode and existing upload/app-signing certificate lineage must still be verified. No new keystore is generated or committed by this branch.
 
-## 7. Mongo persistence / restart safety
-**Status: ⚠️ PARTIAL**
+## 4. Backend configuration model
 
-Production-critical records are stored in Mongo collections. This branch adds indexes for auth/session lifecycle, users, plants, orders/history, KYC, notifications/audit, vehicles/trips/location/POD, attendance/incidents, challans, invoices/payments, production, materials/stock and quality.
+The mobile/web client does not hardcode a runtime backend in application logic. It reads:
 
-Unique indexes enforce several application invariants, including one login identifier per account, one active OTP per identifier, one KYC profile per purpose, one trip per order, one POD per trip and one attendance record per driver/day.
+`EXPO_PUBLIC_BACKEND_URL`
 
-⚠️ Production-cluster restart/recovery has not been verified from this repository session.
+For CI preview builds, the workflow reads the repository variable:
 
-## 8. Android live GPS
-**Status: ⚠️ IMPLEMENTED / REAL DEVICE VERIFICATION REQUIRED**
+`PREVIEW_BACKEND_URL`
 
-- Added Expo Location + TaskManager.
-- Added foreground/background Android location permissions and foreground location service configuration.
-- Background task is registered at JS module scope.
-- Active trip stores its trip ID and sends driver-authenticated coordinates to the API.
-- Foreground fallback is used if background permission is unavailable.
-- Tracking starts only for active delivery states.
-- Backend refuses location before trip start and after terminal state.
-- Tracking stops after successful POD, logout, or terminal trip state.
-- Last-location timestamp is persisted.
+Behavior:
+- if `PREVIEW_BACKEND_URL` is configured, CI calls `<url>/api/health` and fails if the backend is not healthy;
+- if it is absent, CI performs build-only validation using a non-routable placeholder;
+- an installable preview APK artifact is published only when a verified preview backend is configured.
 
-❌ A physical Android device/background-process test is required before Play release.
+The template production target is `https://api.trackmyrmc.com`, but it must not be treated as active for this new FastAPI/Mongo stack until that hostname is actually deployed/mapped and `/api/health` is verified.
 
-## 9. POD / object media
-**Status: ✅ IMPLEMENTED / TEST EXECUTION PENDING CI**
+## 5. Security / backend hardening completed
 
-- Site photo + receiver signature are mandatory.
-- Images are byte-validated and limited to JPEG/PNG/WebP, max 8 MB.
-- Client upload failure no longer silently completes delivery.
-- POD photo path must belong to the authenticated driver upload namespace.
-- File GET requires an authenticated live session.
-- Cross-user file access is authorized via uploader/POD/order/plant relationship.
-- Unauthorized object access returns 404 rather than revealing existence.
-- CI/dev can use local object storage; production rejects local mode.
+- Production fails closed for missing/unsafe JWT secret and OTP pepper.
+- Debug OTP is forbidden in production.
+- Production CORS requires explicit origins; wildcard production CORS is rejected.
+- Roles are resolved server-side; client/JWT role claims are not trusted as authorization truth.
+- Plant-scoped staff fail closed when no plant is assigned.
+- Staff/driver/customer/owner access is server-scoped to the appropriate tenant/ownership relationship.
+- Order status transitions use compare-and-set protections and reject conflicting transitions.
+- Driver/POD flow has state guards, idempotency protections and compensation/rollback handling.
+- POD photo/signature requirements are enforced.
+- Object uploads are byte/type/size validated and authorized using stored object metadata.
+- File reads require authenticated relationship-based authorization; JWT query-string file access is not used.
+- Mongo indexes enforce critical uniqueness and query invariants.
+- OTP resend/attempt/consumption races are hardened.
+- Twilio SMS and SendGrid email adapters are present with safe error/log handling.
+- Google Maps/Places/Geocoding/Routes proxy keeps server credentials server-side and does not fabricate ETA when Routes is unavailable.
 
-## 10. KYC
-**Status: ⚠️ PARTIAL / MANUAL AUTHORITY FLOW**
+## 6. Role coverage
 
-- Existing KYC is manual Authority review.
-- Authority-only approve/reject gates are present.
-- KYC profile uniqueness is enforced per `(user_id, purpose)`.
-- Customer KYC remains server-side gated in the order flow.
+All 13 roles remain represented:
+Customer, Driver, Plant Owner, Admin, Dispatcher, Operator, Supervisor, Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority and Central Admin.
 
-⚠️ Real DigiLocker/Sandbox OAuth/API verification is not implemented in this new stack and must not be represented as automatic verified KYC.
-⚠️ Reviewer metadata is available in the audit log; the KYC profile itself does not yet store a dedicated reviewer/timestamp transition record.
+Platform-wide roles remain Authority/Central Admin where intended; plant staff remain tenant-scoped.
 
-## 11. Maps / Routes
-**Status: ⚠️ APPLICATION READY / GOOGLE CONFIG REQUIRED**
+## 7. GPS / Android permissions
 
-- Google key remains server-side.
-- Route coordinates and Places/Geocode inputs are bounded.
-- Routes failures return `route_available: false`; ETA/distance are not fabricated.
-- Driver navigation opens Google Maps directions using the actual site address.
+The Android configuration includes foreground and background delivery-location support with a foreground service. The tracking task is registered at module scope and active-trip location updates are authenticated to the driver trip API.
 
-External requirements:
-- enable required Google Maps Platform APIs;
-- configure billing;
-- restrict the server key appropriately;
-- verify Routes API response in production.
+**Still external:** a physical Android device test is required for background/minimized/locked-screen tracking and Google Play background-location policy compliance. A successful compile is not a substitute for this test.
 
-## 12. SMS / email
-**Status: ⚠️ IMPLEMENTED / LIVE PROVIDER VERIFICATION REQUIRED**
+## 8. KYC
 
-- Twilio SMS adapter is implemented.
-- Dispatch/delivery SMS state is retry-aware and guards duplicate concurrent sends.
-- SendGrid email OTP adapter is implemented for staff logins.
-- Logs mask destination PII and do not expose credentials.
+Current KYC in this new stack is a **manual Authority review flow**. It must not be represented as automatic DigiLocker verification.
 
-⚠️ Live Twilio and SendGrid delivery have not been verified with production credentials.
+Authority-only review controls, server-side order gating, audit logging and KYC uniqueness are present. Real DigiLocker/Sandbox OAuth/API integration remains an external future integration unless explicitly added later.
 
-## 13. Frontend verification
-**Status: ⚠️ CI PENDING**
+## 9. External/runtime items intentionally not claimed as verified
 
-CI gates added:
-- TypeScript `tsc --noEmit`;
-- Expo lint;
-- Expo Doctor;
-- public Expo config validation.
+The following require a deployed environment, provider account, device, or Play Console and therefore are not faked by repository CI:
 
-No intentional theme redesign is part of this branch.
+1. Stable preview FastAPI/Mongo backend URL.
+2. Production MongoDB deployment/restart/data-integrity verification.
+3. Physical Android foreground/background GPS verification.
+4. Live Twilio SMS delivery using production credentials.
+5. Live SendGrid staff-email OTP using a verified sender.
+6. Google Maps Platform production key restrictions/billing/API enablement, including Routes.
+7. Google Play signing/upload-key lineage and final highest versionCode check.
+8. Automated DigiLocker integration, if required.
 
-## 14. Backend verification
-**Status: ⚠️ CI PENDING**
+## 10. Next controlled step
 
-CI gates added:
-- clean public dependency installation;
-- Python compile/import check;
-- focused security regression tests;
-- local Mongo-backed FastAPI boot/health;
-- full backend integration suite in serial mode.
+The next safe step is **isolated preview deployment only** from `fix/production-readiness-final` using the current FastAPI + MongoDB stack. The deployer must return one stable HTTPS backend base URL whose `/api/health` returns HTTP 200.
 
-## 15. Android application identity
-**Status: ⚠️ PARTIAL**
-
-Android package is aligned in this branch to:
-
-`com.trackmyrmc.concreteking`
-
-App scheme is `trackmyrmc`.
-
-❌ `versionCode` is intentionally not guessed. The highest code in Play Console must be verified and the next code set above it.
-❌ Existing Google Play app-signing / upload-key lineage must be verified. Changing the package ID alone is not sufficient for an update.
-❌ No new keystore is generated or committed by this branch.
-
-The iOS bundle identifier remains the existing Emergent-generated identifier and is outside this Android-release hardening scope.
-
-## 16. Secret / signing hygiene
-**Status: ✅ IMPLEMENTED / CI PENDING**
-
-- Real `.env` files remain ignored.
-- credential/private-key/keystore extensions are ignored.
-- `.env.example` templates are explicitly allowed.
-- GitHub CI rejects tracked `.env`, credentials, private key and Android signing-store file types.
-
-## 17. External dependencies still required
-
-- Production MongoDB/hosting configuration.
-- Twilio production credentials/phone sender.
-- SendGrid API key + verified `EMAIL_FROM` for staff email OTP.
-- Google Maps/Places/Geocoding/Routes configuration.
-- Real-device Android location test.
-- Google Play versionCode confirmation.
-- Google Play signing/upload-key lineage verification.
-- Real DigiLocker provider integration if automatic DigiLocker KYC is required.
-
-## 18. Current blockers before release
-
-1. ❌ CI has not yet produced a green execution result for this branch.
-2. ❌ Real Android foreground/background GPS has not been verified on a physical production-style build.
-3. ❌ Play Console highest versionCode and signing lineage are not verified.
-4. ⚠️ Google Routes live production configuration is external and unverified.
-5. ⚠️ Twilio/SendGrid live production delivery is external and unverified.
-6. ⚠️ DigiLocker remains a future external integration; current KYC is manual Authority review.
-7. ⚠️ Production Mongo restart/data-integrity validation remains external.
-
-## 19. Release decision
-
-**Current decision: NOT READY TO MERGE/DEPLOY/UPLOAD.**
-
-This report will be updated with exact test counts, final branch HEAD and CI conclusions once the branch checks execute. A release should proceed only after all true blockers are closed or explicitly accepted with evidence.
+After that URL is available, set it as `PREVIEW_BACKEND_URL`, rerun Production Readiness, publish the connected debug APK artifact, and perform the visual/device preview. Production merge/deploy and Play upload remain separate explicit approvals.
