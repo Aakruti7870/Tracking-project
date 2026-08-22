@@ -37,7 +37,7 @@ export default function RoleHome() {
 
   if (hydrating) return null;
   if (!token || !user) return <Redirect href="/login" />;
-  if (user.role === "customer") return <Redirect href="/(customer)" />;
+  if (user.role === "customer") return <Redirect href="/customer" />;
 
   const tabs = NAV_BLUEPRINT[user.role] || ["Home", "More"];
 

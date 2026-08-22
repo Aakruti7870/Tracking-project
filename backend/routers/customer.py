@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from audit import write_audit
 from database import (
+    challans,
     kyc_profiles,
     notifications,
     order_status_history,
@@ -38,6 +39,10 @@ def _serialize_order(doc: dict) -> dict:
         "delivery_time": doc.get("delivery_time"),
         "status": doc.get("status"),
         "payment_status": doc.get("payment_status"),
+        "tm_number": doc.get("tm_number"),
+        "driver_name": doc.get("driver_name"),
+        "driver_mobile": doc.get("driver_mobile"),
+        "challan_number": doc.get("challan_number"),
     }
 
 
@@ -233,3 +238,34 @@ async def plant_detail(plant_id: str, ctx: dict = Depends(customer_only)):
     if not plant:
         raise HTTPException(404, "Plant not found")
     return _serialize_plant(plant)
+
+
+@router.get("/orders/{order_id}/challan")
+async def customer_challan(order_id: str, ctx: dict = Depends(customer_only)):
+    order = await orders.find_one({"_id": await _oid(order_id), "customer_id": ctx["user_id"]})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    doc = await challans.find_one({"order_id": order_id})
+    if not doc:
+        raise HTTPException(404, "Challan not available yet")
+    return {
+        "challan": {
+            "id": str(doc["_id"]),
+            "challan_number": doc.get("challan_number"),
+            "order_number": doc.get("order_number"),
+            "plant_name": doc.get("plant_name"),
+            "customer_name": doc.get("customer_name"),
+            "site_name": doc.get("site_name"),
+            "site_address": doc.get("site_address"),
+            "grade": doc.get("grade"),
+            "quantity": doc.get("quantity"),
+            "tm_number": doc.get("tm_number"),
+            "driver_name": doc.get("driver_name"),
+            "driver_mobile": doc.get("driver_mobile"),
+            "batcher": doc.get("batcher"),
+            "supervisor": doc.get("supervisor"),
+            "quality_engineer": doc.get("quality_engineer"),
+            "remarks": doc.get("remarks"),
+            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+        }
+    }

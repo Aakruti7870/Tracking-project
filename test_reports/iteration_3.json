@@ -1,0 +1,48 @@
+{
+  "summary": "TrackMyRMC Phase 3 (Assign & Dispatch) — backend fully verified end-to-end; customer frontend works end-to-end; owner frontend BLOCKED by a click/navigation regression on the Owner Orders list (order-card taps do not navigate to /order/{id}). Backend: 11 passed, 1 skipped (skip only because seed has only 2 available vehicles and prior tests consumed them; guard is still logically covered — see notes) in /app/backend/tests/test_dispatch_workflow.py. Covers: GET /api/owner/fleet returns 3 vehicles including TS09UB1234/5678/9012 (9012 status=maintenance); GET /api/owner/drivers returns 'Suresh Driver' +919000000002. Full happy path RMC-xxxx PENDING -> approve -> assign-tm (TM_ASSIGNED) -> assign-driver (DRIVER_ASSIGNED + driver_trip created) -> POST challan (CH-xxxx + READY_TO_DISPATCH) -> POST dispatch (DISPATCHED). Customer detail after dispatch exposes tm_number, driver_name='Suresh Driver', driver_mobile=+919000000002, challan_number=CH-xxxx and 6-step history (PENDING/ACCEPTED/TM_ASSIGNED/DRIVER_ASSIGNED/READY_TO_DISPATCH/DISPATCHED). GET /customer/orders/{id}/challan and /owner/orders/{id}/challan return same challan; both 404 before generation. State guards: dispatch-before-challan => 409, assign-driver-before-tm => 409, assign-maintenance-vehicle (TS09UB9012) => 409. Isolation: foreign vehicle_id (random ObjectId) on assign-tm => 404. RBAC: customer token on every /owner/* dispatch endpoint (fleet/drivers/assign-tm/assign-driver/challan/dispatch) => 403. Frontend (Expo web 390x844): Customer login (+919000000001) succeeds via dev_otp; Orders tab lists 14 orders; opening a DISPATCHED order shows Transit Mixer + Driver rows, the 'transit mixer is on the way' tracking note, order-call-driver + order-view-challan buttons; tapping View Challan navigates to /challan/{id} showing 'TRACK MY RMC · Delivery Challan · CH-2002' with plant/customer/site/grade/qty/TM/driver + working Share button. OWNER FRONTEND REGRESSION: owner login (owner@trackmyrmc.test) reaches /orders with 2 PENDING cards visible, but tapping the order-card testID does NOT navigate to /order/{id} — URL stays at /orders (tried element click + mouse click at safe coordinates well above the tab bar). Because the detail screen doesn't open, none of the OwnerDispatchPanel UI (assign-tm-*, assign-driver-*, generate-challan, dispatch-order, view-challan) can be exercised via the owner UI. Backend fully validates every step, so this is purely a click/navigation regression on the owner orders list.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Owner Orders list", "issue": "Tapping an order-card-RMC-xxxx on the owner /orders tab does not navigate to /order/{id}. The card is fully in the viewport (bbox y=497..661, viewport 844, tab bar at bottom ~780+) and the same OrderCard testID click works for customer, so this appears specific to the owner orders screen wiring. Suspect an outer Pressable/ScrollView on the owner Orders route absorbing the press, or the card's onPress not wired for the owner variant. Reference: /app/frontend/app/(owner)/orders.tsx (or wherever the owner orders list renders OrderCard) — verify that <OrderCard onPress={...} testID={`order-card-${o.order_number}`} /> pushes to `/order/${o.id}` and that no parent view has pointerEvents='none' or intercepts taps.", "testID": "order-card-RMC-*", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Owner dispatch UI flow", "issue": "Because owner order-card click does not navigate, the entire assign-TM -> assign-driver -> generate-challan -> dispatch UI in OwnerDispatchPanel could not be exercised via the frontend. Backend chain is 100% verified via pytest.", "affected_testIDs": ["assign-tm-*", "assign-driver-*", "generate-challan", "dispatch-order", "view-challan"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web deprecation (carryover)", "issue": "'shadow*' style props and 'props.pointerEvents' deprecation warnings still present. Non-blocking. Reference: multiple screens."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_workflow.py",
+    "/app/test_reports/pytest/dispatch_results.xml"
+  ],
+  "action_items": [
+    "FIX (CRITICAL): Owner Orders tab — order-card taps must navigate to /order/{id}. Verify /app/frontend/app/(owner)/orders.tsx (or equivalent) passes onPress -> router.push(`/order/${o.id}`) to OrderCard, that testID='order-card-${order_number}' is set on the Pressable/TouchableOpacity itself (not on a non-pressable parent wrapper), and that no parent has pointerEvents='none' / an overlay blocking taps. Customer side works, so diff the two lists to find the divergence.",
+    "AFTER FIX: Re-run owner UI E2E: /orders -> tap PENDING card -> Approve -> select TS09UB1234 (assign-tm) -> select Suresh Driver -> Generate Challan -> Dispatch -> View Challan (share button). Verify progress checklist ticks (Transit Mixer / Driver / Challan / Dispatched) update after each step.",
+    "(Optional) Silence deprecated 'shadow*' / props.pointerEvents warnings by migrating to boxShadow / style.pointerEvents."
+  ],
+  "critical_code_review_comments": [
+    "owner.py assign_tm allows the guard order.status in (ACCEPTED, SCHEDULED, PRODUCTION_COMPLETE, TM_ASSIGNED) — TM_ASSIGNED is allowed for idempotent re-selection; correct.",
+    "owner.py generate_challan is idempotent (returns existing challan if present) — good; matched by pytest.",
+    "owner.py dispatch_order transitions vehicle.status='dispatched' and driver_trip.status='DISPATCHED' atomically — verified.",
+    "Plant isolation: assign_tm queries vehicles by {_id, plant_id: order.plant_id} — so a vehicle in a different plant returns 404. Verified via pytest with a random ObjectId.",
+    "Challan number uses next_sequence('challan_number') with prefix CH-2000+seq — verified CH-2001..CH-2002 across two dispatches with no collision.",
+    "OwnerDispatchPanel gates UI transitions by exact status match (needTm/needDriver/needChallan/needDispatch) matching backend state machine — consistent.",
+    "seed.py seeds 3 vehicles only under plants[0] (Kondapur). Drivers list is scoped by plant_id so only that plant will see Suresh — consistent with the spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_workflow.py (new)",
+    "/app/test_reports/pytest/dispatch_results.xml (new)",
+    "/app/test_reports/iteration_3.json (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 executed passed; 1 skip due to vehicle scarcity — non-defect)",
+    "frontend": "Customer 100%; Owner 0% of dispatch UI executable (blocked by card-tap navigation regression on owner /orders)"
+  },
+  "seed_data_creation": "None — reused dev seed. pytest created several TEST_ prefixed customer orders on the Kondapur plant that walked to DISPATCHED (RMC-1005 etc.), and consumed the 2 available TMs. If the main agent re-runs the owner UI flow, re-seed vehicles or run backend seed to reset TM status back to 'available' — otherwise the OwnerDispatchPanel will show only the maintenance vehicle (which is correctly non-tappable).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend Phase 3 tests: /app/backend/tests/test_dispatch_workflow.py. Run with `pytest tests/test_dispatch_workflow.py -v -o addopts=''` from /app/backend (xdist in pytest.ini breaks cross-class pytest.<attr> state). Order card testIDs: order-card-RMC-xxxx. Login testIDs: login-identifier-input / login-send-otp-button / login-otp-input / login-verify-button. Dispatch panel testIDs: assign-tm-{vehicle_id}, assign-driver-{driver_id}, generate-challan, dispatch-order, view-challan. Customer detail buttons: order-call-driver, order-view-challan. Challan screen: challan-back, challan-share. KEY ISSUE FOUND THIS ITERATION: owner /orders card taps do NOT navigate to /order/{id} (customer side works). After the main agent fixes it, re-verify by clicking order-card-RMC-xxxx and confirming URL becomes /order/{id}. Vehicle status may be 'loading'/'dispatched' after prior test runs; the maintenance TM (TS09UB9012) is the only guaranteed non-available one.",
+  "rca_of_issue": "Owner order-card navigation regression — Reproduction: 1) log in as owner@trackmyrmc.test, 2) go to Orders tab, 3) tap any order-card-RMC-xxxx. Expected: URL becomes /order/{id} and detail screen renders. Actual: URL remains /orders, no navigation. The customer Orders tab does navigate correctly with the same OrderCard testID prefix, so the defect is in the owner-side list wiring (missing onPress prop, wrong parent absorbing taps, or an intermediate wrapper with pointerEvents='none'). Recommend diffing the owner orders list JSX vs the customer orders list JSX and inspecting the immediate parent of OrderCard. Not a backend issue — the entire dispatch chain works via curl/pytest."
+}

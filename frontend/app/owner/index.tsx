@@ -85,7 +85,7 @@ export default function OwnerHome() {
               <View style={{ gap: spacing.sm }}>
                 <View style={styles.rowBetween}>
                   <AppText variant="heading">Pending Approvals</AppText>
-                  <Pressable onPress={() => router.push("/(owner)/orders")}>
+                  <Pressable onPress={() => router.push("/owner/orders")}>
                     <AppText variant="label" color={colors.brand}>All orders</AppText>
                   </Pressable>
                 </View>

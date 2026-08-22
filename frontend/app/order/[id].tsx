@@ -18,6 +18,7 @@ import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { OrderTimeline, HistoryEntry } from "@/src/components/OrderTimeline";
+import { OwnerDispatchPanel } from "@/src/components/OwnerDispatchPanel";
 import { OrderData } from "@/src/components/OrderCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -108,7 +109,10 @@ export default function OrderDetail() {
             <Row icon="calendar-outline" label="Delivery" value={`${o.delivery_date}${o.delivery_time ? " · " + o.delivery_time : ""}`} colors={colors} />
             <Row icon="location-outline" label="Site" value={`${o.site_name}${o.site_address ? " — " + o.site_address : ""}`} colors={colors} />
             {data.contact_person ? <Row icon="call-outline" label="Contact" value={`${data.contact_person}${data.contact_mobile ? " · " + data.contact_mobile : ""}`} colors={colors} /> : null}
-            {data.notes ? <Row icon="document-text-outline" label="Notes" value={data.notes} colors={colors} /> : null}
+            {o.tm_number ? <Row icon="bus-outline" label="Transit Mixer" value={o.tm_number} colors={colors} /> : null}
+            {o.driver_name ? <Row icon="person-outline" label="Driver" value={`${o.driver_name}${o.driver_mobile ? " · " + o.driver_mobile : ""}`} colors={colors} /> : null}
+            {o.challan_number ? <Row icon="document-text-outline" label="Challan" value={o.challan_number} colors={colors} /> : null}
+            {data.notes ? <Row icon="reader-outline" label="Notes" value={data.notes} colors={colors} /> : null}
           </Card>
 
           {/* Timeline */}
@@ -145,10 +149,33 @@ export default function OrderDetail() {
                   </View>
                 </View>
               )
-            ) : null
+            ) : (
+              <OwnerDispatchPanel
+                orderId={String(id)}
+                status={o.status}
+                tmNumber={o.tm_number}
+                driverName={o.driver_name}
+                challanNumber={o.challan_number}
+                onChanged={reload}
+                onViewChallan={() => router.push(`/challan/${id}` as any)}
+              />
+            )
           ) : (
             <View style={{ gap: spacing.sm }}>
-              <Button testID="order-call-plant" label="Call Plant" variant="secondary" onPress={() => toast("Plant contact appears once assigned", "info")} icon={<Ionicons name="call-outline" size={18} color={colors.onSurface} />} />
+              {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? (
+                <Card style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center", backgroundColor: colors.brandSoft, borderColor: colors.brand + "55" }}>
+                  <Ionicons name="navigate" size={18} color={colors.onBrandSoft} />
+                  <AppText style={{ flex: 1, fontFamily: fonts.medium, fontSize: fontSize.sm, color: colors.onBrandSoft }}>
+                    Your transit mixer is on the way. Live map tracking activates with the Maps key.
+                  </AppText>
+                </Card>
+              ) : null}
+              {o.driver_mobile ? (
+                <Button testID="order-call-driver" label="Call Driver" variant="secondary" onPress={() => Linking.openURL(`tel:${o.driver_mobile}`)} icon={<Ionicons name="call-outline" size={18} color={colors.onSurface} />} />
+              ) : null}
+              {o.challan_number ? (
+                <Button testID="order-view-challan" label="View Challan" onPress={() => router.push(`/challan/${id}` as any)} icon={<Ionicons name="document-text-outline" size={18} color={colors.onBrand} />} />
+              ) : null}
               {CANCELLABLE.includes(o.status) ? (
                 <Button testID="order-cancel" label="Cancel Order" variant="outline" loading={busy} onPress={() => act(`/customer/orders/${id}/cancel`, undefined, "Order cancelled")} />
               ) : null}

@@ -53,6 +53,10 @@ orders = db.orders
 kyc_profiles = db.kyc_profiles
 order_status_history = db.order_status_history
 counters = db.counters
+vehicles = db.vehicles
+driver_trips = db.driver_trips
+trip_status_history = db.trip_status_history
+challans = db.challans
 
 
 async def next_sequence(name: str) -> int:

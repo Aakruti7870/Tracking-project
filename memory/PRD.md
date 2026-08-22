@@ -35,6 +35,22 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 3 (Assign & Dispatch) ✅
+- Owner **dispatch workflow** on approved orders: assign Transit Mixer → assign
+  Driver (creates a `driver_trip`) → generate digital **Challan** (CH-xxxx, unique) →
+  Dispatch. Drives the state machine ACCEPTED→TM_ASSIGNED→DRIVER_ASSIGNED→
+  READY_TO_DISPATCH→DISPATCHED with guards, history, audit and notifications.
+- New collections: vehicles, driver_trips, challans. Seeded 3 transit mixers + linked
+  the demo driver; added a seeded PENDING order for demos/tests.
+- Owner endpoints: /owner/fleet, /owner/drivers, assign-tm, assign-driver,
+  challan (POST+GET), dispatch — all plant-scoped + RBAC. Customer sees TM/driver/
+  challan + tracking note once dispatched; shareable Challan screen for both roles.
+- **Bug fixed**: role tab groups were route groups `(customer)`/`(owner)` that
+  collided on the same URLs, breaking owner navigation. Moved to real path segments
+  `customer/` and `owner/` (scalable for all 13 roles). Added `pointerEvents="box-none"`
+  to the glass tab bar wrapper.
+- Tests: dispatch backend 11/12 pass; full owner dispatch UI E2E verified after fix.
+
 ### 2026-06 — PHASE 2 (Core Order Lifecycle — two-sided) ✅
 - Authoritative backend **order state machine** (`order_service.py`): 16 states +
   validated transitions, per-transition history (actor+timestamp), audit entries,

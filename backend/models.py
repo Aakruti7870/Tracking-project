@@ -127,3 +127,18 @@ class CreateOrderBody(BaseModel):
 
 class RejectOrderBody(BaseModel):
     reason: str = Field(min_length=1)
+
+
+class AssignTmBody(BaseModel):
+    vehicle_id: str
+
+
+class AssignDriverBody(BaseModel):
+    driver_id: str
+
+
+class ChallanBody(BaseModel):
+    batcher: Optional[str] = None
+    supervisor: Optional[str] = None
+    quality_engineer: Optional[str] = None
+    remarks: Optional[str] = None

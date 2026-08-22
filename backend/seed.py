@@ -5,6 +5,8 @@ plants and orders so the Customer flow works end-to-end. Never run in prod.
 """
 import logging
 
+from bson import ObjectId
+
 from database import kyc_profiles, orders, plants, users
 from models import User
 from roles import Role
@@ -74,6 +76,7 @@ async def run_seed() -> None:
 
     owner_id = user_ids.get(Role.PLANT_OWNER.value)
     customer_id = user_ids.get(Role.CUSTOMER.value)
+    driver_id = user_ids.get(Role.DRIVER.value)
 
     # Plants
     plant_ids: list[str] = []
@@ -85,6 +88,22 @@ async def run_seed() -> None:
         doc = {**p, "owner_id": owner_id}
         res = await plants.insert_one(doc)
         plant_ids.append(str(res.inserted_id))
+
+    # Link the demo driver to the first plant so it can be assigned.
+    if driver_id and plant_ids:
+        await users.update_one({"_id": ObjectId(driver_id)}, {"$set": {"plant_id": plant_ids[0]}})
+
+    # Vehicles (transit mixers) for the first plant.
+    from database import vehicles
+
+    if plant_ids and await vehicles.count_documents({"plant_id": plant_ids[0]}) == 0:
+        demo_vehicles = [
+            {"plant_id": plant_ids[0], "tm_number": "TS09UB1234", "capacity_m3": 6, "status": "available"},
+            {"plant_id": plant_ids[0], "tm_number": "TS09UB5678", "capacity_m3": 8, "status": "available"},
+            {"plant_id": plant_ids[0], "tm_number": "TS09UB9012", "capacity_m3": 6, "status": "maintenance"},
+        ]
+        await vehicles.insert_many(demo_vehicles)
+        logger.info("seeded %d vehicles", len(demo_vehicles))
 
     # Customer KYC -> VERIFIED (so demo customer can place orders)
     if customer_id:
@@ -116,6 +135,15 @@ async def run_seed() -> None:
                 "lat": 17.4102, "lng": 78.3301,
                 "delivery_date": "2026-06-10", "delivery_time": "14:00",
                 "status": "DELIVERED", "payment_status": "PAID",
+            },
+            {
+                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
+                "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
+                "grade": "M20", "quantity": 10.0,
+                "site_name": "Lake View Apartments", "site_address": "Narsingi, Hyderabad",
+                "lat": 17.3915, "lng": 78.3475,
+                "delivery_date": "2026-06-30", "delivery_time": "08:00",
+                "status": "PENDING", "payment_status": "UNPAID",
             },
         ]
         from datetime import datetime, timezone

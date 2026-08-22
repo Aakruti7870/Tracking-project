@@ -21,7 +21,7 @@ export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] 
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+    <View pointerEvents="box-none" style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
       <BlurView
         intensity={scheme === "dark" ? 40 : 60}
         tint={scheme === "dark" ? "dark" : "light"}

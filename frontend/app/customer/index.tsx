@@ -158,7 +158,7 @@ export default function CustomerHome() {
                 <View style={{ gap: spacing.sm }}>
                   <View style={styles.rowBetween}>
                     <AppText variant="heading">Nearby Plants</AppText>
-                    <Pressable onPress={() => router.push("/plants")}>
+                    <Pressable onPress={() => router.push("/customer/plants")}>
                       <AppText variant="label" color={colors.brand}>See all</AppText>
                     </Pressable>
                   </View>
@@ -183,7 +183,7 @@ export default function CustomerHome() {
               <View style={{ gap: spacing.sm }}>
                 <View style={styles.rowBetween}>
                   <AppText variant="heading">Recent Orders</AppText>
-                  <Pressable onPress={() => router.push("/orders")}>
+                  <Pressable onPress={() => router.push("/customer/orders")}>
                     <AppText variant="label" color={colors.brand}>View all</AppText>
                   </Pressable>
                 </View>
