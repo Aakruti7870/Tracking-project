@@ -19,8 +19,7 @@ import { Button } from "@/src/components/ui/Button";
 import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const HERO =
-  "https://images.pexels.com/photos/12519386/pexels-photo-12519386.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
+const HERO = require("../assets/images/transit-mixer.jpg");
 
 export default function Login() {
   const { colors } = useTheme();
@@ -116,9 +115,16 @@ export default function Login() {
       >
         {/* Hero */}
         <View style={styles.hero}>
-          <Image source={{ uri: HERO }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="contain" />
           <LinearGradient
-            colors={["rgba(18,18,18,0.35)", "rgba(18,18,18,0.75)", colors.surface]}
+            pointerEvents="none"
+            colors={[
+              "rgba(11,11,13,0.60)",
+              "rgba(11,11,13,0.0)",
+              "rgba(11,11,13,0.0)",
+              colors.surface,
+            ]}
+            locations={[0, 0.26, 0.58, 1]}
             style={StyleSheet.absoluteFill}
           />
           <View style={[styles.brandWrap, { paddingTop: insets.top + spacing.xl }]}>
@@ -131,6 +137,17 @@ export default function Login() {
             <AppText variant="caption" color="rgba(255,255,255,0.8)" style={{ marginTop: 2 }}>
               Ready-Mix Concrete · Order · Dispatch · Deliver
             </AppText>
+          </View>
+
+          {/* Floating trust badge */}
+          <View style={styles.heroBadgeWrap} pointerEvents="none">
+            <View style={styles.heroBadge}>
+              <View style={[styles.heroBadgeDot, { backgroundColor: colors.brand }]} />
+              <View>
+                <AppText style={styles.heroBadgeTitle}>READY MIX CONCRETE</AppText>
+                <AppText style={styles.heroBadgeSub}>Verified plants · Live tracking</AppText>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -243,7 +260,7 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  hero: { height: 320, justifyContent: "flex-start" },
+  hero: { height: 384, justifyContent: "flex-start", backgroundColor: "#0B0B0D" },
   brandWrap: { alignItems: "center", paddingHorizontal: spacing.xl },
   logoBadge: {
     width: 48,
@@ -254,6 +271,43 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   brand: { fontFamily: fonts.displayBold, fontSize: 26, letterSpacing: 1 },
+  heroBadgeWrap: {
+    position: "absolute",
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 46,
+    alignItems: "center",
+  },
+  heroBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    alignSelf: "center",
+    backgroundColor: "rgba(18,18,20,0.88)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  heroBadgeDot: { width: 10, height: 10, borderRadius: 5 },
+  heroBadgeTitle: {
+    color: "#FFFFFF",
+    fontFamily: fonts.displayBold,
+    fontSize: fontSize.base,
+    letterSpacing: 0.5,
+  },
+  heroBadgeSub: {
+    color: "rgba(255,255,255,0.68)",
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    marginTop: 1,
+  },
   card: {
     flex: 1,
     marginTop: -28,
