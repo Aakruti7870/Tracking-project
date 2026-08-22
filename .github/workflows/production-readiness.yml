@@ -142,6 +142,7 @@ jobs:
     timeout-minutes: 35
     env:
       EXPO_PUBLIC_BACKEND_URL: https://api.example.invalid
+      CI: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -149,27 +150,28 @@ jobs:
           node-version: "20.19.4"
           cache: yarn
           cache-dependency-path: frontend/package.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --non-interactive
       - name: Generate Android native project
         working-directory: frontend
-        run: npx expo prebuild --platform android --clean --no-install --non-interactive
+        run: npx expo prebuild --platform android --clean --no-install
       - name: Verify Android identity and version
         working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
-          grep -R "com.trackmyrmc.concreteking" android/app/build.gradle android/app/build.gradle.kts >/dev/null 2>&1 || {
+          gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
+          test -n "$gradle_file"
+          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null || {
             echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
             exit 1
           }
-          grep -R "versionCode 61\|versionCode = 61" android/app/build.gradle android/app/build.gradle.kts >/dev/null 2>&1 || {
+          grep -E "versionCode[[:space:]=]+61" "$gradle_file" >/dev/null || {
             echo "Expected Android versionCode 61 was not generated"
             exit 1
           }
