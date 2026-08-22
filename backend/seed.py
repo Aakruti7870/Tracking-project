@@ -4,6 +4,7 @@ Deterministic demo accounts (Customer, Driver, Plant Owner, Admin) + a few
 plants and orders so the Customer flow works end-to-end. Never run in prod.
 """
 import logging
+from datetime import datetime, timezone
 
 from bson import ObjectId
 
@@ -151,6 +152,20 @@ async def run_seed() -> None:
             upsert=True,
         )
 
+    # Seed a couple of PENDING KYC requests so the Authority has items to review.
+    if driver_id:
+        await kyc_profiles.update_one(
+            {"user_id": driver_id, "purpose": "DRIVER"},
+            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    if owner_id:
+        await kyc_profiles.update_one(
+            {"user_id": owner_id, "purpose": "PLANT"},
+            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+
     # Demo orders for the customer
     if customer_id and plant_ids and await orders.count_documents({"customer_id": customer_id}) == 0:
         from database import next_sequence
@@ -184,8 +199,6 @@ async def run_seed() -> None:
                 "status": "PENDING", "payment_status": "UNPAID",
             },
         ]
-        from datetime import datetime, timezone
-
         for o in demo_orders:
             seq = await next_sequence("order_number")
             o["order_number"] = f"RMC-{1000 + seq}"

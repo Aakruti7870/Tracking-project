@@ -181,3 +181,39 @@ class LocationBody(BaseModel):
     lat: float
     lng: float
     accuracy: Optional[float] = None
+
+
+class KycDecisionBody(BaseModel):
+    reason: Optional[str] = None
+
+
+class MaterialBody(BaseModel):
+    name: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    stock: float = Field(ge=0)
+    reorder: float = Field(ge=0)
+
+
+class StockAdjustBody(BaseModel):
+    delta: float  # +ve = stock in, -ve = stock out
+    note: Optional[str] = None
+
+
+class VehicleBody(BaseModel):
+    tm_number: str = Field(min_length=1)
+    capacity_m3: float = Field(gt=0)
+
+
+class VehicleStatusBody(BaseModel):
+    status: str = Field(min_length=1)  # available | maintenance
+
+
+class QualityTestBody(BaseModel):
+    order_id: str
+    slump_mm: Optional[float] = None
+    cube_7d: Optional[float] = None
+    cube_28d: Optional[float] = None
+    actual_cement: Optional[float] = None
+    actual_water: Optional[float] = None
+    result: str = "PASS"  # PASS | FAIL
+    remarks: Optional[str] = None

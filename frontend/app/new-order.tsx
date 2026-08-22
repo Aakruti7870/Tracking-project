@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { apiPost } from "@/src/api/client";
+import { apiGet, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
@@ -56,6 +56,38 @@ export default function NewOrder() {
   const [submitting, setSubmitting] = useState<null | "order" | "draft">(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Google Places (activates automatically when a server key is configured).
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<{ place_id: string; text: string }[]>([]);
+  const sessionToken = useMemo(() => `rmc-${Date.now()}`, []);
+  const pickedRef = useRef(false);
+
+  useEffect(() => {
+    if (pickedRef.current) { pickedRef.current = false; return; }
+    const q = address.trim();
+    if (q.length < 3) { setSuggestions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiGet<{ configured: boolean; suggestions: { place_id: string; text: string }[] }>(
+          `/maps/autocomplete?input=${encodeURIComponent(q)}&session_token=${sessionToken}`, token!);
+        setSuggestions(res.configured ? res.suggestions : []);
+      } catch { setSuggestions([]); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [address, token, sessionToken]);
+
+  const pickPlace = async (place_id: string) => {
+    try {
+      const p = await apiGet<{ address: string; lat: number; lng: number }>(`/maps/place/${place_id}?session_token=${sessionToken}`, token!);
+      pickedRef.current = true;
+      setAddress(p.address);
+      setCoords({ lat: p.lat, lng: p.lng });
+      setSuggestions([]);
+    } catch {
+      /* keep manual entry */
+    }
+  };
+
   const plants = plantsData?.plants || [];
   const selectedPlant = plants.find((p) => p.id === plantId) || null;
   const grades = selectedPlant?.grades || [];
@@ -80,6 +112,8 @@ export default function NewOrder() {
         quantity: Number(quantity),
         site_name: siteName.trim(),
         site_address: address.trim(),
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
         delivery_date: date,
         delivery_time: time,
         contact_person: contact.trim() || null,
@@ -209,7 +243,25 @@ export default function NewOrder() {
         <Section title="Site Details">
           <View style={{ gap: spacing.md }}>
             <Input testID="neworder-site" label="Site name" value={siteName} onChangeText={setSiteName} placeholder="e.g. Skyline Towers" autoCapitalize="words" />
-            <Input testID="neworder-address" label="Delivery address" value={address} onChangeText={setAddress} placeholder="Full site address" autoCapitalize="sentences" />
+            <View>
+              <Input testID="neworder-address" label="Delivery address" value={address} onChangeText={(t) => { setAddress(t); setCoords(null); }} placeholder="Search or type full site address" autoCapitalize="sentences" />
+              {suggestions.length > 0 ? (
+                <View style={[styles.suggestBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  {suggestions.map((s) => (
+                    <Pressable key={s.place_id} testID={`suggest-${s.place_id}`} onPress={() => pickPlace(s.place_id)} style={[styles.suggestRow, { borderBottomColor: colors.divider }]}>
+                      <Ionicons name="location-outline" size={16} color={colors.brand} />
+                      <AppText style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={2}>{s.text}</AppText>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              {coords ? (
+                <View style={styles.pinRow}>
+                  <Ionicons name="pin" size={14} color={colors.success} />
+                  <AppText style={{ fontFamily: fonts.medium, fontSize: 11, color: colors.success }}>Location pinned on map</AppText>
+                </View>
+              ) : null}
+            </View>
             <Input testID="neworder-contact" label="Contact person" value={contact} onChangeText={setContact} placeholder="Name at site" autoCapitalize="words" />
             <Input testID="neworder-mobile" label="Contact mobile" value={mobile} onChangeText={setMobile} placeholder="+91…" keyboardType="phone-pad" />
             <Input testID="neworder-notes" label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="e.g. Pump required" autoCapitalize="sentences" />
@@ -259,4 +311,7 @@ const styles = StyleSheet.create({
   plantRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
   stepper: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   stepBtn: { width: 52, height: 52, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  suggestBox: { marginTop: 4, borderWidth: 1, borderRadius: radius.md, overflow: "hidden" },
+  suggestRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  pinRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
 });

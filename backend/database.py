@@ -65,6 +65,8 @@ payments = db.payments
 production_batches = db.production_batches
 vehicle_locations = db.vehicle_locations
 materials = db.materials
+stock_movements = db.stock_movements
+quality_tests = db.quality_tests
 
 
 async def next_sequence(name: str) -> int:

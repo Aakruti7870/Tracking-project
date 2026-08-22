@@ -124,3 +124,27 @@
 ##         -working: "NA"
 ##         -agent: "main"
 ##         -comment: "Each of 10 roles has a GlassTabBar tab shell routing to StaffHome (KPI grid + primary list preview) and StaffCollection tabs + StaffMore. index.tsx routes each role to its folder."
+
+## FEATURE: Staff actionable modules + Notifications + Maps plumbing (2026-06)
+## backend:
+##   - task: "KYC review (Authority approve/reject), User mgmt (Central Admin suspend/activate), Fleet (add vehicle/set status), Inventory (adjust/add material), Quality (record test), Operator (production start/complete), Accountant (record payment)"
+##     implemented: true
+##     working: "NA"
+##     file: "backend/routers/staff.py, backend/routers/notify.py, backend/routers/maps.py, backend/models.py, backend/seed.py"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "Curl-verified: KYC approve->VERIFIED, add vehicle, operator production/start actions present, quality record PASS, central users suspend actions present. Seeded 2 PENDING KYC (driver, plant). Notifications feed + read/read-all. Maps proxy reads GOOGLE_MAPS_KEY (currently empty -> NOT_CONFIGURED, graceful)."
+## frontend:
+##   - task: "Backend-driven action buttons in StaffCollection (approve/reject/suspend/activate/set-status/stock-in-out/record-payment/record-test), create modals (material/vehicle), amount+reason modals, Quality test screen, Notifications screen + bell, New Order Google Places autocomplete (key-ready)"
+##     implemented: true
+##     working: "NA"
+##     file: "frontend/src/screens/StaffCollection.tsx, frontend/src/screens/StaffHome.tsx, frontend/app/quality-test/[id].tsx, frontend/app/notifications.tsx, frontend/app/new-order.tsx"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "Generic actions rendered from backend item.actions; input modals for amount/reason; create header button. Notifications bell in staff header. Places search on new-order gracefully hidden until GOOGLE_MAPS_KEY set."

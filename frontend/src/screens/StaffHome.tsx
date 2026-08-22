@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
@@ -30,8 +31,10 @@ function formatValue(k: Kpi): string {
 export function StaffHome() {
   const { colors, toggle, scheme } = useTheme();
   const { user } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<HomeData>("/staff/home");
+  const { data: notif } = useGet<{ unread: number }>("/notifications");
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -41,6 +44,10 @@ export function StaffHome() {
           <AppText variant="caption">{data?.role_label || user?.role_label}</AppText>
           <AppText variant="title" numberOfLines={1}>{data?.name || user?.name}</AppText>
         </View>
+        <Pressable testID="staff-notif" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { borderColor: colors.border }]}>
+          <Ionicons name="notifications-outline" size={20} color={colors.onSurface} />
+          {notif && notif.unread > 0 ? <View style={[styles.badge, { backgroundColor: colors.brand }]} /> : null}
+        </Pressable>
         <Pressable testID="staff-theme-toggle" onPress={toggle} style={[styles.iconBtn, { borderColor: colors.border }]}>
           <Ionicons name={scheme === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.onSurface} />
         </Pressable>
@@ -91,6 +98,7 @@ export function StaffHome() {
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, paddingTop: spacing.sm },
   iconBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  badge: { position: "absolute", top: 8, right: 8, width: 9, height: 9, borderRadius: 5 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   kpi: { width: "48%", flexGrow: 1, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, gap: spacing.xs },
   kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: spacing.xs },

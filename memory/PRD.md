@@ -35,6 +35,24 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 7 (Staff actions, Notifications, Maps plumbing) ✅
+- Made staff dashboards **actionable** (backend-driven action buttons on list items):
+  - **Authority**: approve / reject pending KYC (with reason) → notifies the user.
+  - **Central Admin**: suspend / activate any user account.
+  - **Fleet Manager**: add Transit Mixer, toggle Available/Maintenance.
+  - **Store Manager**: add material, Stock In / Stock Out (with movement log; guards over-issue).
+  - **Operator**: Start Production / Mark Complete (drives order state machine).
+  - **Quality Engineer**: record a quality test (slump, 7/28-day cube, actual cement/water,
+    PASS/FAIL, remarks) on a dedicated form screen; register badge flips to QC PASS/FAIL.
+  - **Accountant**: record a payment against an invoice (updates paid/status/order).
+- **Notifications feed**: `/api/notifications` (+ read / read-all); bell with unread dot in
+  every staff dashboard header → notifications screen. Durable in-app records (no fake sends).
+- **Google Maps plumbing (key-ready)**: `routers/maps.py` proxy reads `GOOGLE_MAPS_KEY`
+  server-side and reports NOT_CONFIGURED gracefully when absent. New Order screen has a
+  Places autocomplete that stays hidden until a key is set, then activates automatically
+  (stores lat/lng on the order). New collections: stock_movements, quality_tests.
+- Tests: 21/22 backend pass (1 skipped: seeded invoice already PAID); all action UIs render.
+
 ### 2026-06 — PHASE 6 (All 10 remaining role dashboards) ✅
 - Added dashboards for the 10 non-customer/driver/owner roles: **admin, dispatcher,
   operator, supervisor, accountant, quality_engineer, fleet_manager, store_manager,

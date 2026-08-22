@@ -1,16 +1,33 @@
-import React from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import React, { useState } from "react";
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { apiPost } from "@/src/api/client";
+import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
+import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
+import { Input } from "@/src/components/ui/Input";
 import { Badge } from "@/src/components/ui/Badge";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+
+export type StaffAction = {
+  key: string;
+  label: string;
+  style?: "primary" | "danger" | "outline";
+  method?: string;
+  path?: string;
+  body?: Record<string, any>;
+  input?: "amount" | "reason" | "quality";
+  sign?: number;
+};
 
 export type StaffItem = {
   id: string;
@@ -20,53 +37,125 @@ export type StaffItem = {
   meta?: string | null;
   badge?: string | null;
   badge_status?: string | null;
+  actions?: StaffAction[];
 };
 
-type CollectionData = { title: string; empty: string; items: StaffItem[] };
+type CreateDef = { label: string; path: string; form: "material" | "vehicle" };
+type CollectionData = { title: string; empty: string; items: StaffItem[]; create?: CreateDef };
 
-export function ItemRow({ item }: { item: StaffItem }) {
+function ItemRow({ item, onAction }: { item: StaffItem; onAction: (i: StaffItem, a: StaffAction) => void }) {
   const { colors } = useTheme();
   return (
-    <View style={styles.row}>
-      <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
-        <Ionicons name={item.icon || "ellipse-outline"} size={18} color={colors.onBrandSoft} />
+    <View style={styles.rowWrap}>
+      <View style={styles.row}>
+        <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
+          <Ionicons name={item.icon || "ellipse-outline"} size={18} color={colors.onBrandSoft} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={1}>{item.primary}</AppText>
+          {item.secondary ? <AppText variant="caption" numberOfLines={1}>{item.secondary}</AppText> : null}
+          {item.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }} numberOfLines={1}>{item.meta}</AppText> : null}
+        </View>
+        {item.badge ? <Badge label={item.badge} status={item.badge_status || item.badge} /> : null}
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={1}>
-          {item.primary}
-        </AppText>
-        {item.secondary ? <AppText variant="caption" numberOfLines={1}>{item.secondary}</AppText> : null}
-        {item.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }} numberOfLines={1}>{item.meta}</AppText> : null}
-      </View>
-      {item.badge ? <Badge label={item.badge} status={item.badge_status || item.badge} /> : null}
+      {item.actions && item.actions.length > 0 ? (
+        <View style={styles.actions}>
+          {item.actions.map((a) => (
+            <Pressable
+              key={a.key}
+              testID={`action-${a.key}-${item.id}`}
+              onPress={() => onAction(item, a)}
+              style={[
+                styles.actionBtn,
+                a.style === "danger"
+                  ? { backgroundColor: colors.error + "1A", borderColor: colors.error + "55" }
+                  : a.style === "outline"
+                  ? { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }
+                  : { backgroundColor: colors.brand, borderColor: colors.brand },
+              ]}
+            >
+              <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: a.style === "danger" ? colors.error : a.style === "outline" ? colors.onSurface : colors.onBrand }}>
+                {a.label}
+              </AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-/**
- * Generic role-scoped list. Used as a full-screen tab (default) or embedded
- * inside a dashboard (embedded + limit). Data comes from /api/staff/collection/{kind}.
- */
-export function StaffCollection({
-  kind,
-  embedded = false,
-  limit,
-}: {
-  kind: string;
-  embedded?: boolean;
-  limit?: number;
-}) {
+export function StaffCollection({ kind, embedded = false, limit }: { kind: string; embedded?: boolean; limit?: number }) {
   const { colors } = useTheme();
+  const { token } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<CollectionData>(`/staff/collection/${kind}`);
 
+  const [modal, setModal] = useState<{ item?: StaffItem; action?: StaffAction; create?: CreateDef } | null>(null);
+  const [num, setNum] = useState("");
+  const [text, setText] = useState("");
+  const [f1, setF1] = useState("");
+  const [f2, setF2] = useState("");
+  const [f3, setF3] = useState("");
+  const [busy, setBusy] = useState(false);
+
   const items = data ? (limit ? data.items.slice(0, limit) : data.items) : [];
+
+  const runPost = async (path: string, body?: any) => {
+    setBusy(true);
+    try {
+      await apiPost(path, token!, body);
+      toast("Done", "success");
+      setModal(null);
+      setNum(""); setText(""); setF1(""); setF2(""); setF3("");
+      refetch();
+    } catch (e: any) {
+      toast(e.detail || "Action failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onAction = (item: StaffItem, a: StaffAction) => {
+    if (a.input === "quality") return router.push(`/quality-test/${item.id}` as any);
+    if (a.input === "amount" || a.input === "reason") {
+      setNum(""); setText("");
+      return setModal({ item, action: a });
+    }
+    runPost(a.path!, a.body);
+  };
+
+  const openCreate = () => {
+    setF1(""); setF2(""); setF3("");
+    setNum(""); setText("");
+    setModal({ create: data!.create });
+  };
+
+  const submitModal = () => {
+    if (modal?.create) {
+      if (modal.create.form === "material") {
+        if (!f1.trim() || !f2.trim()) return toast("Name and unit required", "error");
+        return runPost(modal.create.path, { name: f1.trim(), unit: f2.trim(), stock: Number(num || 0), reorder: Number(f3 || 0) });
+      }
+      if (!f1.trim() || !num) return toast("TM number and capacity required", "error");
+      return runPost(modal.create.path, { tm_number: f1.trim(), capacity_m3: Number(num) });
+    }
+    const a = modal!.action!;
+    if (a.input === "amount") {
+      const amt = Number(num);
+      if (!amt || amt <= 0) return toast("Enter a valid amount", "error");
+      return runPost(a.path!, { delta: amt * (a.sign || 1), amount: amt, note: text.trim() || null });
+    }
+    // reason
+    return runPost(a.path!, { reason: text.trim() || null });
+  };
 
   const body = (
     <>
       {loading && !data ? (
         <View style={{ gap: spacing.md }}>
-          <Skeleton height={70} style={{ borderRadius: radius.lg }} />
           <Skeleton height={70} style={{ borderRadius: radius.lg }} />
           <Skeleton height={70} style={{ borderRadius: radius.lg }} />
         </View>
@@ -79,7 +168,7 @@ export function StaffCollection({
         <Card padded={false}>
           {items.map((it, i) => (
             <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-              <ItemRow item={it} />
+              <ItemRow item={it} onAction={onAction} />
             </View>
           ))}
         </Card>
@@ -87,7 +176,43 @@ export function StaffCollection({
     </>
   );
 
-  if (embedded) return body;
+  const modalUI = (
+    <Modal visible={!!modal} transparent animationType="fade" onRequestClose={() => setModal(null)}>
+      <Pressable style={styles.backdrop} onPress={() => setModal(null)}>
+        <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
+          <AppText variant="heading">
+            {modal?.create ? modal.create.label : modal?.action?.label}
+          </AppText>
+          {modal?.create?.form === "material" ? (
+            <>
+              <Input label="Material name" value={f1} onChangeText={setF1} placeholder="e.g. Cement (OPC 53)" />
+              <Input label="Unit" value={f2} onChangeText={setF2} placeholder="MT / L / bags" />
+              <Input label="Opening stock" value={num} onChangeText={(t) => setNum(t.replace(/[^0-9.]/g, ""))} keyboardType="numeric" />
+              <Input label="Reorder level" value={f3} onChangeText={(t) => setF3(t.replace(/[^0-9.]/g, ""))} keyboardType="numeric" />
+            </>
+          ) : modal?.create?.form === "vehicle" ? (
+            <>
+              <Input label="TM number" value={f1} onChangeText={setF1} placeholder="e.g. TS09UB4321" autoCapitalize="characters" />
+              <Input label="Capacity (m³)" value={num} onChangeText={(t) => setNum(t.replace(/[^0-9.]/g, ""))} keyboardType="numeric" />
+            </>
+          ) : modal?.action?.input === "amount" ? (
+            <>
+              <Input label="Quantity" value={num} onChangeText={(t) => setNum(t.replace(/[^0-9.]/g, ""))} keyboardType="numeric" placeholder="0" />
+              <Input label="Note (optional)" value={text} onChangeText={setText} placeholder="e.g. supplier delivery" />
+            </>
+          ) : (
+            <Input label="Reason (optional)" value={text} onChangeText={setText} placeholder="Why is this rejected?" />
+          )}
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
+            <View style={{ flex: 1 }}><Button testID="modal-cancel" label="Cancel" variant="outline" onPress={() => setModal(null)} /></View>
+            <View style={{ flex: 1 }}><Button testID="modal-confirm" label="Confirm" onPress={submitModal} loading={busy} /></View>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+
+  if (embedded) return <>{body}{modalUI}</>;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -100,15 +225,31 @@ export function StaffCollection({
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}
         >
-          <AppText variant="title">{data?.title || "List"}</AppText>
+          <View style={styles.head}>
+            <AppText variant="title">{data?.title || "List"}</AppText>
+            {data?.create ? (
+              <Pressable testID="staff-create" onPress={openCreate} style={[styles.addBtn, { backgroundColor: colors.brand }]}>
+                <Ionicons name="add" size={18} color={colors.onBrand} />
+                <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.onBrand }}>{data.create.label}</AppText>
+              </Pressable>
+            ) : null}
+          </View>
           {body}
         </ScrollView>
       )}
+      {modalUI}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md },
+  head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.md, height: 38, borderRadius: radius.pill },
+  rowWrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   icon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm, marginLeft: 50 },
+  actionBtn: { paddingHorizontal: spacing.md, height: 36, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: spacing.lg },
+  sheet: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
 });
