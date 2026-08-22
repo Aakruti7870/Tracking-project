@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
 from database import (
@@ -14,6 +15,7 @@ from database import (
     orders,
     plants,
     proof_of_delivery,
+    storage_objects,
     trip_status_history,
     vehicle_locations,
     vehicles,
@@ -57,7 +59,6 @@ def _serialize_trip(t: dict) -> dict:
     }
 
 
-# trip status -> (allowed current trip statuses, next order status, next trip status)
 STEP_MAP = {
     "start": (["DISPATCHED", "ASSIGNED", "ACCEPTED", "LOADING"], EN_ROUTE, "EN_ROUTE"),
     "arrive": (["EN_ROUTE"], AT_SITE, "ARRIVED"),
@@ -140,28 +141,36 @@ async def _advance(ctx: dict, trip_id: str, step: str):
     if order.get("driver_id") and order.get("driver_id") != ctx["user_id"]:
         raise HTTPException(403, "Trip assignment does not match the order driver")
 
-    notify = [order["customer_id"]] if order.get("customer_id") else []
-    # The order state machine is authoritative and performs an atomic CAS.
-    await transition_order(
-        t["order_id"],
-        order_target,
-        ctx["user_id"],
-        note=f"Driver: {trip_target.replace('_', ' ').title()}",
-        notify_user_ids=notify,
-        event=f"trip_{trip_target.lower()}",
-    )
-
     now = datetime.now(timezone.utc)
-    updated = await driver_trips.find_one_and_update(
+    claimed = await driver_trips.find_one_and_update(
         {"_id": t["_id"], "driver_id": ctx["user_id"], "status": {"$in": allowed}},
-        {"$set": {"status": trip_target, "updated_at": now}},
+        {"$set": {"status": trip_target, "updated_at": now}, "$unset": {"sync_error": ""}},
         return_document=ReturnDocument.AFTER,
     )
-    if not updated:
+    if not claimed:
         latest = await driver_trips.find_one({"_id": t["_id"], "driver_id": ctx["user_id"]})
         if latest and latest.get("status") == trip_target:
             return {"status": trip_target}
         raise HTTPException(409, "Trip status changed concurrently; reload the trip")
+
+    notify = [order["customer_id"]] if order.get("customer_id") else []
+    try:
+        await transition_order(
+            t["order_id"],
+            order_target,
+            ctx["user_id"],
+            note=f"Driver: {trip_target.replace('_', ' ').title()}",
+            notify_user_ids=notify,
+            event=f"trip_{trip_target.lower()}",
+        )
+    except Exception:
+        # Standalone Mongo may not support transactions. Compensate only while
+        # the trip is still at the state this request claimed.
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": trip_target},
+            {"$set": {"status": t.get("status"), "updated_at": now, "sync_error": True}},
+        )
+        raise
 
     await trip_status_history.insert_one(
         {
@@ -190,11 +199,10 @@ async def unload(trip_id: str, ctx: dict = Depends(driver_only)):
     return await _advance(ctx, trip_id, "unload")
 
 
-def _validate_pod_payload(body: PodBody, user_id: str) -> None:
+def _validate_pod_payload(body: PodBody) -> None:
     if not body.photo_path:
         raise HTTPException(422, "Delivery site photo is required")
-    expected_prefix = f"trackmyrmc/uploads/{user_id}/"
-    if not body.photo_path.startswith(expected_prefix) or ".." in body.photo_path:
+    if not body.photo_path.startswith("trackmyrmc/pod/") or ".." in body.photo_path:
         raise HTTPException(422, "Invalid POD photo reference")
     if not body.signature:
         raise HTTPException(422, "Receiver signature is required")
@@ -209,9 +217,20 @@ def _validate_pod_payload(body: PodBody, user_id: str) -> None:
 @router.post("/trips/{trip_id}/pod")
 async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_only)):
     t = await _my_trip(ctx, trip_id)
+    existing = await proof_of_delivery.find_one({"trip_id": trip_id})
+    if t.get("status") == DELIVERED and existing:
+        same = (
+            existing.get("receiver_name") == body.receiver_name
+            and float(existing.get("delivered_quantity") or 0) == float(body.delivered_quantity)
+            and existing.get("photo_path") == body.photo_path
+            and existing.get("signature") == body.signature
+        )
+        if same:
+            return {"status": DELIVERED, "idempotent": True}
+        raise HTTPException(409, "Proof of delivery is already finalized")
     if t.get("status") not in ("UNLOADING", "ARRIVED", "POD_PENDING"):
         raise HTTPException(409, "Start unloading before submitting proof of delivery")
-    _validate_pod_payload(body, ctx["user_id"])
+    _validate_pod_payload(body)
 
     order = await orders.find_one({"_id": await _oid(t["order_id"]), "driver_id": ctx["user_id"]})
     if not order:
@@ -219,7 +238,36 @@ async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_onl
     if order.get("status") not in (UNLOADING, POD_PENDING):
         raise HTTPException(409, f"Order is not ready for POD ({order.get('status')})")
 
+    ordered_quantity = float(order.get("quantity") or 0)
+    if ordered_quantity <= 0 or body.delivered_quantity > ordered_quantity * 1.10:
+        raise HTTPException(422, "Delivered quantity exceeds allowed order tolerance")
+
+    photo_meta = await storage_objects.find_one(
+        {
+            "path": body.photo_path,
+            "owner_user_id": ctx["user_id"],
+            "purpose": "POD",
+            "trip_id": trip_id,
+            "order_id": t["order_id"],
+        }
+    )
+    if not photo_meta:
+        raise HTTPException(422, "POD photo is not authorized for this trip")
+
     now = datetime.now(timezone.utc)
+    claimed = await driver_trips.find_one_and_update(
+        {
+            "_id": t["_id"],
+            "driver_id": ctx["user_id"],
+            "order_id": t["order_id"],
+            "status": {"$in": ["UNLOADING", "ARRIVED", "POD_PENDING"]},
+        },
+        {"$set": {"status": "POD_FINALIZING", "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        raise HTTPException(409, "Delivery is already being finalized")
+
     pod_doc = {
         "trip_id": trip_id,
         "order_id": t["order_id"],
@@ -234,32 +282,52 @@ async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_onl
         "created_at": now,
         "updated_at": now,
     }
-    await proof_of_delivery.update_one({"trip_id": trip_id}, {"$set": pod_doc}, upsert=True)
+    try:
+        await proof_of_delivery.insert_one(pod_doc)
+    except DuplicateKeyError:
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+            {"$set": {"status": t.get("status"), "updated_at": now}},
+        )
+        existing = await proof_of_delivery.find_one({"trip_id": trip_id})
+        if existing and existing.get("photo_path") == body.photo_path:
+            raise HTTPException(409, "Proof of delivery is already finalized")
+        raise HTTPException(409, "Proof of delivery conflicts with an existing record")
 
     notify = [order["customer_id"]] if order.get("customer_id") else []
-    if order.get("status") == UNLOADING:
-        order = await transition_order(
-            t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted"
-        )
+    try:
+        if order.get("status") == UNLOADING:
+            order = await transition_order(
+                t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted"
+            )
 
-    # Persist actual delivered quantity before the DELIVERED event so the
-    # customer notification/SMS uses the real quantity rather than order qty.
-    await orders.update_one(
-        {"_id": await _oid(t["order_id"]), "driver_id": ctx["user_id"]},
-        {"$set": {"delivered_quantity": body.delivered_quantity, "pod_submitted_at": now}},
+        await orders.update_one(
+            {"_id": await _oid(t["order_id"]), "driver_id": ctx["user_id"]},
+            {"$set": {"delivered_quantity": body.delivered_quantity, "pod_submitted_at": now}},
+        )
+        await transition_order(
+            t["order_id"],
+            DELIVERED,
+            ctx["user_id"],
+            note=f"Delivered — received by {body.receiver_name}",
+            notify_user_ids=notify,
+            event="delivered",
+        )
+    except Exception:
+        await proof_of_delivery.delete_one({"trip_id": trip_id, "created_at": now})
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+            {"$set": {"status": t.get("status"), "updated_at": now, "sync_error": True}},
+        )
+        raise
+
+    finalized = await driver_trips.update_one(
+        {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+        {"$set": {"status": DELIVERED, "updated_at": now, "tracking_ended_at": now}, "$unset": {"sync_error": ""}},
     )
-    await transition_order(
-        t["order_id"],
-        DELIVERED,
-        ctx["user_id"],
-        note=f"Delivered — received by {body.receiver_name}",
-        notify_user_ids=notify,
-        event="delivered",
-    )
-    await driver_trips.update_one(
-        {"_id": t["_id"], "driver_id": ctx["user_id"]},
-        {"$set": {"status": DELIVERED, "updated_at": now, "tracking_ended_at": now}},
-    )
+    if finalized.modified_count != 1:
+        raise HTTPException(409, "Delivery completed but trip reconciliation is required")
+
     if t.get("vehicle_id"):
         await vehicles.update_one(
             {"_id": await _oid(t["vehicle_id"]), "current_order_id": t["order_id"]},
@@ -274,8 +342,6 @@ async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_onl
     )
     return {"status": DELIVERED}
 
-
-# ---------------- Attendance ----------------
 
 @router.get("/attendance")
 async def get_attendance(ctx: dict = Depends(driver_only)):
@@ -323,8 +389,6 @@ async def checkout(body: GeoBody, ctx: dict = Depends(driver_only)):
     )
     return {"check_out": now.isoformat()}
 
-
-# ---------------- SOS / Incidents ----------------
 
 @router.post("/sos")
 async def raise_sos(body: SosBody, ctx: dict = Depends(driver_only)):
@@ -387,14 +451,11 @@ async def my_sos(ctx: dict = Depends(driver_only)):
     }
 
 
-# ---------------- Live location ----------------
-
 @router.post("/trips/{trip_id}/location")
 async def post_location(trip_id: str, body: LocationBody, ctx: dict = Depends(driver_only)):
     t = await _my_trip(ctx, trip_id)
     if t.get("status") in ("DELIVERED", "DECLINED", "CANCELLED"):
         raise HTTPException(409, "Trip is not active")
-    # Do not accept tracking before a driver has actually started the trip.
     if t.get("status") not in ("EN_ROUTE", "ARRIVED", "UNLOADING", "POD_PENDING"):
         raise HTTPException(409, "Trip tracking has not started")
 
