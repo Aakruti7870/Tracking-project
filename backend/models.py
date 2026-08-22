@@ -157,3 +157,27 @@ class PodBody(BaseModel):
 class GeoBody(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
+
+
+class SosBody(BaseModel):
+    type: str = Field(min_length=1)  # Emergency | Accident | Breakdown | Safety
+    remark: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+class ProductionBatchBody(BaseModel):
+    quantity: float = Field(gt=0)
+    remarks: Optional[str] = None
+
+
+class PaymentBody(BaseModel):
+    amount: float = Field(gt=0)
+    method: Optional[str] = "cash"
+    note: Optional[str] = None
+
+
+class LocationBody(BaseModel):
+    lat: float
+    lng: float
+    accuracy: Optional[float] = None

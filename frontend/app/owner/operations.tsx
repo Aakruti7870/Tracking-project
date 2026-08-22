@@ -1,6 +1,7 @@
 import React from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pressable } from "react-native";
 
@@ -10,17 +11,18 @@ import { AppText } from "@/src/components/ui/AppText";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const SECTIONS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; desc: string }[] = [
-  { key: "production", label: "Production", icon: "cog-outline", desc: "Batches & mix production" },
-  { key: "dispatch", label: "Dispatch", icon: "navigate-outline", desc: "Assign TM & driver, dispatch" },
+  { key: "production", label: "Production", icon: "cog-outline", desc: "Start & complete batching per order", route: "/owner/orders" },
+  { key: "dispatch", label: "Dispatch", icon: "navigate-outline", desc: "Assign TM & driver, dispatch", route: "/owner/orders" },
+  { key: "billing", label: "Billing & Ledger", icon: "wallet-outline", desc: "Invoices, payments & outstanding", route: "/owner/billing" },
+  { key: "incidents", label: "Incidents / SOS", icon: "warning-outline", desc: "Driver emergencies & alerts", route: "/owner/incidents" },
   { key: "fleet", label: "Fleet", icon: "bus-outline", desc: "Transit mixers & status" },
   { key: "stock", label: "Stock", icon: "cube-outline", desc: "Cement, aggregates, diesel" },
-  { key: "drivers", label: "Drivers", icon: "people-outline", desc: "Driver roster & attendance" },
-  { key: "staff", label: "Staff", icon: "person-add-outline", desc: "Add & manage plant staff" },
 ];
 
 export default function OwnerOperations() {
   const { colors } = useTheme();
   const toast = useToast();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
 
   return (
@@ -31,11 +33,11 @@ export default function OwnerOperations() {
         <AppText variant="caption">Plant production, dispatch, fleet & stock</AppText>
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.sm }} showsVerticalScrollIndicator={false}>
-        {SECTIONS.map((s) => (
+        {SECTIONS.map((s: any) => (
           <Pressable
             key={s.key}
             testID={`ops-${s.key}`}
-            onPress={() => toast(`${s.label} arrives in the next phases`, "info")}
+            onPress={() => (s.route ? router.push(s.route) : toast(`${s.label} arrives in the next phases`, "info"))}
             style={[styles.row, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>

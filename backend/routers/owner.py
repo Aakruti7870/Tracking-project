@@ -4,20 +4,27 @@ from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from database import next_sequence, order_status_history, orders, plants, users, vehicles, driver_trips, challans
-from models import AssignDriverBody, AssignTmBody, ChallanBody, RejectOrderBody
+from audit import write_audit
+from database import driver_incidents, invoices, next_sequence, order_status_history, orders, payments, plants, production_batches, users, vehicles, driver_trips, challans
+from models import AssignDriverBody, AssignTmBody, ChallanBody, PaymentBody, ProductionBatchBody, RejectOrderBody
 from notifications import record_notification
 from order_service import (
     ACCEPTED,
     DISPATCHED,
     DRIVER_ASSIGNED,
+    IN_PRODUCTION,
     PENDING,
+    PRODUCTION_COMPLETE,
     READY_TO_DISPATCH,
     REJECTED,
     TM_ASSIGNED,
     owner_plant_ids,
     transition_order,
 )
+
+# Indicative rate card (INR per m³) + GST for auto-invoicing.
+RATE_CARD = {"M10": 3800, "M15": 4100, "M20": 4400, "M25": 4800, "M30": 5200, "M35": 5600, "M40": 6000}
+GST_RATE = 0.18
 from roles import Role
 from security import current_user, require_role
 
@@ -373,3 +380,179 @@ def _serialize_challan(doc: dict) -> dict:
         "remarks": doc.get("remarks"),
         "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
     }
+
+
+# ---------------- Incidents (Driver SOS) ----------------
+
+@router.get("/incidents")
+async def incidents(ctx: dict = Depends(owner_only)):
+    plant_ids = await _scoped_plant_ids(ctx)
+    docs = await driver_incidents.find({"plant_id": {"$in": plant_ids}}).sort("created_at", -1).to_list(200)
+    return {"incidents": [
+        {"id": str(d["_id"]), "type": d.get("type"), "status": d.get("status"),
+         "driver_name": d.get("driver_name"), "vehicle": d.get("vehicle"),
+         "order_number": d.get("order_number"), "remark": d.get("remark"),
+         "lat": d.get("lat"), "lng": d.get("lng"),
+         "created_at": d.get("created_at").isoformat() if d.get("created_at") else None}
+        for d in docs
+    ]}
+
+
+@router.post("/incidents/{incident_id}/resolve")
+async def resolve_incident(incident_id: str, ctx: dict = Depends(owner_only)):
+    plant_ids = await _scoped_plant_ids(ctx)
+    inc = await driver_incidents.find_one({"_id": await _oid(incident_id), "plant_id": {"$in": plant_ids}})
+    if not inc:
+        raise HTTPException(404, "Incident not found")
+    await driver_incidents.update_one({"_id": inc["_id"]}, {"$set": {"status": "RESOLVED"}})
+    await record_notification(inc["driver_id"], "sos_resolved", "SOS resolved",
+                              f"Your {inc.get('type')} alert has been acknowledged.")
+    return {"status": "RESOLVED"}
+
+
+# ---------------- Production Board ----------------
+
+@router.post("/orders/{order_id}/production/start")
+async def start_production(order_id: str, ctx: dict = Depends(owner_only)):
+    order = await _guard_owns(ctx, order_id)
+    if order.get("status") not in (ACCEPTED, "SCHEDULED"):
+        raise HTTPException(409, "Approve the order before starting production")
+    await transition_order(order_id, IN_PRODUCTION, ctx["user_id"], note="Production started",
+                           notify_user_ids=[order["customer_id"]], event="production_started")
+    return {"status": IN_PRODUCTION}
+
+
+@router.post("/orders/{order_id}/production/batch")
+async def add_batch(order_id: str, body: ProductionBatchBody, ctx: dict = Depends(owner_only)):
+    order = await _guard_owns(ctx, order_id)
+    if order.get("status") != IN_PRODUCTION:
+        raise HTTPException(409, "Start production before adding a batch")
+    now = datetime.now(timezone.utc)
+    await production_batches.insert_one({
+        "order_id": order_id, "plant_id": order["plant_id"], "grade": order.get("grade"),
+        "quantity": body.quantity, "remarks": body.remarks, "batcher_id": ctx["user_id"], "created_at": now,
+    })
+    produced = await production_batches.aggregate([
+        {"$match": {"order_id": order_id}}, {"$group": {"_id": None, "total": {"$sum": "$quantity"}}}
+    ]).to_list(1)
+    return {"produced": produced[0]["total"] if produced else body.quantity, "required": order.get("quantity")}
+
+
+@router.post("/orders/{order_id}/production/complete")
+async def complete_production(order_id: str, ctx: dict = Depends(owner_only)):
+    order = await _guard_owns(ctx, order_id)
+    if order.get("status") != IN_PRODUCTION:
+        raise HTTPException(409, "Order is not in production")
+    await transition_order(order_id, PRODUCTION_COMPLETE, ctx["user_id"], note="Production complete",
+                           notify_user_ids=[order["customer_id"]], event="production_complete")
+    return {"status": PRODUCTION_COMPLETE}
+
+
+@router.get("/orders/{order_id}/production")
+async def production_detail(order_id: str, ctx: dict = Depends(owner_only)):
+    order = await _guard_owns(ctx, order_id)
+    batches = await production_batches.find({"order_id": order_id}).sort("created_at", 1).to_list(100)
+    produced = sum(b.get("quantity", 0) for b in batches)
+    return {
+        "status": order.get("status"), "required": order.get("quantity"), "produced": produced,
+        "batches": [{"quantity": b.get("quantity"), "remarks": b.get("remarks"),
+                     "at": b.get("created_at").isoformat() if b.get("created_at") else None} for b in batches],
+    }
+
+
+# ---------------- Invoices & Ledger ----------------
+
+def _serialize_invoice(doc: dict) -> dict:
+    return {
+        "id": str(doc["_id"]),
+        "invoice_number": doc.get("invoice_number"),
+        "order_number": doc.get("order_number"),
+        "customer_name": doc.get("customer_name"),
+        "grade": doc.get("grade"),
+        "quantity": doc.get("quantity"),
+        "rate": doc.get("rate"),
+        "subtotal": doc.get("subtotal"),
+        "gst": doc.get("gst"),
+        "total": doc.get("total"),
+        "paid": doc.get("paid", 0),
+        "balance": round(doc.get("total", 0) - doc.get("paid", 0), 2),
+        "status": doc.get("status"),
+        "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+    }
+
+
+@router.post("/orders/{order_id}/invoice")
+async def create_invoice(order_id: str, ctx: dict = Depends(owner_only)):
+    order = await _guard_owns(ctx, order_id)
+    if order.get("status") != "DELIVERED":
+        raise HTTPException(409, "Invoice can be raised only after delivery")
+    existing = await invoices.find_one({"order_id": order_id})
+    if existing:
+        return {"invoice": _serialize_invoice(existing)}
+    qty = order.get("quantity", 0)
+    rate = RATE_CARD.get(order.get("grade"), 4500)
+    subtotal = round(qty * rate, 2)
+    gst = round(subtotal * GST_RATE, 2)
+    total = round(subtotal + gst, 2)
+    seq = await next_sequence("invoice_number")
+    now = datetime.now(timezone.utc)
+    doc = {
+        "invoice_number": f"INV-{5000 + seq}", "order_id": order_id, "order_number": order.get("order_number"),
+        "plant_id": order["plant_id"], "customer_id": order.get("customer_id"), "customer_name": order.get("customer_name"),
+        "grade": order.get("grade"), "quantity": qty, "rate": rate, "subtotal": subtotal, "gst": gst, "total": total,
+        "paid": 0, "status": "UNPAID", "created_at": now,
+    }
+    res = await invoices.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    await orders.update_one({"_id": order["_id"]}, {"$set": {"invoice_number": doc["invoice_number"]}})
+    return {"invoice": _serialize_invoice(doc)}
+
+
+@router.get("/invoices")
+async def list_invoices(ctx: dict = Depends(owner_only)):
+    plant_ids = await _scoped_plant_ids(ctx)
+    docs = await invoices.find({"plant_id": {"$in": plant_ids}}).sort("created_at", -1).to_list(500)
+    total = sum(d.get("total", 0) for d in docs)
+    paid = sum(d.get("paid", 0) for d in docs)
+    return {
+        "invoices": [_serialize_invoice(d) for d in docs],
+        "summary": {"billed": round(total, 2), "received": round(paid, 2), "outstanding": round(total - paid, 2)},
+    }
+
+
+@router.post("/invoices/{invoice_id}/payment")
+async def record_payment(invoice_id: str, body: PaymentBody, ctx: dict = Depends(owner_only)):
+    plant_ids = await _scoped_plant_ids(ctx)
+    inv = await invoices.find_one({"_id": await _oid(invoice_id), "plant_id": {"$in": plant_ids}})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    balance = round(inv.get("total", 0) - inv.get("paid", 0), 2)
+    if body.amount > balance + 0.01:
+        raise HTTPException(422, f"Amount exceeds outstanding balance ({balance})")
+    now = datetime.now(timezone.utc)
+    await payments.insert_one({
+        "invoice_id": invoice_id, "order_id": inv.get("order_id"), "plant_id": inv["plant_id"],
+        "customer_id": inv.get("customer_id"), "amount": body.amount, "method": body.method,
+        "note": body.note, "created_at": now,
+    })
+    new_paid = round(inv.get("paid", 0) + body.amount, 2)
+    status = "PAID" if new_paid >= inv.get("total", 0) - 0.01 else "PARTIAL"
+    await invoices.update_one({"_id": inv["_id"]}, {"$set": {"paid": new_paid, "status": status}})
+    if inv.get("order_id"):
+        await orders.update_one({"_id": await _oid(inv["order_id"])}, {"$set": {"payment_status": status}})
+    await write_audit(ctx["user_id"], "payment.record", "invoice", invoice_id, {"amount": body.amount})
+    return {"paid": new_paid, "status": status, "balance": round(inv.get("total", 0) - new_paid, 2)}
+
+
+@router.get("/ledger")
+async def ledger(ctx: dict = Depends(owner_only)):
+    plant_ids = await _scoped_plant_ids(ctx)
+    docs = await invoices.find({"plant_id": {"$in": plant_ids}}).to_list(1000)
+    by_customer: dict = {}
+    for d in docs:
+        k = d.get("customer_name") or "Customer"
+        e = by_customer.setdefault(k, {"customer": k, "billed": 0, "paid": 0})
+        e["billed"] = round(e["billed"] + d.get("total", 0), 2)
+        e["paid"] = round(e["paid"] + d.get("paid", 0), 2)
+    rows = [{**e, "balance": round(e["billed"] - e["paid"], 2)} for e in by_customer.values()]
+    return {"ledger": rows}

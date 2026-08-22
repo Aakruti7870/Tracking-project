@@ -153,9 +153,11 @@ export default function OrderDetail() {
               <OwnerDispatchPanel
                 orderId={String(id)}
                 status={o.status}
+                quantity={o.quantity}
                 tmNumber={o.tm_number}
                 driverName={o.driver_name}
                 challanNumber={o.challan_number}
+                invoiceNumber={(o as any).invoice_number}
                 onChanged={reload}
                 onViewChallan={() => router.push(`/challan/${id}` as any)}
               />
@@ -169,6 +171,9 @@ export default function OrderDetail() {
                     Your transit mixer is on the way. Live map tracking activates with the Maps key.
                   </AppText>
                 </Card>
+              ) : null}
+              {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? (
+                <Button testID="order-track-live" label="Track Live" onPress={() => router.push(`/track/${id}` as any)} icon={<Ionicons name="navigate" size={18} color={colors.onBrand} />} />
               ) : null}
               {o.driver_mobile ? (
                 <Button testID="order-call-driver" label="Call Driver" variant="secondary" onPress={() => Linking.openURL(`tel:${o.driver_mobile}`)} icon={<Ionicons name="call-outline" size={18} color={colors.onSurface} />} />

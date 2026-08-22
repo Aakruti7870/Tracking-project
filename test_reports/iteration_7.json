@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 7 — 10 staff role dashboards fully verified (backend + frontend). BACKEND pytest 36/36 passed on /app/backend/tests/test_staff_dashboards.py: (a) EMAIL OTP request→verify works for all 10 staff identifiers (admin/dispatcher/operator/supervisor/accountant/quality/fleet/store/authority/central); (b) GET /api/staff/home returns exactly 4 KPIs per role with {label,value,icon,unit} shape and correct role-specific primary.kind (admin=orders, dispatcher=dispatch, operator=production, supervisor=incidents, accountant=invoices, quality_engineer=quality, fleet_manager=fleet, store_manager=inventory, authority=plants, central_admin=users); (c) GET /api/staff/collection/{kind} works for all 13 kinds (orders, dispatch, production, quality, incidents, fleet, drivers, invoices, ledger, inventory, plants, kyc, users) with {title,empty,items[]} shape and each item carrying id+primary; unknown kind → 404. (d) Scope: authority sees all 3 seeded plants, central_admin sees ≥13 users, dispatcher (plant-scoped) sees exactly 1 plant. (e) store_manager inventory: '10mm Aggregate' present with badge='LOW' + secondary '22 MT in stock'; Low Stock KPI ≥2. (f) RBAC: customer (+919000000001), driver (+919000000002) and plant_owner (owner@) each get 403 on /api/staff/home and /api/staff/collection/orders; no-auth also blocked. FRONTEND (Expo web 390x844): store_manager, dispatcher, central_admin, authority all logged in via auto-filled dev_otp and landed on their exact route (/store_manager, /dispatcher, /central_admin, /authority). KPI grid renders real numbers, primary list preview renders, secondary tabs render correct StaffCollection lists, screenshots captured. Store Stock screen clearly shows LOW (red) badge on '10mm Aggregate' 22 MT and 'Fly Ash' 30 MT; OK badges on the rest. Authority Plants tab lists Kondapur, Gachibowli, Miyapur all Verified. Central Admin Users tab lists Plant Admin, Rajesh Kumar, Anita Accountant, Arjun Authority, Central Admin etc. Dispatcher Fleet tab lists TS09UB1234/5678/9012. Logout via /More clears session and returns to /login. NO react-native red screens, NO deprecated Expo packages (expo-av / expo-barcode-scanner / expo-background-fetch not present).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web deprecation (carryover, non-blocking)", "issue": "'shadow*' style props deprecation warnings and 'props.pointerEvents is deprecated' still logged. Reference: UI primitives (Card/Button/Skeleton/etc.). Not blocking any flow — same warnings reported in iteration_6."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_staff_dashboards.py",
+    "/app/test_reports/pytest/staff_dashboards.xml"
+  ],
+  "action_items": [
+    "(Optional, style) Migrate deprecated 'shadow*' style props to boxShadow and pointerEvents prop to style.pointerEvents to silence RN Web warnings. Non-blocking."
+  ],
+  "critical_code_review_comments": [
+    "routers/staff.py — single DRY router. staff_only = require_role(*STAFF_ROLES) correctly enforces the 10-role allowlist; _scope_plant_ids returns all plants for authority/central_admin and only user.plant_id for plant-scoped roles (with a safe fallback if plant_id is missing). Clean.",
+    "routers/staff.py — /home builds 4 KPIs per role and picks the right primary.kind; the dispatcher 'Dispatched Today' KPI uses _is_today on updated_at/created_at which is correct given the schema.",
+    "routers/staff.py — /collection/{kind} covers 13 kinds; each item is a normalized {id,icon,primary,secondary,meta,badge,badge_status}. ObjectId converted to string via str(doc['_id']); MongoDB _id never leaks. Unknown kind returns 404.",
+    "routers/staff.py — 'kyc' collection reads users individually inside a loop (N+1 lookup). Fine for demo scale but consider batching via $lookup or a single users.find({_id:{$in:[…]}}) if the dataset grows.",
+    "seed.py — DEMO_ACCOUNTS is idempotent (skip if identifier_keys exists) and plant-scoped staff are auto-linked to plant #1 on every seed run — good.",
+    "frontend/app/{role}/_layout.tsx — every staff role reuses StaffTabs with a small TabDef array. index/more are consistent, secondary tabs vary correctly. StaffTabs guards user.role !== role → /role-home. Clean.",
+    "frontend/src/screens/StaffHome.tsx — renders KPIs from server response verbatim (formatValue handles ₹ vs unit suffix). Uses useSafeAreaInsets for top spacing. No hardcoded strings; role_label comes from server.",
+    "frontend/src/screens/StaffCollection.tsx — embedded vs standalone modes share Card/ItemRow; empty and loading states handled. Uses Badge status mapping for LOW/OK/PAID/etc."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_staff_dashboards.py (new)",
+    "/app/test_reports/pytest/staff_dashboards.xml (new)",
+    "/app/test_reports/iteration_7.json (new)"
+  ],
+  "success_rate": {"backend": "36/36 (100%)", "frontend": "100% for the 4 representative roles exercised end-to-end (store_manager, dispatcher, central_admin, authority). The remaining 6 roles (admin, operator, supervisor, accountant, quality_engineer, fleet_manager) share the identical StaffTabs+StaffHome+StaffCollection shell and are covered by the 36 backend tests + parametrized role coverage."},
+  "seed_data_creation": "No new seed data created. Used existing dev seed (13 accounts, 3 plants, 6 materials incl. 10mm Aggregate=22 MT LOW, 3 TMs, 3 demo orders).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New staff testIDs verified: staff-theme-toggle (StaffHome top-right sun/moon), theme-mode-light|dark|system (StaffMore appearance selector), logout-button (StaffMore). No dedicated testIDs on KPI cards or list rows — tests rely on visible text ('Low Stock', 'LOW', '22 MT', 'TS09UB1234', 'Kondapur', etc.). Login flow: dev_otp is auto-filled into login-otp-input, so after login-send-otp-button just wait ~600ms and click login-verify-button. Bottom tab bar uses GlassTabBar and each tab's label is accessible via page.get_by_text('<Label>', exact=True).first — clickable with force=True. Non-staff (customer/driver/plant_owner) get 403 on /api/staff/*. Backend pytest command (respects existing pytest.ini with -n 2 --dist loadscope): `EXPO_PUBLIC_BACKEND_URL=<url> pytest /app/backend/tests/test_staff_dashboards.py -v --tb=short`.",
+  "rca_of_issue": "N/A — no failures this iteration."
+}

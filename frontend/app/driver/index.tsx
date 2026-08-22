@@ -32,6 +32,9 @@ export default function DriverHome() {
           <AppText variant="caption">Driver</AppText>
           <AppText variant="title" numberOfLines={1}>{user?.name}</AppText>
         </View>
+        <Pressable testID="driver-sos" onPress={() => router.push("/sos")} style={[styles.iconBtn, { borderColor: colors.error, backgroundColor: colors.error + "1A" }]}>
+          <Ionicons name="warning-outline" size={20} color={colors.error} />
+        </Pressable>
         <Pressable testID="driver-theme-toggle" onPress={toggle} style={[styles.iconBtn, { borderColor: colors.border }]}>
           <Ionicons name={scheme === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.onSurface} />
         </Pressable>

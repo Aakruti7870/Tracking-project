@@ -5,8 +5,8 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from audit import write_audit
-from database import attendance, driver_trips, orders, proof_of_delivery, trip_status_history, vehicles
-from models import GeoBody, PodBody
+from database import attendance, driver_incidents, driver_trips, orders, plants, proof_of_delivery, trip_status_history, vehicle_locations, vehicles
+from models import GeoBody, LocationBody, PodBody, SosBody
 from notifications import record_notification
 from order_service import (
     AT_SITE,
@@ -197,3 +197,71 @@ async def checkout(body: GeoBody, ctx: dict = Depends(driver_only)):
     now = datetime.now(timezone.utc)
     await attendance.update_one({"_id": existing["_id"]}, {"$set": {"check_out": now}})
     return {"check_out": now.isoformat()}
+
+
+# ---------------- SOS / Incidents ----------------
+
+@router.post("/sos")
+async def raise_sos(body: SosBody, ctx: dict = Depends(driver_only)):
+    uid = ctx["user_id"]
+    active = await driver_trips.find_one(
+        {"driver_id": uid, "status": {"$nin": ["DELIVERED", "DECLINED", "CANCELLED"]}}
+    )
+    plant_id = ctx["user"].get("plant_id") or (active.get("plant_id") if active else None)
+    now = datetime.now(timezone.utc)
+    doc = {
+        "driver_id": uid,
+        "driver_name": ctx["user"].get("name"),
+        "plant_id": plant_id,
+        "trip_id": str(active["_id"]) if active else None,
+        "order_number": active.get("order_number") if active else None,
+        "vehicle": active.get("tm_number") if active else None,
+        "type": body.type,
+        "remark": body.remark,
+        "lat": body.lat,
+        "lng": body.lng,
+        "status": "OPEN",
+        "created_at": now,
+    }
+    res = await driver_incidents.insert_one(doc)
+    await write_audit(uid, "driver.sos", "incident", str(res.inserted_id), {"type": body.type})
+
+    # Notify the plant owner (durable in-app record — not a fake claim).
+    notified = False
+    if plant_id:
+        plant = await plants.find_one({"_id": await _oid(plant_id)})
+        if plant and plant.get("owner_id"):
+            await record_notification(
+                plant["owner_id"], "sos",
+                f"SOS: {body.type} — {ctx['user'].get('name')}",
+                body.remark or f"{ctx['user'].get('name')} raised a {body.type} alert.",
+            )
+            notified = True
+    return {"id": str(res.inserted_id), "status": "OPEN", "supervisor_notified": notified}
+
+
+@router.get("/sos")
+async def my_sos(ctx: dict = Depends(driver_only)):
+    docs = await driver_incidents.find({"driver_id": ctx["user_id"]}).sort("created_at", -1).to_list(100)
+    return {"incidents": [
+        {"id": str(d["_id"]), "type": d.get("type"), "status": d.get("status"),
+         "remark": d.get("remark"), "order_number": d.get("order_number"),
+         "created_at": d.get("created_at").isoformat() if d.get("created_at") else None}
+        for d in docs
+    ]}
+
+
+# ---------------- Live location ----------------
+
+@router.post("/trips/{trip_id}/location")
+async def post_location(trip_id: str, body: LocationBody, ctx: dict = Depends(driver_only)):
+    t = await _my_trip(ctx, trip_id)
+    if t.get("status") in ("DELIVERED", "DECLINED", "CANCELLED"):
+        raise HTTPException(409, "Trip is not active")
+    now = datetime.now(timezone.utc)
+    doc = {"trip_id": trip_id, "order_id": t.get("order_id"), "driver_id": ctx["user_id"],
+           "vehicle_id": t.get("vehicle_id"), "lat": body.lat, "lng": body.lng,
+           "accuracy": body.accuracy, "created_at": now}
+    await vehicle_locations.insert_one(doc)
+    await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"last_lat": body.lat, "last_lng": body.lng, "last_location_at": now}})
+    return {"ok": True}

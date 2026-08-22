@@ -101,3 +101,26 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## FEATURE: 10 Staff Role Dashboards (2026-06)
+## backend:
+##   - task: "Staff role dashboards router /api/staff (home + collections)"
+##     implemented: true
+##     working: "NA"
+##     file: "backend/routers/staff.py"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "New DRY router serving role-aware /api/staff/home (KPIs) and /api/staff/collection/{kind} for 10 roles: admin, dispatcher, operator, supervisor, accountant, quality_engineer, fleet_manager, store_manager, authority, central_admin. Verified via curl for dispatcher/store/authority/central/accountant. Seeded 9 new staff accounts + materials collection."
+## frontend:
+##   - task: "Role dashboards (tab shells + generic StaffHome/StaffCollection/StaffMore)"
+##     implemented: true
+##     working: "NA"
+##     file: "frontend/app/{role}/, frontend/src/screens/Staff*.tsx"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "Each of 10 roles has a GlassTabBar tab shell routing to StaffHome (KPI grid + primary list preview) and StaffCollection tabs + StaffMore. index.tsx routes each role to its folder."

@@ -35,6 +35,44 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 6 (All 10 remaining role dashboards) ✅
+- Added dashboards for the 10 non-customer/driver/owner roles: **admin, dispatcher,
+  operator, supervisor, accountant, quality_engineer, fleet_manager, store_manager,
+  authority, central_admin**. Each is an email-OTP login → its own GlassTabBar tab shell.
+- DRY backend `routers/staff.py`: role-aware `GET /api/staff/home` (4 KPIs + primary
+  list) and generic `GET /api/staff/collection/{kind}` (13 kinds: orders, dispatch,
+  production, quality, incidents, fleet, drivers, invoices, ledger, inventory, plants,
+  kyc, users). All data real from existing collections; RBAC-guarded to the 10 staff roles.
+- Plant-scoped roles see their plant only; authority & central_admin see the whole platform.
+- New `materials` collection + seed (6 SKUs, incl. a LOW-stock alert) for store_manager.
+- Seeded 9 new staff accounts (see test_credentials.md). Frontend: shared
+  `StaffTabs/StaffHome/StaffCollection/StaffMore` screens keep per-role code tiny.
+- Tests: 36/36 backend pytest pass; 4 roles verified E2E on web, rest share the shell.
+
+### 2026-06 — MAPS integration (BLOCKED on key) ⛔
+- User provided Google Maps key `AIzaSy…neA0`, but it is **HTTP-referrer restricted**
+  and blocks server-side + our preview domain for Places/Geocoding/Routes/Maps-JS.
+  Legacy Places/Directions APIs are also disabled on the project. Real maps cannot be
+  wired until the user supplies a server-usable key (Application restriction = None or
+  IP, with Places API New + Geocoding API + Routes API enabled). Tracking still uses the
+  on-brand placeholder. NOT STARTED pending a working key.
+
+### 2026-06 — PHASE 5 (SOS, Invoice/Ledger, Production, Tracking pipeline) ✅
+- **Driver SOS**: type picker (Emergency/Accident/Breakdown/Safety) + note + GPS;
+  persists incident, notifies plant owner (durable in-app record, no fake claims).
+  Owner Incidents screen to acknowledge/resolve.
+- **Invoice & Ledger**: owner generates an invoice from a DELIVERED order (rate card
+  per grade + 18% GST), records payments (PARTIAL/PAID, updates order payment_status),
+  Billing screen with billed/received/outstanding KPIs + per-customer ledger.
+- **Production Board**: optional ACCEPTED→IN_PRODUCTION→(batches)→PRODUCTION_COMPLETE
+  path on the owner order detail before assigning a mixer.
+- **Live Tracking pipeline**: driver location endpoint + customer tracking endpoint
+  (scoped, auto-stops after delivery, 15s poll). Map is the on-brand placeholder that
+  upgrades to real Google Maps once a Maps API key is provided (NOT_CONFIGURED).
+- New collections: driver_incidents, invoices, payments, production_batches, vehicle_locations.
+- Tests: 16/17 backend pass (1 test-runner parallelization artifact, not a bug); all
+  new frontend flows verified.
+
 ### 2026-06 — PHASE 4 (Driver App + Proof of Delivery) ✅
 - Driver tab shell (`/driver`: Home / Trips / Attendance / More) with role routing.
 - Driver **trip state machine**: DISPATCHED → EN_ROUTE (Start Trip) → ARRIVED

@@ -19,6 +19,31 @@ DEMO_ACCOUNTS = [
     {"name": "Suresh Driver", "phone": "+919000000002", "role": Role.DRIVER.value},
     {"name": "Concrete King (Owner)", "email": "owner@trackmyrmc.test", "role": Role.PLANT_OWNER.value},
     {"name": "Plant Admin", "email": "admin@trackmyrmc.test", "role": Role.ADMIN.value},
+    {"name": "Deepak Dispatcher", "email": "dispatcher@trackmyrmc.test", "role": Role.DISPATCHER.value},
+    {"name": "Om Operator", "email": "operator@trackmyrmc.test", "role": Role.OPERATOR.value},
+    {"name": "Sunil Supervisor", "email": "supervisor@trackmyrmc.test", "role": Role.SUPERVISOR.value},
+    {"name": "Anita Accountant", "email": "accountant@trackmyrmc.test", "role": Role.ACCOUNTANT.value},
+    {"name": "Qadir Quality", "email": "quality@trackmyrmc.test", "role": Role.QUALITY_ENGINEER.value},
+    {"name": "Farhan Fleet", "email": "fleet@trackmyrmc.test", "role": Role.FLEET_MANAGER.value},
+    {"name": "Sita Store", "email": "store@trackmyrmc.test", "role": Role.STORE_MANAGER.value},
+    {"name": "Arjun Authority", "email": "authority@trackmyrmc.test", "role": Role.AUTHORITY.value},
+    {"name": "Central Admin", "email": "central@trackmyrmc.test", "role": Role.CENTRAL_ADMIN.value},
+]
+
+# Plant-scoped staff roles get linked to the first demo plant.
+PLANT_STAFF_ROLES = {
+    Role.ADMIN.value, Role.DISPATCHER.value, Role.OPERATOR.value,
+    Role.SUPERVISOR.value, Role.ACCOUNTANT.value, Role.QUALITY_ENGINEER.value,
+    Role.FLEET_MANAGER.value, Role.STORE_MANAGER.value,
+}
+
+DEMO_MATERIALS = [
+    {"name": "Cement (OPC 53)", "unit": "MT", "stock": 120, "reorder": 50},
+    {"name": "River Sand", "unit": "MT", "stock": 80, "reorder": 40},
+    {"name": "20mm Aggregate", "unit": "MT", "stock": 65, "reorder": 40},
+    {"name": "10mm Aggregate", "unit": "MT", "stock": 22, "reorder": 40},
+    {"name": "Admixture (SP)", "unit": "L", "stock": 450, "reorder": 200},
+    {"name": "Fly Ash", "unit": "MT", "stock": 30, "reorder": 35},
 ]
 
 DEMO_PLANTS = [
@@ -92,6 +117,19 @@ async def run_seed() -> None:
     # Link the demo driver to the first plant so it can be assigned.
     if driver_id and plant_ids:
         await users.update_one({"_id": ObjectId(driver_id)}, {"$set": {"plant_id": plant_ids[0]}})
+
+    # Link plant-scoped staff (admin, dispatcher, operator, etc.) to the first plant.
+    if plant_ids:
+        for role, uid in user_ids.items():
+            if role in PLANT_STAFF_ROLES:
+                await users.update_one({"_id": ObjectId(uid)}, {"$set": {"plant_id": plant_ids[0]}})
+
+    # Materials (store inventory) for the first plant.
+    from database import materials
+
+    if plant_ids and await materials.count_documents({"plant_id": plant_ids[0]}) == 0:
+        await materials.insert_many([{**m, "plant_id": plant_ids[0]} for m in DEMO_MATERIALS])
+        logger.info("seeded %d materials", len(DEMO_MATERIALS))
 
     # Vehicles (transit mixers) for the first plant.
     from database import vehicles

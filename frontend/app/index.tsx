@@ -9,6 +9,16 @@ const ROUTED_ROLES: Record<string, string> = {
   customer: "/customer",
   plant_owner: "/owner",
   driver: "/driver",
+  admin: "/admin",
+  dispatcher: "/dispatcher",
+  operator: "/operator",
+  supervisor: "/supervisor",
+  accountant: "/accountant",
+  quality_engineer: "/quality_engineer",
+  fleet_manager: "/fleet_manager",
+  store_manager: "/store_manager",
+  authority: "/authority",
+  central_admin: "/central_admin",
 };
 
 export default function Index() {

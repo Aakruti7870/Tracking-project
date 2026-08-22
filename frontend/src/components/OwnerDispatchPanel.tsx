@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { apiGet, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
@@ -18,23 +19,28 @@ type Driver = { id: string; name: string; phone: string };
 export function OwnerDispatchPanel({
   orderId,
   status,
+  quantity,
   tmNumber,
   driverName,
   challanNumber,
+  invoiceNumber,
   onChanged,
   onViewChallan,
 }: {
   orderId: string;
   status: string;
+  quantity?: number;
   tmNumber?: string | null;
   driverName?: string | null;
   challanNumber?: string | null;
+  invoiceNumber?: string | null;
   onChanged: () => void;
   onViewChallan: () => void;
 }) {
   const { colors } = useTheme();
   const { token } = useAuth();
   const toast = useToast();
+  const router = useRouter();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [busy, setBusy] = useState(false);
@@ -43,7 +49,6 @@ export function OwnerDispatchPanel({
   const needDriver = status === "TM_ASSIGNED";
   const needChallan = status === "DRIVER_ASSIGNED";
   const needDispatch = status === "READY_TO_DISPATCH";
-  const dispatched = ["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING", "DELIVERED"].includes(status);
 
   useEffect(() => {
     if (!token) return;
@@ -66,6 +71,9 @@ export function OwnerDispatchPanel({
 
   if (status === "PENDING" || status === "REJECTED" || status === "CANCELLED" || status === "DRAFT") return null;
 
+  const inProduction = status === "IN_PRODUCTION";
+  const delivered = ["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING", "DELIVERED"].includes(status);
+
   return (
     <View style={{ gap: spacing.md }}>
       <AppText variant="heading">Dispatch</AppText>
@@ -75,8 +83,20 @@ export function OwnerDispatchPanel({
         <StepLine done={!!tmNumber} label="Transit Mixer" value={tmNumber || "Not assigned"} colors={colors} />
         <StepLine done={!!driverName} label="Driver" value={driverName || "Not assigned"} colors={colors} />
         <StepLine done={!!challanNumber} label="Challan" value={challanNumber || "Not generated"} colors={colors} />
-        <StepLine done={dispatched} label="Dispatched" value={dispatched ? "Yes — tracking live" : "Pending"} colors={colors} />
+        <StepLine done={delivered} label="Dispatched" value={delivered ? "Yes — tracking live" : "Pending"} colors={colors} />
       </Card>
+
+      {/* Production board (optional path before assigning a mixer) */}
+      {status === "ACCEPTED" ? (
+        <Button testID="start-production" label="Start Production" variant="outline" loading={busy} onPress={() => call(`/owner/orders/${orderId}/production/start`, {}, "Production started")} icon={<Ionicons name="cog-outline" size={18} color={colors.onSurface} />} />
+      ) : null}
+      {inProduction ? (
+        <Card style={{ gap: spacing.sm }}>
+          <AppText variant="label">Production in progress</AppText>
+          <Button testID="add-batch" label={`Add Batch${quantity ? ` (${quantity} m³)` : ""}`} variant="secondary" loading={busy} onPress={() => call(`/owner/orders/${orderId}/production/batch`, { quantity: quantity || 1 }, "Batch recorded")} icon={<Ionicons name="add-outline" size={18} color={colors.onSurface} />} />
+          <Button testID="complete-production" label="Complete Production" loading={busy} onPress={() => call(`/owner/orders/${orderId}/production/complete`, {}, "Production complete")} />
+        </Card>
+      ) : null}
 
       {needTm ? (
         <Card style={{ gap: spacing.sm }}>
@@ -138,8 +158,18 @@ export function OwnerDispatchPanel({
         </View>
       ) : null}
 
-      {dispatched && challanNumber ? (
+      {delivered && challanNumber ? (
         <Button testID="view-challan" label="View Challan" variant="secondary" onPress={onViewChallan} icon={<Ionicons name="document-text-outline" size={18} color={colors.onSurface} />} />
+      ) : null}
+
+      {status === "DELIVERED" ? (
+        <View style={{ gap: spacing.sm }}>
+          {invoiceNumber ? (
+            <Button testID="view-billing" label={`View Billing (${invoiceNumber})`} onPress={() => router.push("/owner/billing")} icon={<Ionicons name="wallet-outline" size={18} color={colors.onBrand} />} />
+          ) : (
+            <Button testID="generate-invoice" label="Generate Invoice" loading={busy} onPress={() => call(`/owner/orders/${orderId}/invoice`, {}, "Invoice generated")} icon={<Ionicons name="receipt-outline" size={18} color={colors.onBrand} />} />
+          )}
+        </View>
       ) : null}
     </View>
   );

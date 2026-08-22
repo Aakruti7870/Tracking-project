@@ -119,7 +119,7 @@ export default function CustomerHome() {
                     </View>
                     <Pressable
                       testID="track-active-order"
-                      onPress={() => toast("Live tracking arrives in the dispatch phase", "info")}
+                      onPress={() => router.push(`/track/${data.active_order!.id}` as any)}
                       style={[styles.trackBtn, { backgroundColor: colors.brand }]}
                     >
                       <Ionicons name="navigate" size={16} color={colors.onBrand} />

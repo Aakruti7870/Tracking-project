@@ -59,6 +59,12 @@ trip_status_history = db.trip_status_history
 challans = db.challans
 proof_of_delivery = db.proof_of_delivery
 attendance = db.attendance
+driver_incidents = db.driver_incidents
+invoices = db.invoices
+payments = db.payments
+production_batches = db.production_batches
+vehicle_locations = db.vehicle_locations
+materials = db.materials
 
 
 async def next_sequence(name: str) -> int:

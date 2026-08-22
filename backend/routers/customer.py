@@ -12,6 +12,7 @@ from database import (
     order_status_history,
     orders,
     plants,
+    vehicle_locations,
     next_sequence,
 )
 from models import CreateOrderBody
@@ -238,6 +239,33 @@ async def plant_detail(plant_id: str, ctx: dict = Depends(customer_only)):
     if not plant:
         raise HTTPException(404, "Plant not found")
     return _serialize_plant(plant)
+
+
+ACTIVE_TRACK = {"DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"}
+
+
+@router.get("/orders/{order_id}/tracking")
+async def track_order(order_id: str, ctx: dict = Depends(customer_only)):
+    order = await orders.find_one({"_id": await _oid(order_id), "customer_id": ctx["user_id"]})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    active = order.get("status") in ACTIVE_TRACK
+    loc = None
+    if active:
+        last = await vehicle_locations.find({"order_id": order_id}).sort("created_at", -1).to_list(1)
+        if last:
+            loc = {"lat": last[0]["lat"], "lng": last[0]["lng"],
+                   "at": last[0]["created_at"].isoformat() if last[0].get("created_at") else None}
+    return {
+        "active": active,
+        "status": order.get("status"),
+        "tm_number": order.get("tm_number"),
+        "driver_name": order.get("driver_name"),
+        "driver_mobile": order.get("driver_mobile"),
+        "destination": {"lat": order.get("lat"), "lng": order.get("lng"),
+                        "site_name": order.get("site_name"), "address": order.get("site_address")},
+        "location": loc,
+    }
 
 
 @router.get("/orders/{order_id}/challan")
