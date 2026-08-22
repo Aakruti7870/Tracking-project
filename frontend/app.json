@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.emergent.rmcfleetops.m06ads",
       "infoPlist": {
         "NSCameraUsageDescription": "Capture site photos for proof of delivery",
-        "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery"
+        "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery",
+        "NSLocationWhenInUseUsageDescription": "Track your assigned concrete delivery while the trip screen is open"
       }
     },
     "android": {
@@ -23,7 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.rmcfleetops.m06ads",
-      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +33,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow TrackMyRMC to share your location during an active delivery"
+        }
+      ],
       [
         "expo-splash-screen",
         {

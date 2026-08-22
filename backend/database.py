@@ -67,6 +67,7 @@ vehicle_locations = db.vehicle_locations
 materials = db.materials
 stock_movements = db.stock_movements
 quality_tests = db.quality_tests
+storage_objects = db.storage_objects
 
 
 async def next_sequence(name: str) -> int:
@@ -86,3 +87,28 @@ async def ensure_indexes() -> None:
     await sessions.create_index("expires_at", expireAfterSeconds=0)
     await otps.create_index([("identifier_key", 1), ("created_at", -1)])
     await users.create_index("identifier_keys")
+    await sessions.create_index([("user_id", 1), ("revoked", 1)])
+    await plants.create_index([("status", 1), ("verified", 1)])
+    await orders.create_index("customer_id")
+    await orders.create_index("plant_id")
+    await orders.create_index("status")
+    await orders.create_index([("plant_id", 1), ("status", 1)])
+    await orders.create_index([("customer_id", 1), ("created_at", -1)])
+    await kyc_profiles.create_index([("user_id", 1), ("purpose", 1)], unique=True)
+    await order_status_history.create_index([("order_id", 1), ("created_at", 1)])
+    await notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await vehicles.create_index([("plant_id", 1), ("status", 1)])
+    await driver_trips.create_index([("driver_id", 1), ("status", 1)])
+    await driver_trips.create_index("order_id", unique=True)
+    await trip_status_history.create_index([("trip_id", 1), ("created_at", 1)])
+    await challans.create_index("order_id", unique=True)
+    await proof_of_delivery.create_index("trip_id", unique=True)
+    await proof_of_delivery.create_index("order_id", unique=True)
+    await attendance.create_index([("driver_id", 1), ("date", 1)], unique=True)
+    await driver_incidents.create_index([("plant_id", 1), ("created_at", -1)])
+    for collection in (invoices, payments, production_batches, materials, stock_movements, quality_tests):
+        await collection.create_index("plant_id")
+    await vehicle_locations.create_index([("trip_id", 1), ("created_at", -1)])
+    await vehicle_locations.create_index([("order_id", 1), ("created_at", -1)])
+    await storage_objects.create_index("path", unique=True)
+    await storage_objects.create_index([("order_id", 1), ("purpose", 1)])

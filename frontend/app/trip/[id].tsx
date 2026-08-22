@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiPost } from "@/src/api/client";
@@ -41,10 +42,46 @@ export default function TripDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, loading, error, reload } = useGet<Detail>(`/driver/trips/${id}`);
   const [busy, setBusy] = useState(false);
+  const [locationState, setLocationState] = useState<string | null>(null);
+  const watcher = useRef<Location.LocationSubscription | null>(null);
 
   const t = data?.trip;
   const action = t ? ACTIONS[t.status] : undefined;
   const stageIdx = t ? STAGES.indexOf(t.status === "POD_PENDING" ? "UNLOADING" : t.status) : -1;
+
+  useEffect(() => {
+    let cancelled = false;
+    const trackingActive = !!t && ["DISPATCHED", "EN_ROUTE", "ARRIVED", "UNLOADING", "POD_PENDING"].includes(t.status);
+    watcher.current?.remove();
+    watcher.current = null;
+    if (!trackingActive || !token || !id) return;
+    (async () => {
+      try {
+        const services = await Location.hasServicesEnabledAsync();
+        if (!services) throw new Error("Location services are disabled");
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== "granted") throw new Error("Location permission denied");
+        if (cancelled) return;
+        watcher.current = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 25 },
+          async ({ coords, timestamp }) => {
+            if (cancelled) return;
+            try {
+              await apiPost(`/driver/trips/${id}/location`, token, {
+                lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy,
+              });
+              setLocationState(`Location updated ${new Date(timestamp).toLocaleTimeString()}`);
+            } catch {
+              setLocationState("Location update failed; retrying");
+            }
+          },
+        );
+      } catch (error) {
+        setLocationState(error instanceof Error ? error.message : "GPS unavailable");
+      }
+    })();
+    return () => { cancelled = true; watcher.current?.remove(); watcher.current = null; };
+  }, [id, t?.status, token]);
 
   const advance = async (path: string, msg: string) => {
     setBusy(true);
@@ -102,6 +139,7 @@ export default function TripDetail() {
             <Row icon="bus-outline" label="Transit Mixer" value={t.tm_number} colors={colors} />
             <Row icon="location-outline" label="Site" value={`${t.site_name}${data?.site_address ? " — " + data.site_address : ""}`} colors={colors} />
           </Card>
+          {locationState ? <AppText variant="caption">{locationState}</AppText> : null}
 
           {t.status === "DELIVERED" ? (
             <Card style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center", backgroundColor: colors.success + "1A", borderColor: colors.success + "55" }}>

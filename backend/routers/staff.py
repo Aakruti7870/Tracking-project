@@ -88,9 +88,8 @@ async def _scope_plant_ids(ctx: dict) -> list[str]:
         return [str(p["_id"]) for p in docs]
     pid = ctx["user"].get("plant_id")
     if not pid:
-        # fall back to any active plant so freshly-seeded staff still see data
-        docs = await plants.find({}).to_list(500)
-        return [str(p["_id"]) for p in docs]
+        # Missing tenant assignment must fail closed; never widen to all plants.
+        raise HTTPException(403, "Staff account is not assigned to a plant")
     return [pid]
 
 

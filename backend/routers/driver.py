@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
 from database import attendance, driver_incidents, driver_trips, orders, plants, proof_of_delivery, trip_status_history, vehicle_locations, vehicles
@@ -100,11 +101,25 @@ async def _advance(ctx: dict, trip_id: str, step: str):
     if t.get("status") not in allowed:
         raise HTTPException(409, f"Cannot {step} a trip that is {t.get('status')}")
     now = datetime.now(timezone.utc)
-    await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"status": trip_target, "updated_at": now}})
-    await trip_status_history.insert_one({"trip_id": trip_id, "to_status": trip_target, "actor_id": ctx["user_id"], "created_at": now})
+    changed = await driver_trips.update_one(
+        {"_id": t["_id"], "driver_id": ctx["user_id"], "status": {"$in": allowed}},
+        {"$set": {"status": trip_target, "updated_at": now}},
+    )
+    if changed.modified_count != 1:
+        raise HTTPException(409, "Trip status changed concurrently; refresh and retry")
     order = await orders.find_one({"_id": await _oid(t["order_id"])})
     notify = [order["customer_id"]] if order else []
-    await transition_order(t["order_id"], order_target, ctx["user_id"], note=f"Driver: {trip_target.replace('_',' ').title()}", notify_user_ids=notify, event=f"trip_{trip_target.lower()}")
+    try:
+        await transition_order(t["order_id"], order_target, ctx["user_id"], note=f"Driver: {trip_target.replace('_',' ').title()}", notify_user_ids=notify, event=f"trip_{trip_target.lower()}")
+    except Exception:
+        # Standalone Mongo deployments may not support transactions. Roll back
+        # only if nobody has advanced this trip since our compare-and-set.
+        await driver_trips.update_one(
+            {"_id": t["_id"], "status": trip_target},
+            {"$set": {"status": t.get("status"), "updated_at": now, "sync_error": True}},
+        )
+        raise
+    await trip_status_history.insert_one({"trip_id": trip_id, "from_status": t.get("status"), "to_status": trip_target, "actor_id": ctx["user_id"], "created_at": now})
     return {"status": trip_target}
 
 
@@ -126,9 +141,28 @@ async def unload(trip_id: str, ctx: dict = Depends(driver_only)):
 @router.post("/trips/{trip_id}/pod")
 async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_only)):
     t = await _my_trip(ctx, trip_id)
+    existing = await proof_of_delivery.find_one({"trip_id": trip_id})
+    if t.get("status") == DELIVERED and existing:
+        if (existing.get("receiver_name") == body.receiver_name and
+                existing.get("delivered_quantity") == body.delivered_quantity):
+            return {"status": DELIVERED, "idempotent": True}
+        raise HTTPException(409, "Proof of delivery is already finalized")
     if t.get("status") not in ("UNLOADING", "ARRIVED", "POD_PENDING"):
         raise HTTPException(409, "Start unloading before submitting proof of delivery")
     now = datetime.now(timezone.utc)
+    order = await orders.find_one({"_id": await _oid(t["order_id"])})
+    if not order or str(order.get("_id")) != t.get("order_id"):
+        raise HTTPException(409, "Trip order is unavailable")
+    ordered_quantity = float(order.get("quantity") or 0)
+    if body.delivered_quantity > ordered_quantity * 1.10:
+        raise HTTPException(422, "Delivered quantity exceeds allowed order tolerance")
+    claimed = await driver_trips.update_one(
+        {"_id": t["_id"], "driver_id": ctx["user_id"], "order_id": t["order_id"],
+         "status": {"$in": ["UNLOADING", "ARRIVED", "POD_PENDING"]}},
+        {"$set": {"status": "POD_FINALIZING", "updated_at": now}},
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(409, "Delivery is already being finalized")
     pod_doc = {
         "trip_id": trip_id,
         "order_id": t["order_id"],
@@ -142,14 +176,22 @@ async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_onl
         "lng": body.lng,
         "created_at": now,
     }
-    await proof_of_delivery.update_one({"trip_id": trip_id}, {"$set": pod_doc}, upsert=True)
+    try:
+        await proof_of_delivery.insert_one(pod_doc)
+    except DuplicateKeyError:
+        await driver_trips.update_one({"_id": t["_id"], "status": "POD_FINALIZING"}, {"$set": {"status": t.get("status")}})
+        raise HTTPException(409, "Proof of delivery is already finalized")
 
-    order = await orders.find_one({"_id": await _oid(t["order_id"])})
     notify = [order["customer_id"]] if order else []
     # UNLOADING -> POD_PENDING -> DELIVERED (order), trip -> DELIVERED
-    if order and order.get("status") == UNLOADING:
-        await transition_order(t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted")
-    await transition_order(t["order_id"], DELIVERED, ctx["user_id"], note=f"Delivered — received by {body.receiver_name}", notify_user_ids=notify, event="delivered")
+    try:
+        if order.get("status") == UNLOADING:
+            await transition_order(t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted")
+        await transition_order(t["order_id"], DELIVERED, ctx["user_id"], note=f"Delivered — received by {body.receiver_name}", notify_user_ids=notify, event="delivered")
+    except Exception:
+        await proof_of_delivery.delete_one({"trip_id": trip_id, "created_at": now})
+        await driver_trips.update_one({"_id": t["_id"], "status": "POD_FINALIZING"}, {"$set": {"status": t.get("status"), "sync_error": True}})
+        raise
     await orders.update_one({"_id": await _oid(t["order_id"])}, {"$set": {"delivered_quantity": body.delivered_quantity}})
     await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"status": DELIVERED, "updated_at": now}})
     if t.get("vehicle_id"):

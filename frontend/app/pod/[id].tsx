@@ -87,7 +87,7 @@ export default function PodScreen() {
       let photoPath: string | null = null;
       if (photo) {
         try {
-          photoPath = await uploadImage(photo, token!);
+          photoPath = await uploadImage(photo, token!, id!);
         } catch {
           toast("Photo upload failed — submitting without it", "info");
         }

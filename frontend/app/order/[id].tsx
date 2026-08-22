@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiPost } from "@/src/api/client";
-import { fileUrl } from "@/src/api/upload";
+import { fileSource } from "@/src/api/upload";
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
@@ -140,7 +140,7 @@ export default function OrderDetail() {
                 {data.pod.photo_path && token ? (
                   <Image
                     testID="pod-photo"
-                    source={{ uri: fileUrl(data.pod.photo_path, token) }}
+                    source={fileSource(data.pod.photo_path, token)}
                     style={styles.podPhoto}
                     resizeMode="cover"
                   />

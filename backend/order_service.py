@@ -4,13 +4,14 @@ The backend is the single source of truth for order status. Every transition
 verifies the allowed edges, records history (actor + timestamp), writes an audit
 entry, and emits notifications. The frontend can never set status arbitrarily.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import os
 
 from bson import ObjectId
 from fastapi import HTTPException
+from pymongo import ReturnDocument
 
 from audit import write_audit
 from database import order_status_history, orders, plants, users
@@ -91,10 +92,16 @@ async def transition_order(
         raise HTTPException(409, f"Cannot move order from {current} to {target}")
 
     now = datetime.now(timezone.utc)
-    await orders.update_one(
-        {"_id": order["_id"]},
+    updated = await orders.find_one_and_update(
+        {"_id": order["_id"], "status": current},
         {"$set": {"status": target, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated:
+        latest = await orders.find_one({"_id": order["_id"]})
+        if latest and latest.get("status") == target:
+            return latest
+        raise HTTPException(409, "Order status changed concurrently; refresh and retry")
     await order_status_history.insert_one(
         {
             "order_id": str(order["_id"]),
@@ -120,18 +127,24 @@ async def transition_order(
     if target in (DISPATCHED, DELIVERED):
         await _customer_sms_once(order, target)
 
-    order["status"] = target
-    return order
+    return updated
 
 
 async def _customer_sms_once(order: dict, event: str) -> None:
-    """Send exactly one SMS per (order, event). Claims the flag atomically so
-    retries never duplicate; delivery failure never blocks the status update."""
+    """Lease one sender per milestone while allowing failed/stale attempts to retry."""
     if not delivery.sms_configured or not order.get("customer_id"):
         return
+    now = datetime.now(timezone.utc)
+    state = f"sms_events.{event}"
     claimed = await orders.find_one_and_update(
-        {"_id": order["_id"], f"sms_flags.{event}": {"$ne": True}},
-        {"$set": {f"sms_flags.{event}": True}},
+        {"_id": order["_id"], "$or": [
+            {state: {"$exists": False}},
+            {f"{state}.status": {"$in": ["PENDING", "FAILED"]}},
+            {f"{state}.status": "SENDING", f"{state}.updated_at": {"$lt": now - timedelta(minutes=5)}},
+        ]},
+        {"$set": {f"{state}.status": "SENDING", f"{state}.updated_at": now},
+         "$inc": {f"{state}.attempts": 1}},
+        return_document=ReturnDocument.AFTER,
     )
     if not claimed:
         return  # already sent for this event
@@ -139,6 +152,10 @@ async def _customer_sms_once(order: dict, event: str) -> None:
         cust = await users.find_one({"_id": ObjectId(order["customer_id"])})
         phone = cust.get("phone") if cust else None
         if not phone:
+            await orders.update_one(
+                {"_id": order["_id"], f"{state}.status": "SENDING"},
+                {"$set": {f"{state}.status": "FAILED", f"{state}.updated_at": datetime.now(timezone.utc)}},
+            )
             return
         num = order.get("order_number")
         if event == DISPATCHED:
@@ -160,9 +177,17 @@ async def _customer_sms_once(order: dict, event: str) -> None:
                 msg += f" View delivery proof: {link}"
             else:
                 msg += " Thank you!"
-        await delivery.send("sms", phone, msg)
+        sent = await delivery.send("sms", phone, msg)
+        await orders.update_one(
+            {"_id": order["_id"], f"{state}.status": "SENDING"},
+            {"$set": {f"{state}.status": "SENT" if sent else "FAILED",
+                      f"{state}.updated_at": datetime.now(timezone.utc)}},
+        )
     except Exception:  # noqa: BLE001 — never block a status update on SMS
-        pass
+        await orders.update_one(
+            {"_id": order["_id"], f"{state}.status": "SENDING"},
+            {"$set": {f"{state}.status": "FAILED", f"{state}.updated_at": datetime.now(timezone.utc)}},
+        )
 
 
 async def owner_plant_ids(user_id: str) -> list[str]:
