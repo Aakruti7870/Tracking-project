@@ -1,7 +1,12 @@
-"""Emergent Object Storage helpers + authenticated upload/serve routes."""
+"""Authenticated object-storage helpers and upload/serve routes.
+
+Production uses the configured remote object store. CI/development may opt into
+STORAGE_MODE=local for deterministic tests without external credentials.
+"""
 from io import BytesIO
-from pathlib import PurePosixPath
+import mimetypes
 import os
+from pathlib import Path, PurePosixPath
 import uuid
 
 import requests
@@ -11,12 +16,15 @@ from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
+from config import settings
 from database import orders, plants, proof_of_delivery
 from security import current_user
 
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
 STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+STORAGE_MODE = os.environ.get("STORAGE_MODE", "remote").strip().lower()
+LOCAL_STORAGE_DIR = Path(os.environ.get("LOCAL_STORAGE_DIR", "/tmp/trackmyrmc-storage"))
 APP_NAME = "trackmyrmc"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_FORMATS = {
@@ -30,6 +38,13 @@ _storage_key = None
 
 def init_storage():
     global _storage_key
+    if STORAGE_MODE == "local":
+        if not settings.is_dev:
+            raise RuntimeError("Local object storage is development/test only")
+        LOCAL_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        return "local"
+    if STORAGE_MODE != "remote":
+        raise RuntimeError("Unsupported STORAGE_MODE")
     if _storage_key:
         return _storage_key
     if not EMERGENT_KEY:
@@ -40,8 +55,24 @@ def init_storage():
     return _storage_key
 
 
+def _local_path(path: str) -> Path:
+    _validate_object_path(path)
+    candidate = (LOCAL_STORAGE_DIR / Path(*PurePosixPath(path).parts)).resolve()
+    root = LOCAL_STORAGE_DIR.resolve()
+    if root not in candidate.parents:
+        raise RuntimeError("Invalid storage path")
+    return candidate
+
+
 def _put(path: str, data: bytes, content_type: str) -> dict:
     global _storage_key
+    if STORAGE_MODE == "local":
+        init_storage()
+        destination = _local_path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        return {"path": path, "content_type": content_type}
+
     key = init_storage()
     resp = requests.put(
         f"{STORAGE_URL}/objects/{path}",
@@ -64,6 +95,13 @@ def _put(path: str, data: bytes, content_type: str) -> dict:
 
 def _get(path: str) -> tuple[bytes, str]:
     global _storage_key
+    if STORAGE_MODE == "local":
+        init_storage()
+        source = _local_path(path)
+        if not source.is_file():
+            raise FileNotFoundError(path)
+        return source.read_bytes(), mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+
     key = init_storage()
     resp = requests.get(
         f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60
@@ -136,7 +174,6 @@ async def _can_read_path(ctx: dict, path: str) -> bool:
         )
         return plant is not None
 
-    # Other plant-scoped staff may read POD media only for their own plant.
     return bool(ctx.get("plant_id") and ctx.get("plant_id") == order.get("plant_id"))
 
 
@@ -150,8 +187,9 @@ async def upload(file: UploadFile = File(...), ctx: dict = Depends(current_user)
     path = f"{APP_NAME}/uploads/{ctx['user_id']}/{uuid.uuid4().hex}.{ext}"
     try:
         await run_in_threadpool(_put, path, data, detected_content_type)
+    except HTTPException:
+        raise
     except Exception:
-        # Do not return provider URLs, keys, proxy errors or internal traces.
         raise HTTPException(502, "Upload service unavailable")
     return {"path": path}
 
@@ -159,18 +197,15 @@ async def upload(file: UploadFile = File(...), ctx: dict = Depends(current_user)
 @router.get("/files/{path:path}")
 async def files(
     path: str,
-    token: str = Query(default=""),
+    token: str = Query(default="", max_length=4096),
     authorization: str = Header(default=""),
 ):
-    # Auth via header (native) OR ?token= for image elements that cannot attach
-    # an Authorization header. Both still resolve a live, non-revoked session.
     auth_header = authorization or (f"Bearer {token}" if token else "")
     try:
         ctx = await current_user(authorization=auth_header)
     except HTTPException:
         raise HTTPException(401, "Unauthorized")
     if not await _can_read_path(ctx, path):
-        # Do not reveal whether another user's object exists.
         raise HTTPException(404, "File not found")
     try:
         content, ct = await run_in_threadpool(_get, path)
