@@ -1,6 +1,6 @@
 """Domain models (Pydantic) persisted in MongoDB."""
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -101,119 +101,119 @@ class KycProfile(BaseDocument):
 # ---- Request/response schemas ----
 
 class RequestOtpBody(BaseModel):
-    identifier: str
+    identifier: str = Field(min_length=1, max_length=254)
 
 
 class VerifyOtpBody(BaseModel):
-    identifier: str
-    code: str
+    identifier: str = Field(min_length=1, max_length=254)
+    code: str = Field(min_length=4, max_length=10, pattern=r"^\d+$")
 
 
 class CreateOrderBody(BaseModel):
-    plant_id: str
-    grade: str
-    quantity: float = Field(gt=0)
-    site_name: str = Field(min_length=1)
-    site_address: str = Field(min_length=1)
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    delivery_date: str
-    delivery_time: Optional[str] = None
-    contact_person: Optional[str] = None
-    contact_mobile: Optional[str] = None
-    notes: Optional[str] = None
+    plant_id: str = Field(min_length=1, max_length=128)
+    grade: str = Field(min_length=2, max_length=32)
+    quantity: float = Field(gt=0, le=10000)
+    site_name: str = Field(min_length=1, max_length=160)
+    site_address: str = Field(min_length=1, max_length=500)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
+    delivery_date: str = Field(min_length=8, max_length=32)
+    delivery_time: Optional[str] = Field(default=None, max_length=32)
+    contact_person: Optional[str] = Field(default=None, max_length=160)
+    contact_mobile: Optional[str] = Field(default=None, max_length=32)
+    notes: Optional[str] = Field(default=None, max_length=2000)
     save_draft: bool = False
 
 
 class RejectOrderBody(BaseModel):
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class AssignTmBody(BaseModel):
-    vehicle_id: str
+    vehicle_id: str = Field(min_length=1, max_length=128)
 
 
 class AssignDriverBody(BaseModel):
-    driver_id: str
+    driver_id: str = Field(min_length=1, max_length=128)
 
 
 class ChallanBody(BaseModel):
-    batcher: Optional[str] = None
-    supervisor: Optional[str] = None
-    quality_engineer: Optional[str] = None
-    remarks: Optional[str] = None
+    batcher: Optional[str] = Field(default=None, max_length=160)
+    supervisor: Optional[str] = Field(default=None, max_length=160)
+    quality_engineer: Optional[str] = Field(default=None, max_length=160)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
 
 
 class PodBody(BaseModel):
-    receiver_name: str = Field(min_length=1)
-    delivered_quantity: float = Field(gt=0)
-    remarks: Optional[str] = None
-    photo_path: Optional[str] = None
-    signature: Optional[str] = None  # JSON string of stroke points (vector signature)
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    receiver_name: str = Field(min_length=1, max_length=160)
+    delivered_quantity: float = Field(gt=0, le=10000)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    photo_path: Optional[str] = Field(default=None, max_length=512)
+    signature: Optional[str] = Field(default=None, max_length=250000)  # vector stroke JSON
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class GeoBody(BaseModel):
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class SosBody(BaseModel):
-    type: str = Field(min_length=1)  # Emergency | Accident | Breakdown | Safety
-    remark: Optional[str] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    type: str = Field(min_length=1, max_length=64)  # Emergency | Accident | Breakdown | Safety
+    remark: Optional[str] = Field(default=None, max_length=2000)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class ProductionBatchBody(BaseModel):
-    quantity: float = Field(gt=0)
-    remarks: Optional[str] = None
+    quantity: float = Field(gt=0, le=10000)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
 
 
 class PaymentBody(BaseModel):
-    amount: float = Field(gt=0)
-    method: Optional[str] = "cash"
-    note: Optional[str] = None
+    amount: float = Field(gt=0, le=1000000000)
+    method: Optional[str] = Field(default="cash", max_length=64)
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class LocationBody(BaseModel):
-    lat: float
-    lng: float
-    accuracy: Optional[float] = None
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    accuracy: Optional[float] = Field(default=None, ge=0, le=10000)
 
 
 class KycDecisionBody(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=1000)
 
 
 class MaterialBody(BaseModel):
-    name: str = Field(min_length=1)
-    unit: str = Field(min_length=1)
-    stock: float = Field(ge=0)
-    reorder: float = Field(ge=0)
+    name: str = Field(min_length=1, max_length=160)
+    unit: str = Field(min_length=1, max_length=32)
+    stock: float = Field(ge=0, le=1000000000)
+    reorder: float = Field(ge=0, le=1000000000)
 
 
 class StockAdjustBody(BaseModel):
-    delta: float  # +ve = stock in, -ve = stock out
-    note: Optional[str] = None
+    delta: float = Field(ge=-1000000000, le=1000000000)  # +ve = stock in, -ve = stock out
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class VehicleBody(BaseModel):
-    tm_number: str = Field(min_length=1)
-    capacity_m3: float = Field(gt=0)
+    tm_number: str = Field(min_length=1, max_length=64)
+    capacity_m3: float = Field(gt=0, le=100)
 
 
 class VehicleStatusBody(BaseModel):
-    status: str = Field(min_length=1)  # available | maintenance
+    status: Literal["available", "maintenance"]
 
 
 class QualityTestBody(BaseModel):
-    order_id: str
-    slump_mm: Optional[float] = None
-    cube_7d: Optional[float] = None
-    cube_28d: Optional[float] = None
-    actual_cement: Optional[float] = None
-    actual_water: Optional[float] = None
-    result: str = "PASS"  # PASS | FAIL
-    remarks: Optional[str] = None
+    order_id: str = Field(min_length=1, max_length=128)
+    slump_mm: Optional[float] = Field(default=None, ge=0, le=1000)
+    cube_7d: Optional[float] = Field(default=None, ge=0, le=1000)
+    cube_28d: Optional[float] = Field(default=None, ge=0, le=1000)
+    actual_cement: Optional[float] = Field(default=None, ge=0, le=2000)
+    actual_water: Optional[float] = Field(default=None, ge=0, le=2000)
+    result: Literal["PASS", "FAIL"] = "PASS"
+    remarks: Optional[str] = Field(default=None, max_length=2000)
