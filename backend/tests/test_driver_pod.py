@@ -254,7 +254,7 @@ class TestDriverProgression:
         payload = detail.json()
         order = payload.get("order", payload)
         assert order["status"] == "DELIVERED"
-        assert order.get("delivered_quantity") == 6
+        assert payload.get("pod") and payload["pod"].get("delivered_quantity") == 6
         history = [h.get("to") or h.get("to_status") for h in payload.get("history", [])]
         for expected in ("EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING", "DELIVERED"):
             assert expected in history, f"missing {expected} in {history}"
