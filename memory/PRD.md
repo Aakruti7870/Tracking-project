@@ -35,6 +35,22 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 2 (Core Order Lifecycle — two-sided) ✅
+- Authoritative backend **order state machine** (`order_service.py`): 16 states +
+  validated transitions, per-transition history (actor+timestamp), audit entries,
+  and notifications. Frontend can never set status directly.
+- Unique order numbering via an atomic Mongo counter (no collisions).
+- Customer: create order (KYC-gated; drafts allowed), order detail + status history,
+  cancel (state-guarded), plant detail, grade-vs-plant validation.
+- Plant Owner router (`owner.py`), scoped to owned plants: dashboard KPIs +
+  pending approvals, orders list/filter, order detail, **approve / reject (with reason)**.
+- Frontend: New Order form (plant picker, grade chips, quantity stepper, date/time
+  chips, site fields, place/draft), role-aware Order Detail with vertical timeline,
+  full **Plant Owner tab shell** (Home KPIs / Orders / Operations / More), owner
+  approve+reject UI, reusable glass tab bar. Customer New Order/Order links wired.
+- Routing: plant_owner → /(owner); customer New Order gated on KYC.
+- Tests: 15/15 order-lifecycle pytest cases pass; full customer→owner→customer E2E verified.
+
 ### 2026-06 — PHASE 1 (Foundation) ✅
 - Backend layered architecture, Mongo BaseDocument/PyObjectId, env config.
 - Passwordless OTP + JWT auth per integration playbook; channel-per-role policy;

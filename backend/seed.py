@@ -96,9 +96,11 @@ async def run_seed() -> None:
 
     # Demo orders for the customer
     if customer_id and plant_ids and await orders.count_documents({"customer_id": customer_id}) == 0:
+        from database import next_sequence
+
         demo_orders = [
             {
-                "order_number": "RMC-1001", "customer_id": customer_id,
+                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
                 "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
                 "grade": "M25", "quantity": 12.0,
                 "site_name": "Skyline Towers", "site_address": "Financial District, Hyderabad",
@@ -107,7 +109,7 @@ async def run_seed() -> None:
                 "status": "DISPATCHED", "payment_status": "PARTIAL",
             },
             {
-                "order_number": "RMC-1000", "customer_id": customer_id,
+                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
                 "plant_id": plant_ids[1], "plant_name": DEMO_PLANTS[1]["name"],
                 "grade": "M30", "quantity": 8.0,
                 "site_name": "Green Villa", "site_address": "Kokapet, Hyderabad",
@@ -119,6 +121,9 @@ async def run_seed() -> None:
         from datetime import datetime, timezone
 
         for o in demo_orders:
+            seq = await next_sequence("order_number")
+            o["order_number"] = f"RMC-{1000 + seq}"
             o["created_at"] = datetime.now(timezone.utc)
+            o["updated_at"] = o["created_at"]
         await orders.insert_many(demo_orders)
         logger.info("seeded %d demo orders", len(demo_orders))

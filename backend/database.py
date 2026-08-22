@@ -51,6 +51,20 @@ notifications = db.notifications
 plants = db.plants
 orders = db.orders
 kyc_profiles = db.kyc_profiles
+order_status_history = db.order_status_history
+counters = db.counters
+
+
+async def next_sequence(name: str) -> int:
+    from pymongo import ReturnDocument
+
+    doc = await counters.find_one_and_update(
+        {"_id": name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return doc["seq"]
 
 
 async def ensure_indexes() -> None:

@@ -107,3 +107,23 @@ class RequestOtpBody(BaseModel):
 class VerifyOtpBody(BaseModel):
     identifier: str
     code: str
+
+
+class CreateOrderBody(BaseModel):
+    plant_id: str
+    grade: str
+    quantity: float = Field(gt=0)
+    site_name: str = Field(min_length=1)
+    site_address: str = Field(min_length=1)
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    delivery_date: str
+    delivery_time: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_mobile: Optional[str] = None
+    notes: Optional[str] = None
+    save_draft: bool = False
+
+
+class RejectOrderBody(BaseModel):
+    reason: str = Field(min_length=1)

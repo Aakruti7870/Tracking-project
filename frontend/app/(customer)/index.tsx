@@ -54,7 +54,7 @@ export default function CustomerHome() {
         toast("Complete KYC to place an order", "info");
         return router.push("/kyc");
       }
-      return toast("Order placement arrives in Phase 4", "info");
+      return router.push("/new-order");
     }
     if (key === "challan") return toast("Challans arrive in the dispatch phase", "info");
   };
@@ -194,7 +194,7 @@ export default function CustomerHome() {
                 ) : (
                   <View style={{ gap: spacing.md }}>
                     {data.recent_orders.slice(0, 3).map((o) => (
-                      <OrderCard key={o.id} order={o} onPress={() => router.push("/orders")} />
+                      <OrderCard key={o.id} order={o} onPress={() => router.push(`/order/${o.id}` as any)} />
                     ))}
                   </View>
                 )}

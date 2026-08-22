@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { FlatList, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Input } from "@/src/components/ui/Input";
@@ -16,7 +16,7 @@ import { radius, spacing } from "@/src/theme/tokens";
 export default function CustomerPlants() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const toast = useToast();
+  const router = useRouter();
   const [q, setQ] = useState("");
   const { data, loading, error, refetch, reload } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
@@ -61,7 +61,7 @@ export default function CustomerPlants() {
           }
           renderItem={({ item }) =>
             loading && !data ? null : (
-              <PlantCard plant={item} onOrder={() => toast("Order placement arrives in Phase 4", "info")} />
+              <PlantCard plant={item} onOrder={() => router.push(`/new-order?plantId=${item.id}` as any)} />
             )
           }
           ListEmptyComponent={

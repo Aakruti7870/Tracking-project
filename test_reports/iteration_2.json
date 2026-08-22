@@ -1,0 +1,45 @@
+{
+  "summary": "TrackMyRMC Phase 2 (order lifecycle) fully verified. Backend: 15/15 pytest cases passed in /app/backend/tests/test_order_lifecycle.py covering customer create (PENDING w/ unique RMC-100x), KYC gating (unverified -> 403 KYC_REQUIRED; save_draft=true -> DRAFT ok), grade validation 422, detail w/ history (first entry to=PENDING), cancel PENDING->CANCELLED ok / DELIVERED->cancel 409, owner /home shape (plant_count=3, pending_approvals reflects new order, pending_orders list), owner /orders + ?status=PENDING scoping, owner approve PENDING->ACCEPTED with 'Approved by plant' history and customer notification, owner reject with reason -> REJECTED with reason in history, state-machine guard (approve of REJECTED -> 409), RBAC (customer token on /owner/* -> 403), foreign-order guard (random ObjectId -> 404). Same-state approve is idempotent 200 as per spec. Frontend (Expo web, 390x844): customer login (+919000000001) auto-fills dev OTP and lands on Home showing an existing ACCEPTED order + KYC verified banner. 'New Order' quick action -> New Order screen renders 3 plants, grade chips (5 for Kondapur), quantity stepper, date chips (Today..Fri), time chips (06:00..16:00), site fields; Place Order navigates to /order/<id> showing status PENDING and timeline entry 'Order created / PENDING'. Plants tab 'Order Now' correctly routes to /new-order?plantId=<id> (pre-select param). Owner login (owner@trackmyrmc.test) routes to owner dashboard with 'Pending Approvals' card visible. Opening the PENDING order shows Approve + Reject buttons; Approve moves order to ACCEPTED (verified in UI). Reject flow opens a reason form with cancel/confirm buttons (testIDs reject-reason/reject-cancel/reject-confirm). Owner Orders tab filter chips: all/pending/accepted/production/dispatched/delivered/cancelled (horizontal scroll, no wrap) — all clickable. E2E: customer creates order, owner approves, customer detail page updates to ACCEPTED with 'Approved by plant' note in timeline.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web deprecation", "issue": "Console warnings: 'shadow*' style props are deprecated (use 'boxShadow') and 'props.pointerEvents' deprecated (use 'style.pointerEvents'). Non-blocking, but should be migrated for React Native 0.75+. Reference: multiple screens (login, new-order)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_order_lifecycle.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Migrate deprecated RN Web style props (shadow*, pointerEvents) to their modern equivalents (boxShadow / style.pointerEvents) to silence warnings.",
+    "(Optional) Note the pytest.<attr> module-attribute pattern used to share state between test classes fails under xdist parallel workers. The current /app/backend/pytest.ini uses '-n auto --dist loadscope' via addopts; running Phase 2 required '-o addopts=' to serialize. Consider either changing addopts to 'loadfile' scheduling or refactor to session-scoped fixtures if you want to keep xdist enabled."
+  ],
+  "critical_code_review_comments": [
+    "server.py still uses deprecated FastAPI @app.on_event('startup'); migrate to lifespan handler (non-blocking, carried over from iteration 1).",
+    "order_service.transition_order writes an audit entry and notifications on same-state transitions? Actually it returns early on current==target BEFORE writing history/audit/notifications — good, idempotent as intended.",
+    "routers/owner._guard_owns / owner_home use await owner_plant_ids(user_id) which returns str ids; queries then use plant_id (string) — consistent. Owner-plant isolation verified.",
+    "customer.create_order uses next_sequence('order_number') for uniqueness. Verified RMC-1003+ post-seed, no collision with seeded RMC-1001/1002.",
+    "Frontend Input component correctly forwards testID to the underlying TextInput (contrary to iteration_1 note); no fix needed here."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_order_lifecycle.py (new)",
+    "/app/test_reports/iteration_2.json (new)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 passed serial; run with `pytest backend/tests/test_order_lifecycle.py -v -o addopts=''`)",
+    "frontend": "100% of specified E2E flows verified"
+  },
+  "seed_data_creation": "None — reused dev seed (customer +919000000001 VERIFIED, owner@trackmyrmc.test owning 3 plants). Tests self-register an ephemeral unverified customer mobile (+9181111xxxxx) for the KYC-gating cases; harmless leftover in dev DB. Several TEST_ prefixed orders (RMC-1003..RMC-1013 range) were created by pytest + the frontend E2E run; the newest ones (RMC-1013 as of run) live in state ACCEPTED/REJECTED/CANCELLED.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend Phase 2 tests live at /app/backend/tests/test_order_lifecycle.py. IMPORTANT: /app/backend/pytest.ini forces xdist parallel + loadscope, but Phase 2 shares state between classes via `pytest.created_order_id`/`pytest.created_order_number`/`pytest.rejected_order_id` module attributes — this DOES NOT survive across xdist workers. Run with `-o addopts=''` to serialize (or the tests will report 3 spurious failures). Owner login is email (owner@trackmyrmc.test), customer login is mobile (+919000000001) — channel-per-role is enforced. Same-state transitions are idempotent (approve of ACCEPTED returns 200, not 409); only genuinely invalid edges (e.g. REJECTED->ACCEPTED) return 409. Frontend Input.testID reaches the underlying TextInput, so both `page.fill('[data-testid=\"...\"]', ...)` and get_by_placeholder work. Filter chip testIDs on owner orders screen are `owner-filter-{key}` where key ∈ all/pending/accepted/production/dispatched/delivered/cancelled.",
+  "rca_of_issue": "No open issues."
+}

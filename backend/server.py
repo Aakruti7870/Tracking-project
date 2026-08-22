@@ -11,7 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import settings
 from database import ensure_indexes
 from notifications import provider_status
-from routers import auth, customer, me
+from routers import auth, customer, me, owner
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +43,7 @@ app.include_router(meta)
 app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(customer.router)
+app.include_router(owner.router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -13,20 +13,20 @@ import { fonts, radius, spacing } from "@/src/theme/tokens";
 
 const FILTERS: { key: string; label: string; match: (s: string) => boolean }[] = [
   { key: "all", label: "All", match: () => true },
-  { key: "pending", label: "Pending", match: (s) => ["PENDING", "DRAFT"].includes(s) },
-  { key: "accepted", label: "Accepted", match: (s) => ["ACCEPTED", "SCHEDULED"].includes(s) },
-  { key: "production", label: "In Production", match: (s) => ["IN_PRODUCTION", "PRODUCTION_COMPLETE"].includes(s) },
+  { key: "pending", label: "New", match: (s) => s === "PENDING" },
+  { key: "accepted", label: "Approved", match: (s) => ["ACCEPTED", "SCHEDULED"].includes(s) },
+  { key: "production", label: "Production", match: (s) => ["IN_PRODUCTION", "PRODUCTION_COMPLETE"].includes(s) },
   { key: "dispatched", label: "Dispatched", match: (s) => ["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING", "TM_ASSIGNED", "DRIVER_ASSIGNED", "READY_TO_DISPATCH"].includes(s) },
   { key: "delivered", label: "Delivered", match: (s) => s === "DELIVERED" },
   { key: "cancelled", label: "Cancelled", match: (s) => ["CANCELLED", "REJECTED"].includes(s) },
 ];
 
-export default function CustomerOrders() {
+export default function OwnerOrders() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [active, setActive] = useState("all");
-  const { data, loading, error, refetch, reload } = useGet<{ orders: OrderData[] }>("/customer/orders");
+  const { data, loading, error, refetch, reload } = useGet<{ orders: OrderData[] }>("/owner/orders");
 
   const filter = FILTERS.find((f) => f.key === active)!;
   const filtered = useMemo(
@@ -37,10 +37,9 @@ export default function CustomerOrders() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      {/* Sticky header + chip row */}
       <View style={{ borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
         <View style={styles.titleRow}>
-          <AppText variant="title">My Orders</AppText>
+          <AppText variant="title">Orders</AppText>
         </View>
         <FlatList
           data={FILTERS}
@@ -53,23 +52,11 @@ export default function CustomerOrders() {
             const selected = item.key === active;
             return (
               <Pressable
-                testID={`filter-${item.key}`}
+                testID={`owner-filter-${item.key}`}
                 onPress={() => setActive(item.key)}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: selected ? colors.brand : colors.surfaceSecondary,
-                    borderColor: selected ? colors.brand : colors.border,
-                  },
-                ]}
+                style={[styles.chip, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}
               >
-                <AppText
-                  style={{
-                    fontFamily: fonts.semibold,
-                    fontSize: 13,
-                    color: selected ? colors.onBrand : colors.onSurfaceSecondary,
-                  }}
-                >
+                <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: selected ? colors.onBrand : colors.onSurfaceSecondary }}>
                   {item.label}
                 </AppText>
               </Pressable>
@@ -82,13 +69,11 @@ export default function CustomerOrders() {
         <ErrorView message={error} onRetry={reload} />
       ) : loading && !data ? (
         <View style={{ padding: spacing.lg, gap: spacing.md }}>
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={150} style={{ borderRadius: radius.lg }} />
-          ))}
+          {[0, 1, 2].map((i) => <Skeleton key={i} height={150} style={{ borderRadius: radius.lg }} />)}
         </View>
       ) : (
         <FlatList
-          testID="orders-list"
+          testID="owner-orders-list"
           data={filtered}
           keyExtractor={(o) => o.id}
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.md, flexGrow: 1 }}
@@ -96,13 +81,7 @@ export default function CustomerOrders() {
           onRefresh={refetch}
           refreshing={false}
           renderItem={({ item }) => <OrderCard order={item} onPress={() => router.push(`/order/${item.id}` as any)} />}
-          ListEmptyComponent={
-            <EmptyView
-              icon="cube-outline"
-              title="No orders here"
-              subtitle={active === "all" ? "You haven't placed any orders yet" : "No orders in this status"}
-            />
-          }
+          ListEmptyComponent={<EmptyView icon="cube-outline" title="No orders" subtitle="Nothing in this status yet" />}
         />
       )}
     </View>
@@ -112,13 +91,5 @@ export default function CustomerOrders() {
 const styles = StyleSheet.create({
   titleRow: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md },
   chipRow: { maxHeight: 56, marginBottom: spacing.sm },
-  chip: {
-    height: 36,
-    flexShrink: 0,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  chip: { height: 36, flexShrink: 0, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });

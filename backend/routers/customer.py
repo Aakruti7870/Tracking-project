@@ -1,10 +1,21 @@
 """Customer role endpoints (server-side authorized to the customer role)."""
 from datetime import datetime, timezone
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from audit import write_audit
-from database import kyc_profiles, notifications, orders, plants
+from database import (
+    kyc_profiles,
+    notifications,
+    order_status_history,
+    orders,
+    plants,
+    next_sequence,
+)
+from models import CreateOrderBody
+from notifications import record_notification
+from order_service import CANCELLED, DRAFT, PENDING, transition_order
 from roles import Role
 from security import current_user, require_role
 
@@ -107,3 +118,118 @@ async def start_kyc(ctx: dict = Depends(customer_only)):
     )
     await write_audit(uid, "kyc.start", "kyc_profile", uid, {"purpose": "CUSTOMER"})
     return {"status": "PENDING"}
+
+
+async def _oid(value: str):
+    try:
+        return ObjectId(value)
+    except Exception:
+        return value
+
+
+@router.post("/orders")
+async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)):
+    uid = ctx["user_id"]
+
+    # Live (non-draft) orders require a VERIFIED customer KYC.
+    if not body.save_draft:
+        kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
+        if (kyc or {}).get("status") != "VERIFIED":
+            raise HTTPException(403, "KYC_REQUIRED")
+
+    plant = await plants.find_one({"_id": await _oid(body.plant_id)})
+    if not plant or plant.get("status") != "active" or not plant.get("verified"):
+        raise HTTPException(404, "Plant not available")
+    if body.grade not in plant.get("grades", []):
+        raise HTTPException(422, "Selected grade not offered by this plant")
+
+    seq = await next_sequence("order_number")
+    order_number = f"RMC-{1000 + seq}"
+    now = datetime.now(timezone.utc)
+    status = DRAFT if body.save_draft else PENDING
+
+    doc = {
+        "order_number": order_number,
+        "customer_id": uid,
+        "customer_name": ctx["user"].get("name"),
+        "plant_id": str(plant["_id"]),
+        "plant_name": plant.get("name"),
+        "grade": body.grade,
+        "quantity": body.quantity,
+        "site_name": body.site_name,
+        "site_address": body.site_address,
+        "lat": body.lat,
+        "lng": body.lng,
+        "delivery_date": body.delivery_date,
+        "delivery_time": body.delivery_time,
+        "contact_person": body.contact_person,
+        "contact_mobile": body.contact_mobile,
+        "notes": body.notes,
+        "status": status,
+        "payment_status": "UNPAID",
+        "created_at": now,
+        "updated_at": now,
+    }
+    res = await orders.insert_one(doc)
+    oid = str(res.inserted_id)
+
+    await order_status_history.insert_one(
+        {"order_id": oid, "from_status": None, "to_status": status,
+         "actor_id": uid, "note": "Order created", "created_at": now}
+    )
+    await write_audit(uid, "order.create", "order", oid, {"status": status})
+
+    # Notify the plant owner of a new pending order.
+    if status == PENDING and plant.get("owner_id"):
+        await record_notification(
+            plant["owner_id"], "new_order",
+            f"New order {order_number}",
+            f"{ctx['user'].get('name')} ordered {body.quantity} m³ of {body.grade}.",
+        )
+
+    doc["_id"] = res.inserted_id
+    return {"id": oid, "order": _serialize_order(doc)}
+
+
+@router.get("/orders/{order_id}")
+async def order_detail(order_id: str, ctx: dict = Depends(customer_only)):
+    order = await orders.find_one({"_id": await _oid(order_id), "customer_id": ctx["user_id"]})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    history = await order_status_history.find({"order_id": order_id}).sort("created_at", 1).to_list(100)
+    return {
+        "order": _serialize_order(order),
+        "contact_person": order.get("contact_person"),
+        "contact_mobile": order.get("contact_mobile"),
+        "notes": order.get("notes"),
+        "history": [
+            {
+                "from": h.get("from_status"),
+                "to": h.get("to_status"),
+                "note": h.get("note"),
+                "at": h.get("created_at").isoformat() if h.get("created_at") else None,
+            }
+            for h in history
+        ],
+    }
+
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, ctx: dict = Depends(customer_only)):
+    order = await orders.find_one({"_id": await _oid(order_id), "customer_id": ctx["user_id"]})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    plant = await plants.find_one({"_id": await _oid(order["plant_id"])})
+    notify = [plant["owner_id"]] if plant and plant.get("owner_id") else []
+    await transition_order(order_id, CANCELLED, ctx["user_id"],
+                           note="Cancelled by customer", notify_user_ids=notify,
+                           event="order_cancelled")
+    return {"status": CANCELLED}
+
+
+@router.get("/plants/{plant_id}")
+async def plant_detail(plant_id: str, ctx: dict = Depends(customer_only)):
+    plant = await plants.find_one({"_id": await _oid(plant_id)})
+    if not plant:
+        raise HTTPException(404, "Plant not found")
+    return _serialize_plant(plant)

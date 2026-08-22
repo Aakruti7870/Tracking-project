@@ -7,6 +7,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 // Roles with a fully-built dashboard. Others land on the role placeholder.
 const ROUTED_ROLES: Record<string, string> = {
   customer: "/(customer)",
+  plant_owner: "/(owner)",
 };
 
 export default function Index() {
