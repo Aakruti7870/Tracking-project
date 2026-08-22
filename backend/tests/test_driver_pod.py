@@ -11,7 +11,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://rmc-fleet-ops.preview.emergentagent.com"
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://tracking-verify.preview.emergentagent.com"
 API = f"{BASE_URL}/api"
 
 CUSTOMER_MOBILE = "+919000000001"

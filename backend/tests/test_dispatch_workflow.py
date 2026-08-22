@@ -25,7 +25,7 @@ import requests
 BASE_URL = (
     os.environ.get("EXPO_BACKEND_URL")
     or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://rmc-fleet-ops.preview.emergentagent.com"
+    or "https://tracking-verify.preview.emergentagent.com"
 ).rstrip("/")
 API = f"{BASE_URL}/api"
 
