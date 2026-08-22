@@ -84,15 +84,21 @@ async def next_sequence(name: str) -> int:
 async def ensure_indexes() -> None:
     """Create indexes used by auth, tenant scoping, timelines and idempotency.
 
-    Unique indexes are limited to invariants the application already assumes:
-    one KYC profile per (user,purpose), one driver trip per order, one POD per
-    trip, and one attendance row per driver/day.
+    Unique indexes intentionally enforce domain invariants. If existing data
+    violates an invariant, startup should surface that integrity problem rather
+    than silently permit ambiguous production behavior.
     """
     # Auth/session lifecycle.
     await otps.create_index("expires_at", expireAfterSeconds=0)
     await sessions.create_index("expires_at", expireAfterSeconds=0)
     await otps.create_index([("identifier_key", 1), ("created_at", -1)])
-    await users.create_index("identifier_keys")
+    await otps.create_index(
+        "identifier_key",
+        unique=True,
+        partialFilterExpression={"consumed": False},
+        name="one_active_otp_per_identifier",
+    )
+    await users.create_index("identifier_keys", unique=True, name="unique_login_identifier")
     await users.create_index([("plant_id", 1), ("primary_role", 1), ("status", 1)])
 
     # Core tenant/order access paths.
