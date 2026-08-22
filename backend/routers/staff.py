@@ -38,8 +38,18 @@ from models import (
     VehicleStatusBody,
 )
 from notifications import record_notification
-from order_service import ACCEPTED, IN_PRODUCTION, PRODUCTION_COMPLETE, transition_order
-from database import payments
+from order_service import (
+    ACCEPTED,
+    DISPATCHED,
+    DRIVER_ASSIGNED,
+    IN_PRODUCTION,
+    PRODUCTION_COMPLETE,
+    READY_TO_DISPATCH,
+    TM_ASSIGNED,
+    transition_order,
+)
+from database import challans, driver_trips, next_sequence, payments
+from models import AssignDriverBody, AssignTmBody, ChallanBody
 from roles import ROLE_LABELS, Role
 from security import require_role
 
@@ -266,10 +276,17 @@ async def staff_collection(kind: str, ctx: dict = Depends(staff_only)):
         return {"title": "Orders", "empty": "No orders yet", "items": [_order_item(o) for o in docs]}
 
     if kind == "dispatch":
+        can_dispatch = ctx["role"] in DISPATCH_ROLES
         docs = await orders.find(
-            {**base, "status": {"$in": ["READY_TO_DISPATCH", *DISPATCHED_STATES]}}
+            {**base, "status": {"$in": ["READY_TO_DISPATCH", "ACCEPTED", "SCHEDULED", "PRODUCTION_COMPLETE", "TM_ASSIGNED", "DRIVER_ASSIGNED", *DISPATCHED_STATES]}}
         ).sort("updated_at", -1).to_list(500)
-        return {"title": "Dispatch Queue", "empty": "Nothing to dispatch", "items": [_order_item(o) for o in docs]}
+        items = []
+        for o in docs:
+            it = _order_item(o)
+            if can_dispatch and o.get("status") not in ("DELIVERED",):
+                it["nav"] = f"/dispatch-order/{o['_id']}"
+            items.append(it)
+        return {"title": "Dispatch Queue", "empty": "Nothing to dispatch", "items": items}
 
     if kind == "production":
         can_produce = ctx["role"] == Role.OPERATOR.value
@@ -742,3 +759,134 @@ async def acc_record_payment(invoice_id: str, body: PaymentBody, ctx: dict = Dep
         await orders.update_one({"_id": await _oid(inv["order_id"])}, {"$set": {"payment_status": status_val}})
     await write_audit(ctx["user_id"], "payment.record", "invoice", invoice_id, {"amount": body.amount})
     return {"paid": new_paid, "status": status_val, "balance": round(inv.get("total", 0) - new_paid, 2)}
+
+
+# ------------------------------------------------------------ DISPATCHER
+
+DISPATCH_ROLES = {Role.DISPATCHER.value, Role.ADMIN.value}
+
+
+def _dispatch_only(ctx: dict):
+    if ctx["role"] not in DISPATCH_ROLES:
+        raise HTTPException(403, "Only a Dispatcher can run dispatch")
+
+
+@router.get("/fleet")
+async def dispatch_fleet(ctx: dict = Depends(staff_only)):
+    plant_ids = await _scope_plant_ids(ctx)
+    docs = await vehicles.find({"plant_id": {"$in": plant_ids}}).to_list(200)
+    return {"vehicles": [{"id": str(v["_id"]), "tm_number": v.get("tm_number"), "capacity_m3": v.get("capacity_m3"), "status": v.get("status")} for v in docs]}
+
+
+@router.get("/drivers")
+async def dispatch_drivers(ctx: dict = Depends(staff_only)):
+    plant_ids = await _scope_plant_ids(ctx)
+    docs = await users.find({"primary_role": "driver", "plant_id": {"$in": plant_ids}}).to_list(200)
+    return {"drivers": [{"id": str(d["_id"]), "name": d.get("name"), "phone": d.get("phone")} for d in docs]}
+
+
+@router.get("/orders/{order_id}")
+async def dispatch_order_detail(order_id: str, ctx: dict = Depends(staff_only)):
+    order = await _scoped_order(ctx, order_id)
+    return {"order": {
+        "id": str(order["_id"]),
+        "order_number": order.get("order_number"),
+        "customer_name": order.get("customer_name"),
+        "grade": order.get("grade"),
+        "quantity": order.get("quantity"),
+        "site_name": order.get("site_name"),
+        "site_address": order.get("site_address"),
+        "status": order.get("status"),
+        "tm_number": order.get("tm_number"),
+        "driver_name": order.get("driver_name"),
+        "challan_number": order.get("challan_number"),
+        "invoice_number": order.get("invoice_number"),
+    }}
+
+
+@router.post("/orders/{order_id}/assign-tm")
+async def dispatch_assign_tm(order_id: str, body: AssignTmBody, ctx: dict = Depends(staff_only)):
+    _dispatch_only(ctx)
+    order = await _scoped_order(ctx, order_id)
+    if order.get("status") not in (ACCEPTED, "SCHEDULED", PRODUCTION_COMPLETE, TM_ASSIGNED):
+        raise HTTPException(409, "Order is not ready for transit mixer assignment")
+    v = await vehicles.find_one({"_id": await _oid(body.vehicle_id), "plant_id": order["plant_id"]})
+    if not v:
+        raise HTTPException(404, "Vehicle not found for this plant")
+    if v.get("status") not in ("available",) and v.get("current_order_id") != order_id:
+        raise HTTPException(409, f"Vehicle is {v.get('status')} and cannot be assigned")
+    await orders.update_one({"_id": order["_id"]}, {"$set": {"tm_id": str(v["_id"]), "tm_number": v.get("tm_number")}})
+    await vehicles.update_one({"_id": v["_id"]}, {"$set": {"status": "loading", "current_order_id": order_id}})
+    if order.get("status") != TM_ASSIGNED:
+        await transition_order(order_id, TM_ASSIGNED, ctx["user_id"], note=f"TM {v.get('tm_number')} assigned")
+    return {"status": TM_ASSIGNED}
+
+
+@router.post("/orders/{order_id}/assign-driver")
+async def dispatch_assign_driver(order_id: str, body: AssignDriverBody, ctx: dict = Depends(staff_only)):
+    _dispatch_only(ctx)
+    order = await _scoped_order(ctx, order_id)
+    if order.get("status") not in (TM_ASSIGNED, DRIVER_ASSIGNED):
+        raise HTTPException(409, "Assign a transit mixer before a driver")
+    d = await users.find_one({"_id": await _oid(body.driver_id), "primary_role": "driver", "plant_id": order["plant_id"]})
+    if not d:
+        raise HTTPException(404, "Driver not found for this plant")
+    await orders.update_one({"_id": order["_id"]}, {"$set": {"driver_id": str(d["_id"]), "driver_name": d.get("name"), "driver_mobile": d.get("phone")}})
+    existing_trip = await driver_trips.find_one({"order_id": order_id})
+    trip_doc = {
+        "order_id": order_id, "order_number": order.get("order_number"), "plant_id": order["plant_id"],
+        "customer_id": order.get("customer_id"), "driver_id": str(d["_id"]), "vehicle_id": order.get("tm_id"),
+        "tm_number": order.get("tm_number"), "grade": order.get("grade"), "quantity": order.get("quantity"),
+        "site_name": order.get("site_name"), "site_address": order.get("site_address"),
+        "status": "ASSIGNED", "updated_at": datetime.now(timezone.utc),
+    }
+    if existing_trip:
+        await driver_trips.update_one({"_id": existing_trip["_id"]}, {"$set": trip_doc})
+    else:
+        trip_doc["created_at"] = datetime.now(timezone.utc)
+        await driver_trips.insert_one(trip_doc)
+    await record_notification(str(d["_id"]), "trip_assigned", f"New trip {order.get('order_number')}",
+                              f"{order.get('quantity')} m³ of {order.get('grade')} to {order.get('site_name')}.")
+    if order.get("status") != DRIVER_ASSIGNED:
+        await transition_order(order_id, DRIVER_ASSIGNED, ctx["user_id"], note=f"Driver {d.get('name')} assigned")
+    return {"status": DRIVER_ASSIGNED}
+
+
+@router.post("/orders/{order_id}/challan")
+async def dispatch_challan(order_id: str, ctx: dict = Depends(staff_only)):
+    _dispatch_only(ctx)
+    order = await _scoped_order(ctx, order_id)
+    if order.get("status") not in (DRIVER_ASSIGNED, READY_TO_DISPATCH):
+        raise HTTPException(409, "Assign transit mixer & driver before generating challan")
+    existing = await challans.find_one({"order_id": order_id})
+    if not existing:
+        seq = await next_sequence("challan_number")
+        challan_number = f"CH-{2000 + seq}"
+        now = datetime.now(timezone.utc)
+        await challans.insert_one({
+            "challan_number": challan_number, "order_id": order_id, "order_number": order.get("order_number"),
+            "plant_id": order["plant_id"], "plant_name": order.get("plant_name"), "customer_name": order.get("customer_name"),
+            "site_name": order.get("site_name"), "site_address": order.get("site_address"), "grade": order.get("grade"),
+            "quantity": order.get("quantity"), "tm_number": order.get("tm_number"), "driver_name": order.get("driver_name"),
+            "driver_mobile": order.get("driver_mobile"), "created_at": now,
+        })
+        await orders.update_one({"_id": order["_id"]}, {"$set": {"challan_number": challan_number}})
+        if order.get("status") != READY_TO_DISPATCH:
+            await transition_order(order_id, READY_TO_DISPATCH, ctx["user_id"], note=f"Challan {challan_number} generated")
+    return {"status": READY_TO_DISPATCH}
+
+
+@router.post("/orders/{order_id}/dispatch")
+async def dispatch_dispatch(order_id: str, ctx: dict = Depends(staff_only)):
+    _dispatch_only(ctx)
+    order = await _scoped_order(ctx, order_id)
+    if order.get("status") != READY_TO_DISPATCH:
+        raise HTTPException(409, "Generate a challan before dispatching")
+    now = datetime.now(timezone.utc)
+    await orders.update_one({"_id": order["_id"]}, {"$set": {"dispatched_at": now}})
+    if order.get("tm_id"):
+        await vehicles.update_one({"_id": await _oid(order["tm_id"])}, {"$set": {"status": "dispatched"}})
+    await driver_trips.update_one({"order_id": order_id}, {"$set": {"status": "DISPATCHED", "updated_at": now}})
+    await transition_order(order_id, DISPATCHED, ctx["user_id"], note="Dispatched — live tracking available",
+                           notify_user_ids=[order["customer_id"]], event="dispatched")
+    return {"status": DISPATCHED}

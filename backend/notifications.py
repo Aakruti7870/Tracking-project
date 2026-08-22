@@ -1,58 +1,83 @@
 """Provider-agnostic notification/OTP delivery service.
 
-Core business logic never couples to a single vendor. When no provider
-credentials are configured the adapter reports NOT_CONFIGURED. In development
-the OTP is surfaced back to the caller so the flow is testable end-to-end.
+Core business logic never couples to a single vendor. SMS delivery uses Twilio
+when its credentials are present; otherwise the adapter reports NOT_CONFIGURED.
+In development the OTP is still surfaced back to the caller so the flow stays
+testable even with a live provider (Twilio trial keys can only reach verified
+numbers, and the seeded demo numbers are not real).
 """
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
 
 from config import settings
-from database import notifications
+from database import notifications, users
 
 logger = logging.getLogger("notifications")
+# Twilio's HTTP client logs every request/response at INFO — keep logs readable.
+logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
 
 
-class DeliveryAdapter:
-    """Base adapter. Real vendors (SMS/email/push) subclass and implement send."""
+class SmsEmailAdapter:
+    """SMS via Twilio (Messaging API). Email left dormant until a key is set."""
 
-    name = "base"
+    name = "twilio_sms"
 
-    @property
-    def configured(self) -> bool:
-        return False
-
-    async def send(self, channel: str, destination: str, message: str) -> bool:
-        raise NotImplementedError
-
-
-class SmsEmailAdapter(DeliveryAdapter):
-    name = "sms_email"
+    def __init__(self) -> None:
+        self._client = None
 
     @property
-    def configured(self) -> bool:
-        return bool(
-            os.environ.get("SMS_PROVIDER_API_KEY")
-            or os.environ.get("EMAIL_PROVIDER_API_KEY")
+    def _twilio_creds(self):
+        return (
+            os.environ.get("TWILIO_ACCOUNT_SID", "").strip(),
+            os.environ.get("TWILIO_AUTH_TOKEN", "").strip(),
+            os.environ.get("TWILIO_FROM_NUMBER", "").strip(),
         )
 
+    @property
+    def sms_configured(self) -> bool:
+        sid, tok, frm = self._twilio_creds
+        return bool(sid and tok and frm)
+
+    @property
+    def configured(self) -> bool:
+        return self.sms_configured or bool(os.environ.get("EMAIL_PROVIDER_API_KEY"))
+
+    def _get_client(self):
+        if self._client is None:
+            from twilio.rest import Client
+
+            sid, tok, _ = self._twilio_creds
+            self._client = Client(sid, tok)
+        return self._client
+
+    def _send_sms_sync(self, destination: str, message: str) -> None:
+        _, _, frm = self._twilio_creds
+        self._get_client().messages.create(to=destination, from_=frm, body=message)
+
     async def send(self, channel: str, destination: str, message: str) -> bool:
-        if not self.configured:
-            # Fail loud in production; permit dev-mode testing without a vendor.
-            if settings.is_dev:
-                logger.info("[NOT_CONFIGURED] would send %s to %s", channel, destination)
+        """Best-effort delivery. Never raises — a vendor failure (e.g. an
+        unverified trial number) must not break the OTP/notification flow."""
+        if channel == "sms" and self.sms_configured:
+            try:
+                await asyncio.to_thread(self._send_sms_sync, destination, message)
+                logger.info("SMS sent to %s", destination)
+                return True
+            except Exception as exc:  # noqa: BLE001 — deliberately swallowed
+                logger.warning("Twilio SMS failed for %s: %s", destination, exc)
                 return False
-            raise RuntimeError("OTP delivery provider is NOT_CONFIGURED")
-        # Production: call the vendor SDK/HTTP here. Never log the raw message.
-        return True
+        if settings.is_dev:
+            logger.info("[NOT_CONFIGURED] would send %s to %s", channel, destination)
+        return False
 
 
 delivery = SmsEmailAdapter()
 
 
 async def record_notification(user_id: str, event: str, title: str, body: str) -> None:
-    """Persist an in-app notification. This is the durable, non-faked record."""
+    """Persist an in-app notification (durable) and, when SMS is configured,
+    also push an SMS to the user's phone on a best-effort basis."""
     await notifications.insert_one(
         {
             "user_id": user_id,
@@ -63,7 +88,17 @@ async def record_notification(user_id: str, event: str, title: str, body: str) -
             "created_at": datetime.now(timezone.utc),
         }
     )
+    if delivery.sms_configured:
+        try:
+            from bson import ObjectId
+
+            user = await users.find_one({"_id": ObjectId(user_id)})
+            phone = user.get("phone") if user else None
+            if phone:
+                await delivery.send("sms", phone, f"TrackMyRMC: {title} — {body}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("notification SMS skipped: %s", exc)
 
 
 def provider_status() -> dict:
-    return {"adapter": delivery.name, "configured": delivery.configured}
+    return {"adapter": delivery.name, "configured": delivery.configured, "sms": delivery.sms_configured}

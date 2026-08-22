@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 9 — Dispatcher self-service dispatch + Search/Filter + Owner weekly insights all VERIFIED end-to-end. BACKEND: 21/21 passed on /app/backend/tests/test_iteration9_dispatch_rbac_insights.py (XML: /app/test_reports/pytest/iteration9.xml). (a) Dispatcher full happy path: GET /api/staff/collection/dispatch returns rows carrying nav=/dispatch-order/{id}; GET /api/staff/orders/{id}, /api/staff/fleet, /api/staff/drivers all 200; POST assign-tm → TM_ASSIGNED, assign-driver → DRIVER_ASSIGNED, challan → READY_TO_DISPATCH, dispatch → DISPATCHED — each step persisted (verified by re-GET of /api/staff/orders/{id}). (b) RBAC: 12 parametrized tests — operator, store_manager and accountant each get 403 on assign-tm/assign-driver/challan/dispatch. Admin is NOT blocked (returns 200/409 depending on state, never 403). (c) Owner insights: GET /api/owner/insights returns {labels(7), ordered(7), delivered(7), payments(7), totals{ordered,delivered,payments}}; totals equal sum of series; dispatcher (non-owner) gets 403. FRONTEND (Expo web 390×844): Dispatcher logged in via auto-filled dev_otp → /dispatcher home → Dispatch tab shows 8 rows w/ testID='open-<id>' → tap navigates to /dispatch-order/<id> which renders OwnerDispatchPanel with Transit Mixer / Driver / Challan / Dispatched progressive checklist. showProduction=false and showInvoice=false honored (no 'Start Production'/'Mark Complete'/'Generate Invoice' buttons on this screen — verified by full-text scan). Central Admin /central_admin/users renders standalone list with data-testid='staff-search' (working — typing 'Rajesh' filters list to only Rajesh Kumar, hides Anita). Status filter chips correctly HIDDEN on central users (all 13 users share badge='Active' — only 1 distinct badge, threshold is ≥2, expected behavior). Admin /admin/orders renders BOTH search box AND filter chips ['staff-filter-all','staff-filter-DELIVERED','staff-filter-DISPATCHED','staff-filter-READY TO DISPATCH'] — chips render as expected. Owner home shows 'This Week' card with real numbers (Ordered 72 m³ / Delivered 38 m³ / Received ₹31,152), a 7-day bar chart (Ordered vs Delivered) with Sun–Sat labels, and 'Payments received' sparkline row. Only console warnings are the pre-existing shadow*/pointerEvents deprecations (carryover from iterations 6-8, non-blocking). No RN red screens, no 5xx from any endpoint.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web deprecation (carryover, non-blocking)", "issue": "'shadow*' style props deprecation warnings and 'props.pointerEvents is deprecated' still logged at runtime. Reference: shared UI primitives (Card/Button/Skeleton). Same warnings reported in iterations 6-8 — non-blocking, no user-visible impact."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_dispatch_rbac_insights.py",
+    "/app/test_reports/pytest/iteration9.xml"
+  ],
+  "action_items": [
+    "(Optional, style) Migrate deprecated 'shadow*' style props to boxShadow and pointerEvents prop to style.pointerEvents to silence RN Web warnings. Non-blocking (carried over from iterations 6-8).",
+    "(Note, not a bug) Status filter chips only render when the list has ≥2 distinct badges. On central_admin Users tab today all 13 seeded users have status='active' so chips are hidden — this matches the spec. If E1 wants to demo the chips there, either suspend one user via UI first (which will then show 'Active' + 'Suspended' chips) or seed one suspended user in seed.py."
+  ],
+  "critical_code_review_comments": [
+    "routers/staff.py — DISPATCH_ROLES = {DISPATCHER, ADMIN} and _dispatch_only() correctly raises 403 before any DB access on assign-tm/assign-driver/challan/dispatch (12 RBAC tests confirmed). Good.",
+    "routers/staff.py dispatch_assign_tm/dispatch_assign_driver/dispatch_challan/dispatch_dispatch mirror the owner equivalents but scope by staff plant_id via _scoped_order() — no cross-tenant leakage. Idempotent challan handling (existing-challan short-circuit) is present.",
+    "routers/staff.py:279 — 'dispatch' collection sets it['nav'] only when order.status != DELIVERED, so terminal orders don't get a chevron. Correct.",
+    "routers/owner.py:562 insights() builds 7 keys from today − 6 days .. today, sums quantity per created_at day, delivered_quantity fallback to quantity for DELIVERED orders, and payments by created_at. Totals returned match sum(series) — verified by test.",
+    "frontend/app/dispatch-order/[id].tsx passes basePath='/staff' + showProduction={false} + showInvoice={false} to OwnerDispatchPanel — verified visually that Production and Invoice CTAs do NOT render. Clean reuse.",
+    "frontend/src/screens/StaffCollection.tsx:116 searchable is gated on !embedded && !limit — so KPI-preview embedded lists (home screen) don't spam search UI, but standalone tabs do. Correct behavior.",
+    "frontend/src/screens/StaffCollection.tsx:110-114 badges set derived from allItems.badge — chips only show when set.size >= 2. Verified: admin/orders (4 badges) shows chips, central/users (1 badge 'Active') hides them.",
+    "frontend/src/components/WeeklyInsights.tsx max scaling uses Math.max(1, ...ordered, ...delivered) — guards against divide-by-zero when a fresh plant has no data. Good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_dispatch_rbac_insights.py (new — 21 tests)",
+    "/app/test_reports/pytest/iteration9.xml (new)",
+    "/app/test_reports/iteration_9.json (new)"
+  ],
+  "success_rate": {"backend": "21/21 (100%)", "frontend": "100% — dispatcher list→nav→panel, showProduction/showInvoice=false, central_admin users search, admin orders search+filter chips, owner This Week card + 7-day chart + Payments row all verified visually."},
+  "seed_data_creation": "No new seed data created this iteration. The backend test consumed the last remaining actionable dispatch order (progressing it ACCEPTED→...→DISPATCHED) — all 8 seeded dispatch orders are now in DISPATCHED/DELIVERED state. If E1 wants to re-demo the progressive panel on a fresh order, either place a new order (customer flow) or reseed. This is expected — earlier iterations also consumed dispatchable orders.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New testIDs verified this iteration: staff-search (TextInput), staff-search-clear (X button when query non-empty), staff-filter-all + staff-filter-<badge> (chip row, only rendered when >=2 distinct badges), open-<id> (row-level chevron nav on dispatch queue rows). Existing OwnerDispatchPanel is now shared: on dispatcher screen it is invoked with basePath='/staff', showProduction=false, showInvoice=false; on owner /order/{id} it uses default basePath='/owner'. Dispatch queue orders may be depleted — reseed if needed. Owner /api/owner/insights is scoped to owner-only (dispatcher gets 403). Backend request-otp still has 30s cooldown per identifier — the test file retries once on 429.",
+  "rca_of_issue": "N/A — no functional failures."
+}

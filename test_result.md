@@ -148,3 +148,27 @@
 ##         -working: "NA"
 ##         -agent: "main"
 ##         -comment: "Generic actions rendered from backend item.actions; input modals for amount/reason; create header button. Notifications bell in staff header. Places search on new-order gracefully hidden until GOOGLE_MAPS_KEY set."
+
+## FEATURE: Dispatcher actions, Order/Users search+filter, Owner weekly insights (2026-06)
+## backend:
+##   - task: "Staff dispatch endpoints (/staff/fleet,/staff/drivers,/staff/orders/{id}, assign-tm/assign-driver/challan/dispatch) + owner /insights"
+##     implemented: true
+##     working: "NA"
+##     file: "backend/routers/staff.py, backend/routers/owner.py"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "Curl-verified full dispatcher flow PRODUCTION_COMPLETE->TM_ASSIGNED->DRIVER_ASSIGNED->READY_TO_DISPATCH->DISPATCHED. RBAC: operator gets 403 on dispatch. Owner /insights returns 7-day ordered/delivered/payments."
+## frontend:
+##   - task: "Dispatcher order detail (/dispatch-order/[id]) reusing OwnerDispatchPanel(basePath=/staff), StaffCollection search+status filter + row nav, WeeklyInsights chart on owner home"
+##     implemented: true
+##     working: "NA"
+##     file: "frontend/app/dispatch-order/[id].tsx, frontend/src/components/OwnerDispatchPanel.tsx, frontend/src/screens/StaffCollection.tsx, frontend/src/components/WeeklyInsights.tsx, frontend/app/owner/index.tsx"
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: "Dispatcher taps a dispatch-queue row -> detail with progressive assign/challan/dispatch panel. StaffCollection full-screen lists gain a search box (>=4 items) + status filter chips (>=2 badges). Owner home shows weekly bar chart."

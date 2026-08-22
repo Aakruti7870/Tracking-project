@@ -35,6 +35,29 @@ Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority, Central A
 - Light + Dark themes, identical IA; premium charcoal + electric-lime design system.
 
 ## Implemented (with dates)
+### 2026-06 — PHASE 9 (Twilio SMS live) ✅
+- **Twilio SMS wired** via the provider-agnostic adapter (Messaging API, async, best-effort).
+  Real SMS now sent for **OTP codes** and **order alerts** (every in-app notification also
+  pushes an SMS to the user's phone when configured). Verified: Twilio returns 201 + "SMS sent".
+- Login stays testable in preview: `dev_otp` is still surfaced in non-prod (seeded demo
+  numbers aren't real phones). Both SMS (customer/driver) and email (staff) logins verified.
+- Env: `TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER`. Twilio HTTP logs quieted.
+- **SendGrid email**: skipped by user — adapter dormant, activates when `EMAIL_PROVIDER_API_KEY` set.
+- **KYC key** stored (`KYC_API_KEY`) but provider not identified yet — dormant.
+- **Google Maps**: STILL BLOCKED — key remains HTTP-referrer restricted (re-tested). Awaiting
+  an unrestricted/server-usable key before Places/Geocoding/Routes activate.
+
+### 2026-06 — PHASE 8 (Dispatcher self-service, Search/Filter, Owner Insights) ✅
+- **Dispatcher** can now run the whole dispatch from their own screen: tap a queue row →
+  assign Transit Mixer → assign Driver → generate Challan → Dispatch (reuses the owner
+  panel via a `basePath="/staff"` prop; production/invoice buttons hidden). Backend mirror
+  endpoints under `/api/staff/orders/{id}/…` scoped by plant, gated to Dispatcher + Admin.
+- **Search + status filters** on big staff lists (search box ≥4 items, badge chips ≥2 badges) —
+  client-side across primary/secondary/meta. Works for Orders, Users, and every collection.
+- **Owner "This Week" insights**: 7-day Ordered vs Delivered bar chart + Payments row +
+  totals. Backend `GET /api/owner/insights`. Pure RN chart (no chart lib).
+- Tests: 21/21 backend pass; all three frontend flows verified E2E.
+
 ### 2026-06 — PHASE 7 (Staff actions, Notifications, Maps plumbing) ✅
 - Made staff dashboards **actionable** (backend-driven action buttons on list items):
   - **Authority**: approve / reject pending KYC (with reason) → notifies the user.

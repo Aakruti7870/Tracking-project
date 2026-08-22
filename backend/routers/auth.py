@@ -66,8 +66,9 @@ async def request_otp(body: RequestOtpBody):
         "expires_in": settings.OTP_TTL_SECONDS,
         "delivery": provider_status(),
     }
-    # Dev convenience: surface the OTP only when no real provider is configured.
-    if settings.is_dev and settings.DEBUG_OTP and not delivery.configured:
+    # Dev convenience: surface the OTP in non-prod so the preview stays testable
+    # (the seeded demo numbers are not real and cannot receive a live SMS).
+    if settings.is_dev and settings.DEBUG_OTP:
         response["dev_otp"] = code
     return response
 

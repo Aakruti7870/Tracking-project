@@ -11,6 +11,7 @@ import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { OrderCard, OrderData } from "@/src/components/OrderCard";
+import { WeeklyInsights } from "@/src/components/WeeklyInsights";
 import { ErrorView } from "@/src/components/StateViews";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -80,6 +81,9 @@ export default function OwnerHome() {
                   </View>
                 ))}
               </View>
+
+              {/* Weekly delivery insights */}
+              <WeeklyInsights />
 
               {/* Pending approvals */}
               <View style={{ gap: spacing.sm }}>

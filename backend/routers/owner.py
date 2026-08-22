@@ -556,3 +556,51 @@ async def ledger(ctx: dict = Depends(owner_only)):
         e["paid"] = round(e["paid"] + d.get("paid", 0), 2)
     rows = [{**e, "balance": round(e["billed"] - e["paid"], 2)} for e in by_customer.values()]
     return {"ledger": rows}
+
+
+@router.get("/insights")
+async def insights(ctx: dict = Depends(owner_only)):
+    """Last 7 days: volume ordered vs delivered + payments received per day."""
+    plant_ids = await _scoped_plant_ids(ctx)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    days = [(today - timedelta(days=i)) for i in range(6, -1, -1)]
+    labels = [d.strftime("%a") for d in days]
+    keys = [d.strftime("%Y-%m-%d") for d in days]
+
+    ordered = {k: 0.0 for k in keys}
+    delivered = {k: 0.0 for k in keys}
+    paid = {k: 0.0 for k in keys}
+
+    all_orders = await orders.find({"plant_id": {"$in": plant_ids}}).to_list(3000)
+    for o in all_orders:
+        c = o.get("created_at")
+        if c:
+            k = c.replace(tzinfo=timezone.utc).strftime("%Y-%m-%d")
+            if k in ordered:
+                ordered[k] += o.get("quantity", 0)
+        if o.get("status") == "DELIVERED":
+            dt = o.get("updated_at") or o.get("created_at")
+            if dt:
+                k = dt.replace(tzinfo=timezone.utc).strftime("%Y-%m-%d")
+                if k in delivered:
+                    delivered[k] += o.get("delivered_quantity") or o.get("quantity", 0)
+
+    pays = await payments.find({"plant_id": {"$in": plant_ids}}).to_list(3000)
+    for p in pays:
+        c = p.get("created_at")
+        if c:
+            k = c.replace(tzinfo=timezone.utc).strftime("%Y-%m-%d")
+            if k in paid:
+                paid[k] += p.get("amount", 0)
+
+    return {
+        "labels": labels,
+        "ordered": [round(ordered[k], 1) for k in keys],
+        "delivered": [round(delivered[k], 1) for k in keys],
+        "payments": [round(paid[k], 0) for k in keys],
+        "totals": {
+            "ordered": round(sum(ordered.values()), 1),
+            "delivered": round(sum(delivered.values()), 1),
+            "payments": round(sum(paid.values()), 0),
+        },
+    }

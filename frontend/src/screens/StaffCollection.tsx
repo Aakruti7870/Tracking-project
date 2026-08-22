@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,16 +38,18 @@ export type StaffItem = {
   badge?: string | null;
   badge_status?: string | null;
   actions?: StaffAction[];
+  nav?: string | null;
 };
 
 type CreateDef = { label: string; path: string; form: "material" | "vehicle" };
 type CollectionData = { title: string; empty: string; items: StaffItem[]; create?: CreateDef };
 
-function ItemRow({ item, onAction }: { item: StaffItem; onAction: (i: StaffItem, a: StaffAction) => void }) {
+function ItemRow({ item, onAction, onPress }: { item: StaffItem; onAction: (i: StaffItem, a: StaffAction) => void; onPress?: () => void }) {
   const { colors } = useTheme();
+  const Container: any = onPress ? Pressable : View;
   return (
     <View style={styles.rowWrap}>
-      <View style={styles.row}>
+      <Container style={styles.row} onPress={onPress} testID={onPress ? `open-${item.id}` : undefined}>
         <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
           <Ionicons name={item.icon || "ellipse-outline"} size={18} color={colors.onBrandSoft} />
         </View>
@@ -57,7 +59,8 @@ function ItemRow({ item, onAction }: { item: StaffItem; onAction: (i: StaffItem,
           {item.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }} numberOfLines={1}>{item.meta}</AppText> : null}
         </View>
         {item.badge ? <Badge label={item.badge} status={item.badge_status || item.badge} /> : null}
-      </View>
+        {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /> : null}
+      </Container>
       {item.actions && item.actions.length > 0 ? (
         <View style={styles.actions}>
           {item.actions.map((a) => (
@@ -100,8 +103,28 @@ export function StaffCollection({ kind, embedded = false, limit }: { kind: strin
   const [f2, setF2] = useState("");
   const [f3, setF3] = useState("");
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
-  const items = data ? (limit ? data.items.slice(0, limit) : data.items) : [];
+  const allItems = data?.items || [];
+  const badges = useMemo(() => {
+    const seen = new Set<string>();
+    allItems.forEach((i) => i.badge && seen.add(i.badge));
+    return Array.from(seen);
+  }, [allItems]);
+
+  const searchable = !embedded && !limit;
+  const filtered = useMemo(() => {
+    if (!searchable) return limit ? allItems.slice(0, limit) : allItems;
+    const q = query.trim().toLowerCase();
+    return allItems.filter((i) => {
+      if (statusFilter && i.badge !== statusFilter) return false;
+      if (!q) return true;
+      return [i.primary, i.secondary, i.meta].some((f) => (f || "").toLowerCase().includes(q));
+    });
+  }, [allItems, query, statusFilter, searchable, limit]);
+
+  const items = filtered;
 
   const runPost = async (path: string, body?: any) => {
     setBusy(true);
@@ -168,7 +191,7 @@ export function StaffCollection({ kind, embedded = false, limit }: { kind: strin
         <Card padded={false}>
           {items.map((it, i) => (
             <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-              <ItemRow item={it} onAction={onAction} />
+              <ItemRow item={it} onAction={onAction} onPress={it.nav ? () => router.push(it.nav as any) : undefined} />
             </View>
           ))}
         </Card>
@@ -234,6 +257,41 @@ export function StaffCollection({ kind, embedded = false, limit }: { kind: strin
               </Pressable>
             ) : null}
           </View>
+          {allItems.length >= 4 ? (
+            <View style={[styles.search, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
+              <TextInput
+                testID="staff-search"
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search…"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface, paddingVertical: 0 }}
+              />
+              {query ? (
+                <Pressable testID="staff-search-clear" onPress={() => setQuery("")}>
+                  <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          {badges.length >= 2 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+              {[null, ...badges].map((b) => {
+                const sel = statusFilter === b;
+                return (
+                  <Pressable
+                    key={b || "all"}
+                    testID={`staff-filter-${b || "all"}`}
+                    onPress={() => setStatusFilter(b)}
+                    style={[styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}
+                  >
+                    <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{b || "All"}</AppText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
           {body}
         </ScrollView>
       )}
@@ -245,6 +303,8 @@ export function StaffCollection({ kind, embedded = false, limit }: { kind: strin
 const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   addBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.md, height: 38, borderRadius: radius.pill },
+  search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, height: 44, borderRadius: radius.md, borderWidth: 1 },
+  chip: { height: 32, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   rowWrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   icon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
