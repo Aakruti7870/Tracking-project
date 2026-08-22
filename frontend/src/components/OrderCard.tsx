@@ -20,6 +20,11 @@ export type OrderData = {
   delivery_time?: string;
   status: string;
   payment_status: string;
+  tm_number?: string;
+  driver_name?: string;
+  driver_mobile?: string;
+  challan_number?: string;
+  invoice_number?: string;
 };
 
 export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () => void }) {
