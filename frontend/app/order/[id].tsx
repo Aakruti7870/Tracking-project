@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiPost } from "@/src/api/client";
-import { fileUrl } from "@/src/api/upload";
+import { fileSource } from "@/src/api/upload";
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
@@ -94,7 +94,6 @@ export default function OrderDetail() {
         </View>
       ) : data && o ? (
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40, gap: spacing.lg }} showsVerticalScrollIndicator={false}>
-          {/* Status */}
           <Card style={{ gap: spacing.md }}>
             <View style={styles.rowBetween}>
               <View>
@@ -107,7 +106,6 @@ export default function OrderDetail() {
             </View>
           </Card>
 
-          {/* Summary */}
           <Card style={{ gap: spacing.sm }}>
             {isOwner && data.order.customer_name ? (
               <Row icon="person-outline" label="Customer" value={data.order.customer_name} colors={colors} />
@@ -124,7 +122,6 @@ export default function OrderDetail() {
             {data.notes ? <Row icon="reader-outline" label="Notes" value={data.notes} colors={colors} /> : null}
           </Card>
 
-          {/* Timeline */}
           <View style={{ gap: spacing.md }}>
             <AppText variant="heading">Order Timeline</AppText>
             <Card>
@@ -132,7 +129,6 @@ export default function OrderDetail() {
             </Card>
           </View>
 
-          {/* Proof of Delivery — shown to customer & owner once delivered */}
           {data.pod ? (
             <View style={{ gap: spacing.sm }}>
               <AppText variant="heading">Proof of Delivery</AppText>
@@ -140,7 +136,7 @@ export default function OrderDetail() {
                 {data.pod.photo_path && token ? (
                   <Image
                     testID="pod-photo"
-                    source={{ uri: fileUrl(data.pod.photo_path, token) }}
+                    source={fileSource(data.pod.photo_path, token)}
                     style={styles.podPhoto}
                     resizeMode="cover"
                   />
@@ -159,7 +155,6 @@ export default function OrderDetail() {
             </View>
           ) : null}
 
-          {/* Actions */}
           {isOwner ? (
             o.status === "PENDING" ? (
               showReject ? (
@@ -193,7 +188,7 @@ export default function OrderDetail() {
                 tmNumber={o.tm_number}
                 driverName={o.driver_name}
                 challanNumber={o.challan_number}
-                invoiceNumber={(o as any).invoice_number}
+                invoiceNumber={o.invoice_number}
                 onChanged={reload}
                 onViewChallan={() => router.push(`/challan/${id}` as any)}
               />

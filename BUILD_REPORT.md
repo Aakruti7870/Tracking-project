@@ -1,107 +1,91 @@
 # TrackMyRMC — Build Report
-_Last updated: 2026-06_
 
-A production-grade **Ready Mix Concrete (RMC)** platform. One common OTP login →
-the backend resolves the user's role → routes to a role-specific dashboard. Strict
-server-side RBAC, order/trip state machines, digital challan, Proof of Delivery, live
-map tracking, billing, and dashboards for **all 13 roles**.
+_Last reconciled: 2026-08-22_
 
-**Stack:** Expo (React Native) + expo-router · FastAPI · MongoDB · JWT passwordless OTP.
+TrackMyRMC is a Ready Mix Concrete platform built in this repository as **Expo / React Native + FastAPI + MongoDB** with one OTP entry flow and server-resolved role routing.
 
----
+## Current branch
 
-## 1. Feature summary (by area)
+- Repository: `Aakruti7870/Tracking-project`
+- Branch: `fix/production-readiness-final`
+- PR: #1
+- PR #2 (Codex hardening contribution): merged into this hardening branch and closed.
+- No production deployment or Play upload has been performed from this branch.
 
-### Authentication & RBAC
-- One common OTP login. Backend auto-detects channel (customers/drivers = **mobile OTP**,
-  all staff/authority/admin = **email OTP**), issues a revocable JWT session, enforces
-  channel-per-role. Every protected API authorizes server-side.
+## Core product coverage
 
-### Customer app
-- Browse verified plants, **KYC-gated** order creation with **Google Places address
-  autocomplete + geocoding** (pins exact site lat/lng), drafts, order detail with a status
-  timeline, cancel, **live map tracking**, digital challan, and **Proof of Delivery** view
-  (photo, receiver, delivered qty, signature, time) once delivered.
+The application contains the customer ordering flow, plant-owner operations, driver trip/POD/tracking flow, notifications, billing/ledger, production, inventory, quality, fleet, KYC review and the 13-role dashboard structure.
 
-### Plant Owner app
-- KPI dashboard + **"This Week" insights chart** (Ordered vs Delivered volume + payments).
-- Approve/reject orders, full **dispatch workflow** (assign Transit Mixer → Driver →
-  generate **Challan** → Dispatch), **production board**, **Invoice & Ledger** (rate card +
-  18% GST, payments, outstanding), and **incidents** (driver SOS).
+Roles:
+Customer, Driver, Plant Owner, Admin, Dispatcher, Operator, Supervisor, Accountant, Quality Engineer, Fleet Manager, Store Manager, Authority and Central Admin.
 
-### Driver app
-- Active trip + **trip state machine** (Start → Reached → Unloading → Delivered), live GPS
-  location feed, **Proof of Delivery** capture (site photo via Object Storage + signature),
-  **SOS** (emergency/accident/breakdown/safety + GPS), daily attendance.
+Plant-scoped staff are enforced server-side. Authority and Central Admin retain platform-wide scope where intended.
 
-### All 13 role dashboards
-- Customer, Driver, Plant Owner **plus** the 10 staff roles below — each with its own login,
-  KPI grid, list tabs, notifications bell, and role-appropriate **actions**:
+## Production hardening in PR #1
 
-| Role | Can do |
-|------|--------|
-| **Admin** | View all orders + fleet |
-| **Dispatcher** | Assign mixer → driver → challan → **dispatch** (self-service) |
-| **Operator** | Start / Complete production |
-| **Supervisor** | Monitor operations + incidents |
-| **Accountant** | Record payments against invoices |
-| **Quality Engineer** | Record quality tests (slump, 7/28-day cube, water/cement, Pass/Fail) |
-| **Fleet Manager** | Add mixers, toggle Available/Maintenance, view drivers |
-| **Store Manager** | Add materials, Stock In/Out (with over-issue guard) |
-| **Authority** | Approve/Reject pending KYC, view plants |
-| **Central Admin** | Suspend/Activate users, platform-wide view |
+- fail-closed production JWT/OTP/CORS configuration;
+- OTP race, resend, attempts and provider-error hardening;
+- server-side RBAC and plant tenant isolation;
+- compare-and-set order transitions;
+- hardened driver trip/POD finalization;
+- authenticated object metadata and file authorization;
+- input validation and security-safe provider errors/logging;
+- Twilio SMS + SendGrid email adapters;
+- Google Maps/Places/Geocoding/Routes server proxy;
+- Expo Android trip location tracking support;
+- Android identity alignment;
+- repository secret/signing guards;
+- backend/frontend/native Android CI.
 
-- Plant-scoped roles see only their plant; **Authority & Central Admin** see the whole platform.
-- **Search box + status filter chips** on big lists (Orders, Users, etc.).
+## Verified build/test state
 
-### Cross-cutting
-- **In-app notifications** feed (bell + unread badge on every dashboard).
-- **Live tracking map** (real Google map: mixer marker, site marker, route polyline) with
-  Live ETA + remaining distance + last-update time; stops at DELIVERED.
+Backend full integration suite: **154 passed, 2 skipped, 0 failed**.
 
----
+Frontend gates:
+- TypeScript ✅
+- lint ✅
+- Expo Doctor ✅
+- Expo public config ✅
+- web preview build ✅
 
-## 2. Live integrations
-- **Google Maps** ✅ LIVE — address autocomplete (Places New) + geocoding + live map display.
-  Key stored server-side (`GOOGLE_MAPS_KEY`) and client (`EXPO_PUBLIC_GOOGLE_MAPS_KEY`).
-- **Twilio SMS** ✅ LIVE — real OTP delivery + **idempotent** DISPATCHED and DELIVERED
-  customer alerts (order ref, mixer, live-tracking link / delivery-proof link). Best-effort:
-  an SMS failure never blocks a status change; one SMS per event via an atomic claim flag.
-- **Emergent Object Storage** ✅ — POD photos.
+Android native gates:
+- Expo Android prebuild ✅
+- package `com.trackmyrmc.concreteking` ✅
+- versionCode `61` ✅
+- Gradle `assembleDebug` ✅
 
-## 3. Gated / pending (external, on user)
-- 🔴 **Google Routes API DISABLED** on the user's project → Live ETA/distance/route line are
-  built but hidden (graceful) until the user enables Routes API. No code change needed after.
-- 🟡 **SendGrid email** — adapter dormant; activates on `EMAIL_PROVIDER_API_KEY`.
-- 🟡 **DigiLocker KYC** — current KYC is a **manual Authority review flow** (not an automated
-  API). `KYC_API_KEY` stored; real DigiLocker needs its API/OAuth details.
-- 🟡 **Maps key lock-down** — set to open during setup; should be domain-restricted for prod.
+Repository security guard ✅
 
----
+## Android release identity
 
-## 4. Architecture
-- **Backend** (`/app/backend`): `config → database → models → security/rbac → services
-  (audit, notifications, order_service) → routers`. Routers: `auth, me, customer, owner,
-  driver, staff, notify, maps, storage`. `staff.py` is DRY — one role-aware `home` + one
-  generic `collection/{kind}` + action endpoints power all 10 staff dashboards.
-- **Frontend** (`/app/frontend`): expo-router file-based routing; explicit `app/{role}/`
-  folders (no route groups) to avoid URL collisions across 13 roles. Shared
-  `src/screens/Staff*` + reusable components (`OwnerDispatchPanel` with `basePath`,
-  `LiveMap`, `WeeklyInsights`). Charcoal + electric-lime theme, glass tab bar, light/dark.
-- **Order state machine** is the single choke point for status changes, notifications and
-  milestone SMS — nothing sets status directly from the client.
+- Version name: **2.0.3**
+- Version code: **61**
+- Package: **`com.trackmyrmc.concreteking`**
 
-## 5. Test accounts (dev OTP auto-returned)
-Customer `+919000000001` · Driver `+919000000002` · Owner `owner@trackmyrmc.test` ·
-staff emails: admin / dispatcher / operator / supervisor / accountant / quality / fleet /
-store / authority / central `@trackmyrmc.test`. (See `/app/memory/test_credentials.md`.)
+No new keystore is generated or stored in Git. Play signing/update lineage still requires Play Console verification before a signed release build.
 
-## 6. Test status
-- Backend: staff dashboards 36/36; actions 21/22 (1 skip); dispatcher flow + RBAC verified;
-  SMS idempotency verified (1 dispatch + 1 delivered, flags set); maps endpoints verified.
-- Frontend: iterations 8–11 green — dashboards, actions, dispatcher, search/filter, insights,
-  Google Maps autocomplete + live map render, POD card compiles.
+## Backend/runtime wiring
 
-## 7. What's next (suggested)
-- Enable Routes API (user) → Live ETA. · Downloadable PDF delivery receipt. · Post-delivery
-  star rating. · Real DigiLocker KYC. · Lock Maps key to production domain.
+Client API calls use `EXPO_PUBLIC_BACKEND_URL`.
+
+CI preview runtime uses the repository variable `PREVIEW_BACKEND_URL`. When that variable is set, CI first requires `<url>/api/health` to return success. When it is not set, CI performs compile/build validation only and does not publish a misleading preview APK.
+
+The old Emergent preview hostname referenced by historical tests returned HTTP 404 at `/api/health` during this hardening pass, so it is not accepted as the current backend.
+
+The production template is `https://api.trackmyrmc.com`; it is not considered connected to this new FastAPI/Mongo backend until a real deployment maps it and health verification passes.
+
+## What remains external
+
+Before production release we still require:
+- isolated preview backend deployment and stable HTTPS URL;
+- connected preview + real-device testing;
+- physical Android background GPS verification;
+- production Mongo configuration;
+- live SMS/email provider verification;
+- Google Maps/Routes production configuration;
+- Play signing/upload-key and final versionCode verification;
+- automated DigiLocker only if that integration is explicitly required.
+
+## Next step
+
+Deploy **only an isolated preview backend** from `fix/production-readiness-final`. Do not merge, deploy production, change UI/theme, replace signing keys, or point the new app at the legacy backend. Return the stable backend URL and `/api/health` evidence. Then the connected preview APK can be built and reviewed.

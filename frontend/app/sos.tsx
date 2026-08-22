@@ -60,7 +60,7 @@ export default function Sos() {
           <Ionicons name="alert-circle" size={22} color={colors.error} />
           <AppText variant="caption" style={{ flex: 1 }}>Use only for genuine emergencies. Your plant supervisor is alerted with your location.</AppText>
         </View>
-        <AppText variant="heading">What's the emergency?</AppText>
+        <AppText variant="heading">What&apos;s the emergency?</AppText>
         <View style={{ gap: spacing.sm }}>
           {TYPES.map((t) => {
             const sel = t.key === type;

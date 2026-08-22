@@ -19,7 +19,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("trackmyrmc")
 
-app = FastAPI(title="TrackMyRMC API", version="1.0.0")
+# Do not expose interactive API documentation by default in production.
+app = FastAPI(
+    title="TrackMyRMC API",
+    version="1.0.0",
+    docs_url="/docs" if settings.is_dev else None,
+    redoc_url="/redoc" if settings.is_dev else None,
+    openapi_url="/openapi.json" if settings.is_dev else None,
+)
 
 # Health / meta
 meta = APIRouter(prefix="/api")
@@ -32,9 +39,9 @@ async def root():
 
 @meta.get("/health")
 async def health():
+    # Keep health useful without leaking production environment details.
     return {
         "status": "healthy",
-        "env": settings.APP_ENV,
         "notifications": provider_status(),
     }
 
@@ -50,12 +57,15 @@ app.include_router(notify.router)
 app.include_router(maps.router)
 app.include_router(storage.router)
 
+_is_wildcard_cors = "*" in settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Wildcard CORS is development-only and cannot be combined safely with
+    # credentialed cross-origin requests. Native clients use Bearer auth.
+    allow_credentials=not _is_wildcard_cors,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 

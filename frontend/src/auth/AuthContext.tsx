@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 import { storage } from "@/src/utils/storage";
 import { apiGet, apiPost, requestOtp, verifyOtp } from "@/src/api/client";
+import { stopTripLocationTracking } from "@/src/location/tripTracking";
 
 const TOKEN_KEY = "tmrmc_token";
 
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(saved);
           setUser(me);
         } catch {
+          await stopTripLocationTracking();
           await storage.secureRemove(TOKEN_KEY);
         }
       }
@@ -53,7 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verify = async (identifier: string, code: string): Promise<Me> => {
     const res = await verifyOtp(identifier, code);
-    await storage.secureSet(TOKEN_KEY, res.access_token);
+    const stored = await storage.secureSet(TOKEN_KEY, res.access_token);
+    if (!stored) throw new Error("Unable to securely store login session");
     setToken(res.access_token);
     const me = await apiGet<Me>("/me", res.access_token);
     setUser(me);
@@ -66,16 +69,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await apiGet<Me>("/me", token);
       setUser(me);
     } catch {
-      /* keep existing */
+      /* keep existing; explicit auth failures are handled by normal navigation */
     }
   };
 
   const signOut = async () => {
+    // Stop the Android foreground/background location service before removing
+    // the token so no delivery tracker remains running after logout.
+    await stopTripLocationTracking();
     if (token) {
       try {
         await apiPost("/auth/logout", token);
       } catch {
-        /* ignore network errors on logout */
+        /* local logout must still succeed when the network is unavailable */
       }
     }
     await storage.secureRemove(TOKEN_KEY);

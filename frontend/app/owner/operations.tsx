@@ -1,16 +1,23 @@
 import React from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Pressable } from "react-native";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const SECTIONS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; desc: string }[] = [
+type Section = {
+  key: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  desc: string;
+  route?: string;
+};
+
+const SECTIONS: Section[] = [
   { key: "production", label: "Production", icon: "cog-outline", desc: "Start & complete batching per order", route: "/owner/orders" },
   { key: "dispatch", label: "Dispatch", icon: "navigate-outline", desc: "Assign TM & driver, dispatch", route: "/owner/orders" },
   { key: "billing", label: "Billing & Ledger", icon: "wallet-outline", desc: "Invoices, payments & outstanding", route: "/owner/billing" },
@@ -33,11 +40,11 @@ export default function OwnerOperations() {
         <AppText variant="caption">Plant production, dispatch, fleet & stock</AppText>
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.sm }} showsVerticalScrollIndicator={false}>
-        {SECTIONS.map((s: any) => (
+        {SECTIONS.map((s) => (
           <Pressable
             key={s.key}
             testID={`ops-${s.key}`}
-            onPress={() => (s.route ? router.push(s.route) : toast(`${s.label} arrives in the next phases`, "info"))}
+            onPress={() => (s.route ? router.push(s.route as any) : toast(`${s.label} arrives in the next phases`, "info"))}
             style={[styles.row, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>

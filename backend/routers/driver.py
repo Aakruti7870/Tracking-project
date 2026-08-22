@@ -1,24 +1,37 @@
 """Driver endpoints: trips, trip state machine, POD, attendance."""
+import json
 from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
-from database import attendance, driver_incidents, driver_trips, orders, plants, proof_of_delivery, trip_status_history, vehicle_locations, vehicles
+from database import (
+    attendance,
+    driver_incidents,
+    driver_trips,
+    orders,
+    plants,
+    proof_of_delivery,
+    storage_objects,
+    trip_status_history,
+    vehicle_locations,
+    vehicles,
+)
 from models import GeoBody, LocationBody, PodBody, SosBody
 from notifications import record_notification
 from order_service import (
     AT_SITE,
     DELIVERED,
-    DISPATCHED,
     EN_ROUTE,
     POD_PENDING,
     UNLOADING,
     transition_order,
 )
 from roles import Role
-from security import current_user, require_role
+from security import require_role
 
 router = APIRouter(prefix="/api/driver", tags=["driver"])
 driver_only = require_role(Role.DRIVER.value)
@@ -42,10 +55,10 @@ def _serialize_trip(t: dict) -> dict:
         "tm_number": t.get("tm_number"),
         "site_name": t.get("site_name"),
         "site_address": t.get("site_address"),
+        "last_location_at": t.get("last_location_at").isoformat() if t.get("last_location_at") else None,
     }
 
 
-# trip status -> (allowed current trip statuses, next order status)
 STEP_MAP = {
     "start": (["DISPATCHED", "ASSIGNED", "ACCEPTED", "LOADING"], EN_ROUTE, "EN_ROUTE"),
     "arrive": (["EN_ROUTE"], AT_SITE, "ARRIVED"),
@@ -64,9 +77,18 @@ async def _my_trip(ctx: dict, trip_id: str) -> dict:
 async def home(ctx: dict = Depends(driver_only)):
     uid = ctx["user_id"]
     trips = await driver_trips.find({"driver_id": uid}).sort("updated_at", -1).to_list(200)
-    active = next((t for t in trips if t.get("status") not in ("DELIVERED", "DECLINED", "CANCELLED")), None)
+    active = next(
+        (t for t in trips if t.get("status") not in ("DELIVERED", "DECLINED", "CANCELLED")),
+        None,
+    )
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    done_today = [t for t in trips if t.get("status") == "DELIVERED" and t.get("updated_at") and t["updated_at"].replace(tzinfo=timezone.utc) >= today]
+    done_today = [
+        t
+        for t in trips
+        if t.get("status") == "DELIVERED"
+        and t.get("updated_at")
+        and t["updated_at"].replace(tzinfo=timezone.utc) >= today
+    ]
     att = await attendance.find_one({"driver_id": uid, "date": today.strftime("%Y-%m-%d")})
     return {
         "name": ctx["user"].get("name"),
@@ -79,7 +101,11 @@ async def home(ctx: dict = Depends(driver_only)):
 
 @router.get("/trips")
 async def trips(ctx: dict = Depends(driver_only)):
-    docs = await driver_trips.find({"driver_id": ctx["user_id"]}).sort("updated_at", -1).to_list(500)
+    docs = (
+        await driver_trips.find({"driver_id": ctx["user_id"]})
+        .sort("updated_at", -1)
+        .to_list(500)
+    )
     return {"trips": [_serialize_trip(t) for t in docs]}
 
 
@@ -90,7 +116,14 @@ async def trip_detail(trip_id: str, ctx: dict = Depends(driver_only)):
     return {
         "trip": _serialize_trip(t),
         "site_address": t.get("site_address"),
-        "pod": {"receiver_name": pod.get("receiver_name"), "delivered_quantity": pod.get("delivered_quantity")} if pod else None,
+        "pod": (
+            {
+                "receiver_name": pod.get("receiver_name"),
+                "delivered_quantity": pod.get("delivered_quantity"),
+            }
+            if pod
+            else None
+        ),
     }
 
 
@@ -98,13 +131,56 @@ async def _advance(ctx: dict, trip_id: str, step: str):
     t = await _my_trip(ctx, trip_id)
     allowed, order_target, trip_target = STEP_MAP[step]
     if t.get("status") not in allowed:
+        if t.get("status") == trip_target:
+            return {"status": trip_target}
         raise HTTPException(409, f"Cannot {step} a trip that is {t.get('status')}")
-    now = datetime.now(timezone.utc)
-    await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"status": trip_target, "updated_at": now}})
-    await trip_status_history.insert_one({"trip_id": trip_id, "to_status": trip_target, "actor_id": ctx["user_id"], "created_at": now})
+
     order = await orders.find_one({"_id": await _oid(t["order_id"])})
-    notify = [order["customer_id"]] if order else []
-    await transition_order(t["order_id"], order_target, ctx["user_id"], note=f"Driver: {trip_target.replace('_',' ').title()}", notify_user_ids=notify, event=f"trip_{trip_target.lower()}")
+    if not order:
+        raise HTTPException(409, "Trip is linked to a missing order")
+    if order.get("driver_id") and order.get("driver_id") != ctx["user_id"]:
+        raise HTTPException(403, "Trip assignment does not match the order driver")
+
+    now = datetime.now(timezone.utc)
+    claimed = await driver_trips.find_one_and_update(
+        {"_id": t["_id"], "driver_id": ctx["user_id"], "status": {"$in": allowed}},
+        {"$set": {"status": trip_target, "updated_at": now}, "$unset": {"sync_error": ""}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        latest = await driver_trips.find_one({"_id": t["_id"], "driver_id": ctx["user_id"]})
+        if latest and latest.get("status") == trip_target:
+            return {"status": trip_target}
+        raise HTTPException(409, "Trip status changed concurrently; reload the trip")
+
+    notify = [order["customer_id"]] if order.get("customer_id") else []
+    try:
+        await transition_order(
+            t["order_id"],
+            order_target,
+            ctx["user_id"],
+            note=f"Driver: {trip_target.replace('_', ' ').title()}",
+            notify_user_ids=notify,
+            event=f"trip_{trip_target.lower()}",
+        )
+    except Exception:
+        # Standalone Mongo may not support transactions. Compensate only while
+        # the trip is still at the state this request claimed.
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": trip_target},
+            {"$set": {"status": t.get("status"), "updated_at": now, "sync_error": True}},
+        )
+        raise
+
+    await trip_status_history.insert_one(
+        {
+            "trip_id": trip_id,
+            "from_status": t.get("status"),
+            "to_status": trip_target,
+            "actor_id": ctx["user_id"],
+            "created_at": now,
+        }
+    )
     return {"status": trip_target}
 
 
@@ -123,12 +199,75 @@ async def unload(trip_id: str, ctx: dict = Depends(driver_only)):
     return await _advance(ctx, trip_id, "unload")
 
 
+def _validate_pod_payload(body: PodBody) -> None:
+    if not body.photo_path:
+        raise HTTPException(422, "Delivery site photo is required")
+    if not body.photo_path.startswith("trackmyrmc/pod/") or ".." in body.photo_path:
+        raise HTTPException(422, "Invalid POD photo reference")
+    if not body.signature:
+        raise HTTPException(422, "Receiver signature is required")
+    try:
+        strokes = json.loads(body.signature)
+    except (TypeError, json.JSONDecodeError):
+        raise HTTPException(422, "Invalid receiver signature")
+    if not isinstance(strokes, list) or not strokes or not all(isinstance(s, str) and s for s in strokes):
+        raise HTTPException(422, "Invalid receiver signature")
+
+
 @router.post("/trips/{trip_id}/pod")
 async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_only)):
     t = await _my_trip(ctx, trip_id)
+    existing = await proof_of_delivery.find_one({"trip_id": trip_id})
+    if t.get("status") == DELIVERED and existing:
+        same = (
+            existing.get("receiver_name") == body.receiver_name
+            and float(existing.get("delivered_quantity") or 0) == float(body.delivered_quantity)
+            and existing.get("photo_path") == body.photo_path
+            and existing.get("signature") == body.signature
+        )
+        if same:
+            return {"status": DELIVERED, "idempotent": True}
+        raise HTTPException(409, "Proof of delivery is already finalized")
     if t.get("status") not in ("UNLOADING", "ARRIVED", "POD_PENDING"):
         raise HTTPException(409, "Start unloading before submitting proof of delivery")
+    _validate_pod_payload(body)
+
+    order = await orders.find_one({"_id": await _oid(t["order_id"]), "driver_id": ctx["user_id"]})
+    if not order:
+        raise HTTPException(409, "Trip assignment does not match the delivery order")
+    if order.get("status") not in (UNLOADING, POD_PENDING):
+        raise HTTPException(409, f"Order is not ready for POD ({order.get('status')})")
+
+    ordered_quantity = float(order.get("quantity") or 0)
+    if ordered_quantity <= 0 or body.delivered_quantity > ordered_quantity * 1.10:
+        raise HTTPException(422, "Delivered quantity exceeds allowed order tolerance")
+
+    photo_meta = await storage_objects.find_one(
+        {
+            "path": body.photo_path,
+            "owner_user_id": ctx["user_id"],
+            "purpose": "POD",
+            "trip_id": trip_id,
+            "order_id": t["order_id"],
+        }
+    )
+    if not photo_meta:
+        raise HTTPException(422, "POD photo is not authorized for this trip")
+
     now = datetime.now(timezone.utc)
+    claimed = await driver_trips.find_one_and_update(
+        {
+            "_id": t["_id"],
+            "driver_id": ctx["user_id"],
+            "order_id": t["order_id"],
+            "status": {"$in": ["UNLOADING", "ARRIVED", "POD_PENDING"]},
+        },
+        {"$set": {"status": "POD_FINALIZING", "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        raise HTTPException(409, "Delivery is already being finalized")
+
     pod_doc = {
         "trip_id": trip_id,
         "order_id": t["order_id"],
@@ -141,24 +280,68 @@ async def submit_pod(trip_id: str, body: PodBody, ctx: dict = Depends(driver_onl
         "lat": body.lat,
         "lng": body.lng,
         "created_at": now,
+        "updated_at": now,
     }
-    await proof_of_delivery.update_one({"trip_id": trip_id}, {"$set": pod_doc}, upsert=True)
+    try:
+        await proof_of_delivery.insert_one(pod_doc)
+    except DuplicateKeyError:
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+            {"$set": {"status": t.get("status"), "updated_at": now}},
+        )
+        existing = await proof_of_delivery.find_one({"trip_id": trip_id})
+        if existing and existing.get("photo_path") == body.photo_path:
+            raise HTTPException(409, "Proof of delivery is already finalized")
+        raise HTTPException(409, "Proof of delivery conflicts with an existing record")
 
-    order = await orders.find_one({"_id": await _oid(t["order_id"])})
-    notify = [order["customer_id"]] if order else []
-    # UNLOADING -> POD_PENDING -> DELIVERED (order), trip -> DELIVERED
-    if order and order.get("status") == UNLOADING:
-        await transition_order(t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted")
-    await transition_order(t["order_id"], DELIVERED, ctx["user_id"], note=f"Delivered — received by {body.receiver_name}", notify_user_ids=notify, event="delivered")
-    await orders.update_one({"_id": await _oid(t["order_id"])}, {"$set": {"delivered_quantity": body.delivered_quantity}})
-    await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"status": DELIVERED, "updated_at": now}})
+    notify = [order["customer_id"]] if order.get("customer_id") else []
+    try:
+        if order.get("status") == UNLOADING:
+            order = await transition_order(
+                t["order_id"], POD_PENDING, ctx["user_id"], note="POD submitted"
+            )
+
+        await orders.update_one(
+            {"_id": await _oid(t["order_id"]), "driver_id": ctx["user_id"]},
+            {"$set": {"delivered_quantity": body.delivered_quantity, "pod_submitted_at": now}},
+        )
+        await transition_order(
+            t["order_id"],
+            DELIVERED,
+            ctx["user_id"],
+            note=f"Delivered — received by {body.receiver_name}",
+            notify_user_ids=notify,
+            event="delivered",
+        )
+    except Exception:
+        await proof_of_delivery.delete_one({"trip_id": trip_id, "created_at": now})
+        await driver_trips.update_one(
+            {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+            {"$set": {"status": t.get("status"), "updated_at": now, "sync_error": True}},
+        )
+        raise
+
+    finalized = await driver_trips.update_one(
+        {"_id": t["_id"], "driver_id": ctx["user_id"], "status": "POD_FINALIZING"},
+        {"$set": {"status": DELIVERED, "updated_at": now, "tracking_ended_at": now}, "$unset": {"sync_error": ""}},
+    )
+    if finalized.modified_count != 1:
+        raise HTTPException(409, "Delivery completed but trip reconciliation is required")
+
     if t.get("vehicle_id"):
-        await vehicles.update_one({"_id": await _oid(t["vehicle_id"])}, {"$set": {"status": "available", "current_order_id": None}})
-    await write_audit(ctx["user_id"], "pod.submit", "order", t["order_id"])
+        await vehicles.update_one(
+            {"_id": await _oid(t["vehicle_id"]), "current_order_id": t["order_id"]},
+            {"$set": {"status": "available", "current_order_id": None}},
+        )
+    await write_audit(
+        ctx["user_id"],
+        "pod.submit",
+        "order",
+        t["order_id"],
+        {"trip_id": trip_id, "delivered_quantity": body.delivered_quantity},
+    )
     return {"status": DELIVERED}
 
-
-# ---------------- Attendance ----------------
 
 @router.get("/attendance")
 async def get_attendance(ctx: dict = Depends(driver_only)):
@@ -182,7 +365,10 @@ async def checkin(body: GeoBody, ctx: dict = Depends(driver_only)):
     now = datetime.now(timezone.utc)
     await attendance.update_one(
         {"driver_id": ctx["user_id"], "date": date},
-        {"$set": {"check_in": now, "in_lat": body.lat, "in_lng": body.lng}},
+        {
+            "$set": {"check_in": now, "in_lat": body.lat, "in_lng": body.lng},
+            "$setOnInsert": {"driver_id": ctx["user_id"], "date": date},
+        },
         upsert=True,
     )
     return {"check_in": now.isoformat()}
@@ -194,12 +380,15 @@ async def checkout(body: GeoBody, ctx: dict = Depends(driver_only)):
     existing = await attendance.find_one({"driver_id": ctx["user_id"], "date": date})
     if not existing or not existing.get("check_in"):
         raise HTTPException(409, "Check in first")
+    if existing.get("check_out"):
+        raise HTTPException(409, "Already checked out today")
     now = datetime.now(timezone.utc)
-    await attendance.update_one({"_id": existing["_id"]}, {"$set": {"check_out": now}})
+    await attendance.update_one(
+        {"_id": existing["_id"]},
+        {"$set": {"check_out": now, "out_lat": body.lat, "out_lng": body.lng}},
+    )
     return {"check_out": now.isoformat()}
 
-
-# ---------------- SOS / Incidents ----------------
 
 @router.post("/sos")
 async def raise_sos(body: SosBody, ctx: dict = Depends(driver_only)):
@@ -226,13 +415,13 @@ async def raise_sos(body: SosBody, ctx: dict = Depends(driver_only)):
     res = await driver_incidents.insert_one(doc)
     await write_audit(uid, "driver.sos", "incident", str(res.inserted_id), {"type": body.type})
 
-    # Notify the plant owner (durable in-app record — not a fake claim).
     notified = False
     if plant_id:
         plant = await plants.find_one({"_id": await _oid(plant_id)})
         if plant and plant.get("owner_id"):
             await record_notification(
-                plant["owner_id"], "sos",
+                plant["owner_id"],
+                "sos",
                 f"SOS: {body.type} — {ctx['user'].get('name')}",
                 body.remark or f"{ctx['user'].get('name')} raised a {body.type} alert.",
             )
@@ -242,26 +431,48 @@ async def raise_sos(body: SosBody, ctx: dict = Depends(driver_only)):
 
 @router.get("/sos")
 async def my_sos(ctx: dict = Depends(driver_only)):
-    docs = await driver_incidents.find({"driver_id": ctx["user_id"]}).sort("created_at", -1).to_list(100)
-    return {"incidents": [
-        {"id": str(d["_id"]), "type": d.get("type"), "status": d.get("status"),
-         "remark": d.get("remark"), "order_number": d.get("order_number"),
-         "created_at": d.get("created_at").isoformat() if d.get("created_at") else None}
-        for d in docs
-    ]}
+    docs = (
+        await driver_incidents.find({"driver_id": ctx["user_id"]})
+        .sort("created_at", -1)
+        .to_list(100)
+    )
+    return {
+        "incidents": [
+            {
+                "id": str(d["_id"]),
+                "type": d.get("type"),
+                "status": d.get("status"),
+                "remark": d.get("remark"),
+                "order_number": d.get("order_number"),
+                "created_at": d.get("created_at").isoformat() if d.get("created_at") else None,
+            }
+            for d in docs
+        ]
+    }
 
-
-# ---------------- Live location ----------------
 
 @router.post("/trips/{trip_id}/location")
 async def post_location(trip_id: str, body: LocationBody, ctx: dict = Depends(driver_only)):
     t = await _my_trip(ctx, trip_id)
     if t.get("status") in ("DELIVERED", "DECLINED", "CANCELLED"):
         raise HTTPException(409, "Trip is not active")
+    if t.get("status") not in ("EN_ROUTE", "ARRIVED", "UNLOADING", "POD_PENDING"):
+        raise HTTPException(409, "Trip tracking has not started")
+
     now = datetime.now(timezone.utc)
-    doc = {"trip_id": trip_id, "order_id": t.get("order_id"), "driver_id": ctx["user_id"],
-           "vehicle_id": t.get("vehicle_id"), "lat": body.lat, "lng": body.lng,
-           "accuracy": body.accuracy, "created_at": now}
+    doc = {
+        "trip_id": trip_id,
+        "order_id": t.get("order_id"),
+        "driver_id": ctx["user_id"],
+        "vehicle_id": t.get("vehicle_id"),
+        "lat": body.lat,
+        "lng": body.lng,
+        "accuracy": body.accuracy,
+        "created_at": now,
+    }
     await vehicle_locations.insert_one(doc)
-    await driver_trips.update_one({"_id": t["_id"]}, {"$set": {"last_lat": body.lat, "last_lng": body.lng, "last_location_at": now}})
-    return {"ok": True}
+    await driver_trips.update_one(
+        {"_id": t["_id"], "driver_id": ctx["user_id"]},
+        {"$set": {"last_lat": body.lat, "last_lng": body.lng, "last_location_at": now}},
+    )
+    return {"ok": True, "recorded_at": now.isoformat()}

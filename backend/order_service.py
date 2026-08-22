@@ -4,13 +4,14 @@ The backend is the single source of truth for order status. Every transition
 verifies the allowed edges, records history (actor + timestamp), writes an audit
 entry, and emits notifications. The frontend can never set status arbitrarily.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import os
 
 from bson import ObjectId
 from fastapi import HTTPException
+from pymongo import ReturnDocument
 
 from audit import write_audit
 from database import order_status_history, orders, plants, users
@@ -79,22 +80,45 @@ async def transition_order(
     notify_user_ids: Optional[list[str]] = None,
     event: Optional[str] = None,
 ) -> dict:
-    """Perform a validated status transition. Returns the updated order doc."""
+    """Perform a validated, compare-and-set status transition.
+
+    The status field is included in the update predicate so two concurrent
+    transitions cannot both succeed against the same previous state.
+    """
     order = await orders.find_one({"_id": await _oid(order_id)})
     if not order:
         raise HTTPException(404, "Order not found")
 
     current = order.get("status")
     if current == target:
+        # Replaying a milestone transition is harmless and gives a previously
+        # failed provider delivery one safe chance to retry.
+        if target in (DISPATCHED, DELIVERED):
+            await _customer_sms_once(order, target)
         return order
     if not can_transition(current, target):
         raise HTTPException(409, f"Cannot move order from {current} to {target}")
 
     now = datetime.now(timezone.utc)
-    await orders.update_one(
-        {"_id": order["_id"]},
+    updated = await orders.find_one_and_update(
+        {"_id": order["_id"], "status": current},
         {"$set": {"status": target, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated:
+        # Another request changed the order between read and write. Treat a
+        # same-target winner as idempotent; otherwise reject the stale request.
+        latest = await orders.find_one({"_id": order["_id"]})
+        if latest and latest.get("status") == target:
+            if target in (DISPATCHED, DELIVERED):
+                await _customer_sms_once(latest, target)
+            return latest
+        latest_status = latest.get("status") if latest else "UNKNOWN"
+        raise HTTPException(
+            409,
+            f"Order status changed concurrently from {current} to {latest_status}; retry from latest state",
+        )
+
     await order_status_history.insert_one(
         {
             "order_id": str(order["_id"]),
@@ -105,41 +129,71 @@ async def transition_order(
             "created_at": now,
         }
     )
-    await write_audit(actor_id, f"order.{target.lower()}", "order", str(order["_id"]),
-                      {"from": current, "to": target})
+    await write_audit(
+        actor_id,
+        f"order.{target.lower()}",
+        "order",
+        str(order["_id"]),
+        {"from": current, "to": target},
+    )
 
     for uid in notify_user_ids or []:
         await record_notification(
             uid,
             event or f"order_{target.lower()}",
-            f"Order {order.get('order_number')} {target.replace('_', ' ').title()}",
+            f"Order {updated.get('order_number')} {target.replace('_', ' ').title()}",
             note or f"Your order is now {target.replace('_', ' ').title()}.",
         )
 
-    # Idempotent customer SMS on the two milestone events (best-effort, non-blocking).
+    # Customer SMS on milestone events. A failed provider attempt is marked
+    # failed and can be retried by an idempotent replay without duplicating a
+    # successfully recorded send.
     if target in (DISPATCHED, DELIVERED):
-        await _customer_sms_once(order, target)
+        await _customer_sms_once(updated, target)
 
-    order["status"] = target
-    return order
+    return updated
 
 
 async def _customer_sms_once(order: dict, event: str) -> None:
-    """Send exactly one SMS per (order, event). Claims the flag atomically so
-    retries never duplicate; delivery failure never blocks the status update."""
+    """Send at most one concurrently active SMS per (order,event).
+
+    Successful sends are durable (`status=sent`). Failed attempts are durable
+    (`status=failed`) and may be retried. A stale `sending` claim can be taken
+    over after two minutes to recover from a worker crash.
+    """
     if not delivery.sms_configured or not order.get("customer_id"):
         return
+
+    now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(minutes=2)
+    flag = f"sms_flags.{event}"
     claimed = await orders.find_one_and_update(
-        {"_id": order["_id"], f"sms_flags.{event}": {"$ne": True}},
-        {"$set": {f"sms_flags.{event}": True}},
+        {
+            "_id": order["_id"],
+            flag: {"$ne": True},  # backwards-compatible with legacy boolean flag
+            "$or": [
+                {f"{flag}.status": {"$exists": False}},
+                {f"{flag}.status": "failed"},
+                {f"{flag}.status": "sending", f"{flag}.claimed_at": {"$lt": stale_before}},
+            ],
+        },
+        {"$set": {f"{flag}.status": "sending", f"{flag}.claimed_at": now}},
+        return_document=ReturnDocument.AFTER,
     )
     if not claimed:
-        return  # already sent for this event
+        return
+
     try:
         cust = await users.find_one({"_id": ObjectId(order["customer_id"])})
         phone = cust.get("phone") if cust else None
         if not phone:
+            await orders.update_one(
+                {"_id": order["_id"]},
+                {"$set": {f"{flag}.status": "failed", f"{flag}.failed_at": now,
+                           f"{flag}.reason": "missing_customer_phone"}},
+            )
             return
+
         num = order.get("order_number")
         if event == DISPATCHED:
             base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
@@ -148,21 +202,46 @@ async def _customer_sms_once(order: dict, event: str) -> None:
             msg = f"TrackMyRMC: Order {num} DISPATCHED"
             if tm:
                 msg += f" (Mixer {tm})"
-            msg += f". {order.get('quantity')} m3 {order.get('grade')} en route to {order.get('site_name') or 'your site'}."
+            msg += (
+                f". {order.get('quantity')} m3 {order.get('grade')} en route to "
+                f"{order.get('site_name') or 'your site'}."
+            )
             if link:
                 msg += f" Track live: {link}"
         else:  # DELIVERED
             qty = order.get("delivered_quantity") or order.get("quantity")
             base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
             link = f"{base}/order/{order['_id']}" if base else ""
-            msg = f"TrackMyRMC: Order {num} DELIVERED. {qty} m3 {order.get('grade')} delivered successfully."
+            msg = (
+                f"TrackMyRMC: Order {num} DELIVERED. {qty} m3 {order.get('grade')} "
+                "delivered successfully."
+            )
             if link:
                 msg += f" View delivery proof: {link}"
             else:
                 msg += " Thank you!"
-        await delivery.send("sms", phone, msg)
-    except Exception:  # noqa: BLE001 — never block a status update on SMS
-        pass
+
+        sent = await delivery.send("sms", phone, msg)
+        if sent:
+            await orders.update_one(
+                {"_id": order["_id"]},
+                {
+                    "$set": {f"{flag}.status": "sent", f"{flag}.sent_at": datetime.now(timezone.utc)},
+                    "$unset": {f"{flag}.reason": "", f"{flag}.failed_at": ""},
+                },
+            )
+        else:
+            await orders.update_one(
+                {"_id": order["_id"]},
+                {"$set": {f"{flag}.status": "failed", f"{flag}.failed_at": datetime.now(timezone.utc),
+                           f"{flag}.reason": "provider_delivery_failed"}},
+            )
+    except Exception:  # noqa: BLE001 — never block an order transition on SMS
+        await orders.update_one(
+            {"_id": order["_id"]},
+            {"$set": {f"{flag}.status": "failed", f"{flag}.failed_at": datetime.now(timezone.utc),
+                       f"{flag}.reason": "unexpected_delivery_error"}},
+        )
 
 
 async def owner_plant_ids(user_id: str) -> list[str]:

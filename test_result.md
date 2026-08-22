@@ -97,78 +97,137 @@
 #====================================================================================================
 
 
-
 #====================================================================================================
-# Testing Data - Main Agent and testing sub agent both should log testing data below this section
+# Testing Data - reconciled 2026-08-22
 #====================================================================================================
-## FEATURE: 10 Staff Role Dashboards (2026-06)
-## backend:
-##   - task: "Staff role dashboards router /api/staff (home + collections)"
-##     implemented: true
-##     working: "NA"
-##     file: "backend/routers/staff.py"
-##     priority: "high"
-##     needs_retesting: true
-##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "New DRY router serving role-aware /api/staff/home (KPIs) and /api/staff/collection/{kind} for 10 roles: admin, dispatcher, operator, supervisor, accountant, quality_engineer, fleet_manager, store_manager, authority, central_admin. Verified via curl for dispatcher/store/authority/central/accountant. Seeded 9 new staff accounts + materials collection."
-## frontend:
-##   - task: "Role dashboards (tab shells + generic StaffHome/StaffCollection/StaffMore)"
-##     implemented: true
-##     working: "NA"
-##     file: "frontend/app/{role}/, frontend/src/screens/Staff*.tsx"
-##     priority: "high"
-##     needs_retesting: true
-##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "Each of 10 roles has a GlassTabBar tab shell routing to StaffHome (KPI grid + primary list preview) and StaffCollection tabs + StaffMore. index.tsx routes each role to its folder."
 
-## FEATURE: Staff actionable modules + Notifications + Maps plumbing (2026-06)
-## backend:
-##   - task: "KYC review (Authority approve/reject), User mgmt (Central Admin suspend/activate), Fleet (add vehicle/set status), Inventory (adjust/add material), Quality (record test), Operator (production start/complete), Accountant (record payment)"
-##     implemented: true
-##     working: "NA"
-##     file: "backend/routers/staff.py, backend/routers/notify.py, backend/routers/maps.py, backend/models.py, backend/seed.py"
-##     priority: "high"
-##     needs_retesting: true
-##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "Curl-verified: KYC approve->VERIFIED, add vehicle, operator production/start actions present, quality record PASS, central users suspend actions present. Seeded 2 PENDING KYC (driver, plant). Notifications feed + read/read-all. Maps proxy reads GOOGLE_MAPS_KEY (currently empty -> NOT_CONFIGURED, graceful)."
-## frontend:
-##   - task: "Backend-driven action buttons in StaffCollection (approve/reject/suspend/activate/set-status/stock-in-out/record-payment/record-test), create modals (material/vehicle), amount+reason modals, Quality test screen, Notifications screen + bell, New Order Google Places autocomplete (key-ready)"
-##     implemented: true
-##     working: "NA"
-##     file: "frontend/src/screens/StaffCollection.tsx, frontend/src/screens/StaffHome.tsx, frontend/app/quality-test/[id].tsx, frontend/app/notifications.tsx, frontend/app/new-order.tsx"
-##     priority: "high"
-##     needs_retesting: true
-##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "Generic actions rendered from backend item.actions; input modals for amount/reason; create header button. Notifications bell in staff header. Places search on new-order gracefully hidden until GOOGLE_MAPS_KEY set."
+## user_problem_statement: "Production-readiness hardening and build verification for TrackMyRMC before isolated preview deployment."
 
-## FEATURE: Dispatcher actions, Order/Users search+filter, Owner weekly insights (2026-06)
 ## backend:
-##   - task: "Staff dispatch endpoints (/staff/fleet,/staff/drivers,/staff/orders/{id}, assign-tm/assign-driver/challan/dispatch) + owner /insights"
+##   - task: "Full FastAPI/Mongo regression and production-hardening suite"
 ##     implemented: true
-##     working: "NA"
-##     file: "backend/routers/staff.py, backend/routers/owner.py"
+##     working: true
+##     file: "backend/tests/"
+##     stuck_count: 0
 ##     priority: "high"
-##     needs_retesting: true
+##     needs_retesting: false
 ##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "Curl-verified full dispatcher flow PRODUCTION_COMPLETE->TM_ASSIGNED->DRIVER_ASSIGNED->READY_TO_DISPATCH->DISPATCHED. RBAC: operator gets 403 on dispatch. Owner /insights returns 7-day ordered/delivered/payments."
+##       - working: true
+##         agent: "main"
+##         comment: "GitHub Production Readiness executed the full Mongo-backed suite serially: 154 passed, 2 skipped, 0 failed. FastAPI boot and /api/health also passed."
+##
+##   - task: "10 staff role dashboards, plant scoping and non-staff RBAC"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/staff.py, backend/tests/test_staff_dashboards.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Latest full integration run includes staff dashboard, platform-role and plant-scope regression coverage; backend suite is green."
+##
+##   - task: "Staff actions: KYC, user management, fleet, inventory, production, quality, accounting, notifications"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/staff.py, backend/routers/notify.py, backend/tests/test_staff_actions.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Action/RBAC regression tests are included in the latest 154-pass integration run. KYC remains manual Authority review, not automatic DigiLocker."
+##
+##   - task: "Dispatcher workflow + owner insights"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/staff.py, backend/routers/owner.py, backend/tests/test_iteration9_dispatch_rbac_insights.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Dispatcher assign/challan/dispatch RBAC and owner weekly insights tests are included in the latest green backend suite."
+##
+##   - task: "Driver trip, GPS API, POD and object authorization"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/driver.py, backend/routers/storage.py, backend/tests/test_driver_pod.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Backend lifecycle/POD/storage authorization scenarios pass in CI. Physical-device GPS behavior remains an external device test, not a backend failure."
+
 ## frontend:
-##   - task: "Dispatcher order detail (/dispatch-order/[id]) reusing OwnerDispatchPanel(basePath=/staff), StaffCollection search+status filter + row nav, WeeklyInsights chart on owner home"
+##   - task: "Expo application compile/config quality gates"
+##     implemented: true
+##     working: true
+##     file: "frontend/"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "TypeScript, lint, Expo Doctor, public config validation and web preview build all pass on the hardening branch."
+##
+##   - task: "Android native generation and compile"
+##     implemented: true
+##     working: true
+##     file: "frontend/app.json, frontend/"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Expo Android prebuild succeeded; generated applicationId com.trackmyrmc.concreteking and versionCode 61 were verified; Gradle :app:assembleDebug succeeded."
+##
+##   - task: "Role dashboards and end-to-end visual/runtime preview"
 ##     implemented: true
 ##     working: "NA"
-##     file: "frontend/app/dispatch-order/[id].tsx, frontend/src/components/OwnerDispatchPanel.tsx, frontend/src/screens/StaffCollection.tsx, frontend/src/components/WeeklyInsights.tsx, frontend/app/owner/index.tsx"
+##     file: "frontend/app/, frontend/src/screens/"
+##     stuck_count: 0
 ##     priority: "high"
 ##     needs_retesting: true
 ##     status_history:
-##         -working: "NA"
-##         -agent: "main"
-##         -comment: "Dispatcher taps a dispatch-queue row -> detail with progressive assign/challan/dispatch panel. StaffCollection full-screen lists gain a search box (>=4 items) + status filter chips (>=2 badges). Owner home shows weekly bar chart."
+##       - working: "NA"
+##         agent: "main"
+##         comment: "Compile/build gates are green. Final runtime visual review intentionally waits for a freshly deployed FastAPI preview backend and a connected preview build."
+##
+##   - task: "Android background GPS on physical device"
+##     implemented: true
+##     working: "NA"
+##     file: "frontend/src/location/tripTracking.ts, frontend/app.json"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##       - working: "NA"
+##         agent: "main"
+##         comment: "Native compile passes, but minimized/locked-screen background tracking requires a real Android device and cannot be certified by CI."
+
+## metadata:
+##   created_by: "main_agent"
+##   version: "2.0"
+##   test_sequence: 57
+##   run_ui: false
+
+## test_plan:
+##   current_focus:
+##     - "Deploy isolated FastAPI/Mongo preview backend from fix/production-readiness-final"
+##     - "Set verified PREVIEW_BACKEND_URL and build connected preview APK"
+##     - "Run role-by-role visual/runtime preview and physical Android GPS check"
+##   stuck_tasks: []
+##   test_all: false
+##   test_priority: "high_first"
+
+## agent_communication:
+##   - agent: "main"
+##     message: "Repository-controlled backend/frontend/native build gates are green. Do not claim runtime preview or background GPS complete until the isolated preview backend is deployed and device testing is performed."

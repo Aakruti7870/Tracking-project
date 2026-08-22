@@ -30,10 +30,23 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
-
+# Environment files and credentials
 *token.json*
 *credentials.json*
+.env
+.env.*
+*.env
+credentials.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+.credentials
+# Safe templates are intentionally versioned.
+!.env.example
+!**/.env.example
 
 # Logs and debug files
 npm-debug.log*
@@ -44,7 +57,6 @@ dump.rdb
 
 # System files
 .DS_Store
-*.pem
 
 # Python
 __pycache__/
@@ -76,13 +88,8 @@ agenthub/agents/youtube/db
 # Build caches
 .cache/
 
+# Seeded test credentials are not source artifacts.
 memory/test_credentials.md
 
 # Mobile development
 android-sdk/
-.env
-.env.*
-*.env
-credentials.json
-*.key
-.credentials

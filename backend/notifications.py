@@ -1,27 +1,37 @@
 """Provider-agnostic notification/OTP delivery service.
 
-Core business logic never couples to a single vendor. SMS delivery uses Twilio
-when its credentials are present; otherwise the adapter reports NOT_CONFIGURED.
-In development the OTP is still surfaced back to the caller so the flow stays
-testable even with a live provider (Twilio trial keys can only reach verified
-numbers, and the seeded demo numbers are not real).
+SMS delivery uses Twilio. Staff email OTP delivery uses SendGrid when
+EMAIL_PROVIDER_API_KEY and EMAIL_FROM are configured. Provider failures are
+best-effort here; authentication decides whether a failed OTP delivery can be
+accepted (development) or must fail closed (production).
 """
 import asyncio
 import logging
 import os
 from datetime import datetime, timezone
 
+import httpx
+
 from config import settings
-from database import notifications, users
+from database import notifications
 
 logger = logging.getLogger("notifications")
-# Twilio's HTTP client logs every request/response at INFO — keep logs readable.
 logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
 
 
-class SmsEmailAdapter:
-    """SMS via Twilio (Messaging API). Email left dormant until a key is set."""
+def _masked(destination: str) -> str:
+    """Return a non-sensitive destination marker suitable for logs."""
+    if "@" in destination:
+        local, _, domain = destination.partition("@")
+        return f"{local[:1]}***@{domain}"
+    digits = "".join(ch for ch in destination if ch.isdigit())
+    return f"***{digits[-4:]}" if digits else "***"
 
+
+class SmsEmailAdapter:
+    """SMS via Twilio; email via SendGrid REST API."""
+
+    # Keep the existing public adapter name for compatibility with clients/tests.
     name = "twilio_sms"
 
     def __init__(self) -> None:
@@ -36,13 +46,25 @@ class SmsEmailAdapter:
         )
 
     @property
+    def _email_creds(self):
+        return (
+            os.environ.get("EMAIL_PROVIDER_API_KEY", "").strip(),
+            os.environ.get("EMAIL_FROM", "").strip(),
+        )
+
+    @property
     def sms_configured(self) -> bool:
         sid, tok, frm = self._twilio_creds
         return bool(sid and tok and frm)
 
     @property
+    def email_configured(self) -> bool:
+        key, sender = self._email_creds
+        return bool(key and sender)
+
+    @property
     def configured(self) -> bool:
-        return self.sms_configured or bool(os.environ.get("EMAIL_PROVIDER_API_KEY"))
+        return self.sms_configured or self.email_configured
 
     def _get_client(self):
         if self._client is None:
@@ -56,19 +78,49 @@ class SmsEmailAdapter:
         _, _, frm = self._twilio_creds
         self._get_client().messages.create(to=destination, from_=frm, body=message)
 
+    async def _send_email(self, destination: str, message: str) -> bool:
+        api_key, sender = self._email_creds
+        if not api_key or not sender:
+            return False
+        payload = {
+            "personalizations": [{"to": [{"email": destination}]}],
+            "from": {"email": sender, "name": "TrackMyRMC"},
+            "subject": "Your TrackMyRMC verification code",
+            "content": [{"type": "text/plain", "value": message}],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            if 200 <= response.status_code < 300:
+                logger.info("Email sent to %s", _masked(destination))
+                return True
+            logger.warning("SendGrid email failed for %s (status=%s)", _masked(destination), response.status_code)
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SendGrid email failed for %s (%s)", _masked(destination), type(exc).__name__)
+            return False
+
     async def send(self, channel: str, destination: str, message: str) -> bool:
-        """Best-effort delivery. Never raises — a vendor failure (e.g. an
-        unverified trial number) must not break the OTP/notification flow."""
+        """Best-effort provider delivery without exposing credentials/PII."""
         if channel == "sms" and self.sms_configured:
             try:
                 await asyncio.to_thread(self._send_sms_sync, destination, message)
-                logger.info("SMS sent to %s", destination)
+                logger.info("SMS sent to %s", _masked(destination))
                 return True
-            except Exception as exc:  # noqa: BLE001 — deliberately swallowed
-                logger.warning("Twilio SMS failed for %s: %s", destination, exc)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Twilio SMS failed for %s (%s)", _masked(destination), type(exc).__name__)
                 return False
+        if channel == "email" and self.email_configured:
+            return await self._send_email(destination, message)
         if settings.is_dev:
-            logger.info("[NOT_CONFIGURED] would send %s to %s", channel, destination)
+            logger.info("[NOT_CONFIGURED] %s delivery unavailable for %s", channel, _masked(destination))
         return False
 
 
@@ -76,9 +128,7 @@ delivery = SmsEmailAdapter()
 
 
 async def record_notification(user_id: str, event: str, title: str, body: str) -> None:
-    """Persist an in-app notification (durable). SMS for specific customer
-    events (dispatch/delivered) is sent from the order state machine so it is
-    idempotent — not fired on every in-app notification."""
+    """Persist an in-app notification (durable)."""
     await notifications.insert_one(
         {
             "user_id": user_id,
@@ -92,4 +142,9 @@ async def record_notification(user_id: str, event: str, title: str, body: str) -
 
 
 def provider_status() -> dict:
-    return {"adapter": delivery.name, "configured": delivery.configured, "sms": delivery.sms_configured}
+    return {
+        "adapter": delivery.name,
+        "configured": delivery.configured,
+        "sms": delivery.sms_configured,
+        "email": delivery.email_configured,
+    }

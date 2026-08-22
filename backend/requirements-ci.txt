@@ -1,0 +1,18 @@
+# Minimal backend runtime/test dependencies used by TrackMyRMC CI.
+# Kept separate from the Emergent workspace requirements so GitHub Actions does
+# not depend on private/internal wheels unrelated to this application runtime.
+fastapi==0.110.1
+starlette==0.37.2
+uvicorn==0.25.0
+motor==3.3.1
+pymongo==4.6.3
+pydantic==2.13.4
+python-dotenv==1.2.3
+PyJWT==2.13.0
+httpx==0.28.1
+requests==2.34.2
+twilio==9.11.0
+pillow==12.3.0
+python-multipart==0.0.32
+pytest==9.1.1
+pytest-xdist==3.8.0

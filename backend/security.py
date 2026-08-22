@@ -11,6 +11,19 @@ from fastapi import Depends, Header, HTTPException, status
 from config import settings
 from database import sessions, users
 
+# These roles are tenant-bound and must never operate without an explicit
+# assigned plant. Plant Owner is scoped through plants.owner_id instead.
+PLANT_SCOPED_STAFF_ROLES = {
+    "admin",
+    "dispatcher",
+    "operator",
+    "supervisor",
+    "accountant",
+    "quality_engineer",
+    "fleet_manager",
+    "store_manager",
+}
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -28,18 +41,19 @@ def detect_channel(identifier: str) -> str:
 
 
 def normalize_identifier(identifier: str) -> tuple[str, str]:
-    """Return (channel, normalized_value)."""
+    """Return (channel, normalized_value) with bounded E.164-like phone input."""
     raw = identifier.strip()
     channel = detect_channel(raw)
     if channel == "email":
         value = raw.lower()
-        if "@" not in value or len(value) > 254:
+        local, sep, domain = value.partition("@")
+        if not sep or not local or "." not in domain or len(value) > 254:
             raise HTTPException(422, "Enter a valid email address")
     else:
-        value = "".join(ch for ch in raw if ch.isdigit() or ch == "+")
-        digits = value.lstrip("+")
-        if len(digits) < 8:
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) < 8 or len(digits) > 15:
             raise HTTPException(422, "Enter a valid mobile number")
+        value = f"+{digits}" if raw.startswith("+") else digits
     return channel, value
 
 
@@ -106,10 +120,20 @@ async def current_user(authorization: str = Header(default="")) -> dict:
     if user.get("status") in ("disabled", "deleted"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account not available")
 
+    role = user.get("primary_role")
+    # Fail closed for a broken tenant assignment. This prevents staff router
+    # fallback behavior from ever widening an unassigned staff member to all
+    # plants. Authority/Central Admin are intentionally not in this set.
+    if role in PLANT_SCOPED_STAFF_ROLES and not user.get("plant_id"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Plant assignment required for this staff account",
+        )
+
     return {
         "user_id": payload["sub"],
         "sid": payload["sid"],
-        "role": user.get("primary_role"),
+        "role": role,
         "roles": user.get("roles", []),
         "plant_id": user.get("plant_id"),
         "user": user,

@@ -2,10 +2,10 @@
   "expo": {
     "name": "TrackMyRMC",
     "slug": "frontend",
-    "version": "1.0.0",
+    "version": "2.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "trackmyrmc",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.emergent.rmcfleetops.m06ads",
       "infoPlist": {
         "NSCameraUsageDescription": "Capture site photos for proof of delivery",
-        "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery"
+        "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery",
+        "NSLocationWhenInUseUsageDescription": "Allow TrackMyRMC to use your location while an active delivery trip is running"
       }
     },
     "android": {
@@ -22,8 +23,17 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.rmcfleetops.m06ads",
-      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
+      "package": "com.trackmyrmc.concreteking",
+      "versionCode": 61,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +42,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow TrackMyRMC to use your location while an active delivery trip is running.",
+          "locationAlwaysAndWhenInUsePermission": "Allow TrackMyRMC to share the mixer location while an active delivery trip is running.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       [
         "expo-splash-screen",
         {
