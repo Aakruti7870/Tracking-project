@@ -1,13 +1,17 @@
-"""Google Maps proxy — keeps the API key server-side.
+"""Google Maps/Places proxy — keeps server API credentials off the mobile client.
 
-The key is read from GOOGLE_MAPS_KEY. Missing/disabled Google services degrade
-gracefully; ETA/distance/polyline are never fabricated.
+The server key is read from GOOGLE_MAPS_KEY. Missing/disabled Google services
+always degrade safely; distances, routes and business listings are never
+fabricated.
 """
+from datetime import datetime, timezone
 import os
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
+from audit import write_audit
+from database import plant_listing_requests, plants
 from security import current_user
 
 router = APIRouter(prefix="/api/maps", tags=["maps"])
@@ -33,6 +37,72 @@ def _fmt_distance(meters: int) -> str:
     if meters < 1000:
         return f"{meters} m"
     return f"{meters / 1000:.1f} km"
+
+
+def _address_component(place: dict, *wanted_types: str) -> str | None:
+    wanted = set(wanted_types)
+    for component in place.get("addressComponents") or []:
+        if wanted.intersection(component.get("types") or []):
+            return component.get("longText") or component.get("shortText")
+    return None
+
+
+def _place_summary(place: dict) -> dict | None:
+    """Normalize one Google Place into the small shape used by TrackMyRMC."""
+    place_id = str(place.get("id") or "").strip()
+    display = place.get("displayName") or {}
+    name = str(display.get("text") or "").strip()
+    location = place.get("location") or {}
+    lat = location.get("latitude")
+    lng = location.get("longitude")
+    if not place_id or not name or lat is None or lng is None:
+        return None
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except (TypeError, ValueError):
+        return None
+    if not _valid_coords(lat, lng):
+        return None
+
+    city = _address_component(place, "locality", "postal_town", "sublocality_level_1")
+    district = _address_component(place, "administrative_area_level_2")
+    return {
+        "place_id": place_id,
+        "name": name,
+        "address": place.get("formattedAddress"),
+        "city": city,
+        "district": district,
+        "lat": lat,
+        "lng": lng,
+        "contact_phone": place.get("nationalPhoneNumber"),
+        "google_maps_uri": place.get("googleMapsUri"),
+        "business_status": place.get("businessStatus"),
+    }
+
+
+async def _fetch_place_detail(place_id: str) -> dict:
+    key = _key()
+    if not key:
+        raise HTTPException(409, "Maps NOT_CONFIGURED")
+    async with httpx.AsyncClient(timeout=10) as http:
+        r = await http.get(
+            f"https://places.googleapis.com/v1/places/{place_id}",
+            params={"languageCode": "en", "regionCode": "IN"},
+            headers={
+                "X-Goog-Api-Key": key,
+                "X-Goog-FieldMask": (
+                    "id,displayName,formattedAddress,location,nationalPhoneNumber,"
+                    "googleMapsUri,businessStatus,addressComponents"
+                ),
+            },
+        )
+    if r.status_code >= 400:
+        raise HTTPException(502, "Place details failed")
+    summary = _place_summary(r.json())
+    if not summary:
+        raise HTTPException(502, "Place details returned incomplete location data")
+    return summary
 
 
 async def compute_route(olat: float, olng: float, dlat: float, dlng: float) -> dict | None:
@@ -94,6 +164,133 @@ async def route(
     if r is None:
         return {"configured": _key() is not None, "route_available": False}
     return {"configured": True, "route_available": True, **r}
+
+
+@router.get("/rmc-plants")
+async def discover_rmc_plants(
+    lat: float = Query(ge=-90, le=90),
+    lng: float = Query(ge=-180, le=180),
+    radius_km: float = Query(default=50, gt=0, le=50),
+    q: str = Query(default="ready mix concrete RMC plant", min_length=2, max_length=120),
+    ctx: dict = Depends(current_user),
+):
+    """Find real RMC businesses in Google Places around the user's location.
+
+    Search is deliberately user-initiated from the client so opening the Plants
+    screen does not create a Places API bill on every render.
+    """
+    key = _key()
+    if not key:
+        return {"configured": False, "places": []}
+
+    radius_m = min(50000.0, max(1000.0, radius_km * 1000.0))
+    body = {
+        "textQuery": q.strip(),
+        "pageSize": 20,
+        "languageCode": "en",
+        "regionCode": "IN",
+        "locationBias": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": radius_m,
+            }
+        },
+    }
+    async with httpx.AsyncClient(timeout=12) as http:
+        r = await http.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": key,
+                "X-Goog-FieldMask": (
+                    "places.id,places.displayName,places.formattedAddress,places.location,"
+                    "places.googleMapsUri,places.businessStatus,places.addressComponents"
+                ),
+            },
+            json=body,
+        )
+    if r.status_code >= 400:
+        raise HTTPException(502, "Google RMC discovery failed")
+
+    summaries = [s for p in (r.json().get("places") or []) if (s := _place_summary(p))]
+    ids = [s["place_id"] for s in summaries]
+    registered: dict[str, dict] = {}
+    requests: dict[str, dict] = {}
+    if ids:
+        plant_docs = await plants.find({"google_place_id": {"$in": ids}}).to_list(100)
+        registered = {p.get("google_place_id"): p for p in plant_docs if p.get("google_place_id")}
+        request_docs = await plant_listing_requests.find({"google_place_id": {"$in": ids}}).to_list(100)
+        requests = {d.get("google_place_id"): d for d in request_docs if d.get("google_place_id")}
+
+    out = []
+    for summary in summaries:
+        pid = summary["place_id"]
+        plant = registered.get(pid)
+        request = requests.get(pid)
+        out.append(
+            {
+                **summary,
+                "registered": plant is not None,
+                "plant_id": str(plant["_id"]) if plant else None,
+                "request_status": request.get("status") if request else None,
+            }
+        )
+    return {"configured": True, "places": out}
+
+
+@router.post("/rmc-plants/{place_id}/request-listing")
+async def request_rmc_listing(
+    place_id: str = Path(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ctx: dict = Depends(current_user),
+):
+    """Submit a Google RMC business for Authority review without auto-publishing it."""
+    if not _key():
+        raise HTTPException(409, "Maps NOT_CONFIGURED")
+
+    plant = await plants.find_one({"google_place_id": place_id})
+    if plant:
+        return {"status": "REGISTERED", "plant_id": str(plant["_id"])}
+
+    existing = await plant_listing_requests.find_one({"google_place_id": place_id})
+    if existing and existing.get("status") in ("PENDING", "APPROVED"):
+        return {"status": existing.get("status"), "request_id": str(existing["_id"])}
+
+    detail = await _fetch_place_detail(place_id)
+    now = datetime.now(timezone.utc)
+    payload = {
+        "google_place_id": place_id,
+        "name": detail.get("name"),
+        "address": detail.get("address"),
+        "city": detail.get("city"),
+        "district": detail.get("district"),
+        "lat": detail.get("lat"),
+        "lng": detail.get("lng"),
+        "contact_phone": detail.get("contact_phone"),
+        "google_maps_uri": detail.get("google_maps_uri"),
+        "business_status": detail.get("business_status"),
+        "source": "google_places",
+        "status": "PENDING",
+        "requested_by": ctx["user_id"],
+        "requested_role": ctx.get("role"),
+        "claim_requested": ctx.get("role") == "plant_owner",
+        "updated_at": now,
+    }
+    if existing:
+        await plant_listing_requests.update_one({"_id": existing["_id"]}, {"$set": payload})
+        request_id = str(existing["_id"])
+    else:
+        payload["created_at"] = now
+        result = await plant_listing_requests.insert_one(payload)
+        request_id = str(result.inserted_id)
+
+    await write_audit(
+        ctx["user_id"],
+        "plant_listing.request",
+        "plant_listing_request",
+        request_id,
+        {"google_place_id": place_id},
+    )
+    return {"status": "PENDING", "request_id": request_id}
 
 
 @router.get("/autocomplete")
