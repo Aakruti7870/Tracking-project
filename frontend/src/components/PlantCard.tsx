@@ -13,19 +13,38 @@ export type PlantData = {
   city: string;
   district?: string;
   address: string;
+  lat?: number | null;
+  lng?: number | null;
   grades: string[];
   contact_phone: string;
   service_area_km: number;
+  status?: string;
   verified: boolean;
+  order_enabled?: boolean;
 };
+
+function readableStatus(value?: string) {
+  const status = (value || "active").trim().toLowerCase();
+  if (status === "active") return "Active";
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () => void }) {
   const { colors } = useTheme();
+  const status = (plant.status || "active").toLowerCase();
+  const orderEnabled = plant.order_enabled ?? (status === "active" && plant.verified);
+
+  const openDirections = () => {
+    const destination =
+      plant.lat != null && plant.lng != null ? `${plant.lat},${plant.lng}` : plant.address;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+    Linking.openURL(url);
+  };
 
   return (
     <Card style={{ gap: spacing.md }}>
       <View style={styles.row}>
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: 1, gap: 4 }}>
           <View style={styles.nameRow}>
             <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }} numberOfLines={1}>
               {plant.name}
@@ -36,8 +55,17 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
           </View>
           <AppText variant="caption" numberOfLines={1}>
             {plant.city}
-            {plant.district ? ` · ${plant.district}` : ""} · {plant.service_area_km} km range
+            {plant.district ? ` · ${plant.district}` : ""}
           </AppText>
+          <View style={styles.metaRow}>
+            <View style={[styles.statusDot, { backgroundColor: status === "active" ? colors.success : colors.warning }]} />
+            <AppText variant="caption">{readableStatus(status)}</AppText>
+            {plant.verified ? (
+              <AppText variant="caption" color={colors.success}>Verified</AppText>
+            ) : (
+              <AppText variant="caption">Verification pending</AppText>
+            )}
+          </View>
         </View>
       </View>
 
@@ -56,17 +84,32 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
           icon="call-outline"
           label="Call"
           colors={colors}
-          onPress={() => Linking.openURL(`tel:${plant.contact_phone}`)}
+          onPress={() => plant.contact_phone && Linking.openURL(`tel:${plant.contact_phone}`)}
         />
-        <Action icon="navigate-outline" label="Directions" colors={colors} onPress={() => {}} />
+        <Action icon="navigate-outline" label="Directions" colors={colors} onPress={openDirections} />
         <Pressable
-          onPress={onOrder}
+          onPress={orderEnabled ? onOrder : undefined}
+          disabled={!orderEnabled}
           testID={`plant-order-${plant.id}`}
-          style={[styles.orderBtn, { backgroundColor: colors.brand }]}
+          accessibilityState={{ disabled: !orderEnabled }}
+          style={[
+            styles.orderBtn,
+            { backgroundColor: orderEnabled ? colors.brand : colors.surfaceTertiary, opacity: orderEnabled ? 1 : 0.72 },
+          ]}
         >
-          <Ionicons name="add-circle-outline" size={16} color={colors.onBrand} />
-          <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand }}>
-            Order Now
+          <Ionicons
+            name={orderEnabled ? "add-circle-outline" : "time-outline"}
+            size={16}
+            color={orderEnabled ? colors.onBrand : colors.onSurfaceTertiary}
+          />
+          <AppText
+            style={{
+              fontFamily: fonts.semibold,
+              fontSize: fontSize.sm,
+              color: orderEnabled ? colors.onBrand : colors.onSurfaceTertiary,
+            }}
+          >
+            {orderEnabled ? "Order Now" : "Unavailable"}
           </AppText>
         </Pressable>
       </View>
@@ -88,9 +131,11 @@ function Action({ icon, label, colors, onPress }: any) {
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center" },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  metaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
   grades: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   gradeChip: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
-  actions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  actions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
   action: {
     flexDirection: "row",
     alignItems: "center",
