@@ -19,23 +19,29 @@ import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { OrderTimeline, HistoryEntry } from "@/src/components/OrderTimeline";
-import { OwnerDispatchPanel } from "@/src/components/OwnerDispatchPanel";
+import { LoadPlanner } from "@/src/components/LoadPlanner";
 import { OrderData } from "@/src/components/OrderCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+
+type DeliveryProof = {
+  receiver_name?: string;
+  delivered_quantity?: number;
+  remarks?: string;
+  photo_path?: string;
+  signature?: string;
+  at?: string;
+  load_id?: string;
+  load_code?: string;
+};
 
 type Detail = {
   order: OrderData & { customer_name?: string };
   contact_person?: string;
   contact_mobile?: string;
   notes?: string;
-  pod?: {
-    receiver_name?: string;
-    delivered_quantity?: number;
-    remarks?: string;
-    photo_path?: string;
-    signature?: string;
-    at?: string;
-  } | null;
+  pod?: DeliveryProof | null;
+  pods?: DeliveryProof[];
+  loads?: { id: string; load_code?: string; quantity_m3?: number; status?: string; tm_number?: string; driver_name?: string; challan_number?: string; gate_pass_number?: string; delivered_quantity?: number }[];
   history: HistoryEntry[];
 };
 
@@ -73,6 +79,7 @@ export default function OrderDetail() {
   };
 
   const o = data?.order;
+  const proofs = data?.pods?.length ? data.pods : (data?.pod ? [data.pod] : []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -107,51 +114,51 @@ export default function OrderDetail() {
           </Card>
 
           <Card style={{ gap: spacing.sm }}>
-            {isOwner && data.order.customer_name ? (
-              <Row icon="person-outline" label="Customer" value={data.order.customer_name} colors={colors} />
-            ) : null}
+            {isOwner && data.order.customer_name ? <Row icon="person-outline" label="Customer" value={data.order.customer_name} colors={colors} /> : null}
             <Row icon="business-outline" label="Plant" value={o.plant_name} colors={colors} />
             <Row icon="layers-outline" label="Grade" value={o.grade} colors={colors} />
             <Row icon="cube-outline" label="Quantity" value={`${o.quantity} m³`} colors={colors} />
             <Row icon="calendar-outline" label="Delivery" value={`${o.delivery_date}${o.delivery_time ? " · " + o.delivery_time : ""}`} colors={colors} />
             <Row icon="location-outline" label="Site" value={`${o.site_name}${o.site_address ? " — " + o.site_address : ""}`} colors={colors} />
             {data.contact_person ? <Row icon="call-outline" label="Contact" value={`${data.contact_person}${data.contact_mobile ? " · " + data.contact_mobile : ""}`} colors={colors} /> : null}
-            {o.tm_number ? <Row icon="bus-outline" label="Transit Mixer" value={o.tm_number} colors={colors} /> : null}
-            {o.driver_name ? <Row icon="person-outline" label="Driver" value={`${o.driver_name}${o.driver_mobile ? " · " + o.driver_mobile : ""}`} colors={colors} /> : null}
-            {o.challan_number ? <Row icon="document-text-outline" label="Challan" value={o.challan_number} colors={colors} /> : null}
             {data.notes ? <Row icon="reader-outline" label="Notes" value={data.notes} colors={colors} /> : null}
           </Card>
 
+          {data.loads?.length ? (
+            <View style={{ gap: spacing.sm }}>
+              <AppText variant="heading">Mixer Loads</AppText>
+              {data.loads.map((l) => (
+                <Card key={l.id} style={{ gap: 4 }}>
+                  <View style={styles.rowBetween}>
+                    <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>{l.load_code || "Load"} · {l.quantity_m3} m³</AppText>
+                    <Badge label={(l.status || "").replace(/_/g, " ")} status={l.status} />
+                  </View>
+                  {(l.tm_number || l.driver_name) ? <AppText variant="caption">{[l.tm_number, l.driver_name].filter(Boolean).join(" · ")}</AppText> : null}
+                  {l.challan_number ? <AppText variant="caption">Challan {l.challan_number}{l.gate_pass_number ? ` · Gate ${l.gate_pass_number}` : ""}</AppText> : null}
+                  {l.delivered_quantity ? <AppText variant="caption">Delivered {l.delivered_quantity} m³</AppText> : null}
+                </Card>
+              ))}
+            </View>
+          ) : null}
+
           <View style={{ gap: spacing.md }}>
             <AppText variant="heading">Order Timeline</AppText>
-            <Card>
-              <OrderTimeline history={data.history} />
-            </Card>
+            <Card><OrderTimeline history={data.history} /></Card>
           </View>
 
-          {data.pod ? (
+          {proofs.length ? (
             <View style={{ gap: spacing.sm }}>
               <AppText variant="heading">Proof of Delivery</AppText>
-              <Card style={{ gap: spacing.md }}>
-                {data.pod.photo_path && token ? (
-                  <Image
-                    testID="pod-photo"
-                    source={fileSource(data.pod.photo_path, token)}
-                    style={styles.podPhoto}
-                    resizeMode="cover"
-                  />
-                ) : null}
-                <Row icon="person-outline" label="Received by" value={data.pod.receiver_name || "—"} colors={colors} />
-                <Row icon="cube-outline" label="Delivered quantity" value={`${data.pod.delivered_quantity ?? o.quantity} m³`} colors={colors} />
-                {data.pod.at ? <Row icon="time-outline" label="Delivered at" value={new Date(data.pod.at).toLocaleString()} colors={colors} /> : null}
-                {data.pod.remarks ? <Row icon="chatbubble-ellipses-outline" label="Remarks" value={data.pod.remarks} colors={colors} /> : null}
-                {data.pod.signature ? (
-                  <View style={{ gap: 4 }}>
-                    <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }}>Receiver signature</AppText>
-                    <Image testID="pod-signature" source={{ uri: data.pod.signature }} style={[styles.podSign, { borderColor: colors.border }]} resizeMode="contain" />
-                  </View>
-                ) : null}
-              </Card>
+              {proofs.map((pod, index) => (
+                <Card key={`${pod.load_id || "pod"}-${index}`} style={{ gap: spacing.md }}>
+                  {pod.load_code ? <AppText variant="label">{pod.load_code}</AppText> : null}
+                  {pod.photo_path && token ? <Image testID={`pod-photo-${index}`} source={fileSource(pod.photo_path, token)} style={styles.podPhoto} resizeMode="cover" /> : null}
+                  <Row icon="person-outline" label="Received by" value={pod.receiver_name || "—"} colors={colors} />
+                  <Row icon="cube-outline" label="Delivered quantity" value={`${pod.delivered_quantity ?? o.quantity} m³`} colors={colors} />
+                  {pod.at ? <Row icon="time-outline" label="Delivered at" value={new Date(pod.at).toLocaleString()} colors={colors} /> : null}
+                  {pod.remarks ? <Row icon="chatbubble-ellipses-outline" label="Remarks" value={pod.remarks} colors={colors} /> : null}
+                </Card>
+              ))}
             </View>
           ) : null}
 
@@ -162,59 +169,31 @@ export default function OrderDetail() {
                   <AppText variant="heading">Reject order</AppText>
                   <Input testID="reject-reason" label="Reason" value={reason} onChangeText={setReason} placeholder="Why are you rejecting?" autoCapitalize="sentences" />
                   <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                    <View style={{ flex: 1 }}>
-                      <Button testID="reject-cancel" label="Back" variant="secondary" onPress={() => setShowReject(false)} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Button testID="reject-confirm" label="Confirm Reject" variant="danger" loading={busy} onPress={() => reason.trim() ? act(`/owner/orders/${id}/reject`, { reason: reason.trim() }, "Order rejected") : toast("Enter a reason", "error")} />
-                    </View>
+                    <View style={{ flex: 1 }}><Button testID="reject-cancel" label="Back" variant="secondary" onPress={() => setShowReject(false)} /></View>
+                    <View style={{ flex: 1 }}><Button testID="reject-confirm" label="Confirm Reject" variant="danger" loading={busy} onPress={() => reason.trim() ? act(`/owner/orders/${id}/reject`, { reason: reason.trim() }, "Order rejected") : toast("Enter a reason", "error")} /></View>
                   </View>
                 </Card>
               ) : (
                 <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                  <View style={{ flex: 1 }}>
-                    <Button testID="owner-reject" label="Reject" variant="outline" onPress={() => setShowReject(true)} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Button testID="owner-approve" label="Approve" loading={busy} onPress={() => act(`/owner/orders/${id}/approve`, undefined, "Order approved")} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} />
-                  </View>
+                  <View style={{ flex: 1 }}><Button testID="owner-reject" label="Reject" variant="outline" onPress={() => setShowReject(true)} /></View>
+                  <View style={{ flex: 1 }}><Button testID="owner-approve" label="Approve" loading={busy} onPress={() => act(`/owner/orders/${id}/approve`, undefined, "Order approved")} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} /></View>
                 </View>
               )
-            ) : (
-              <OwnerDispatchPanel
-                orderId={String(id)}
-                status={o.status}
-                quantity={o.quantity}
-                tmNumber={o.tm_number}
-                driverName={o.driver_name}
-                challanNumber={o.challan_number}
-                invoiceNumber={o.invoice_number}
-                onChanged={reload}
-                onViewChallan={() => router.push(`/challan/${id}` as any)}
-              />
-            )
+            ) : !["DRAFT", "REJECTED", "CANCELLED", "DELIVERED"].includes(o.status) ? (
+              <LoadPlanner orderId={String(id)} resourceBase="/owner" onChanged={reload} />
+            ) : null
           ) : (
             <View style={{ gap: spacing.sm }}>
               {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? (
                 <Card style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center", backgroundColor: colors.brandSoft, borderColor: colors.brand + "55" }}>
                   <Ionicons name="navigate" size={18} color={colors.onBrandSoft} />
-                  <AppText style={{ flex: 1, fontFamily: fonts.medium, fontSize: fontSize.sm, color: colors.onBrandSoft }}>
-                    Your transit mixer is on the way. Live map tracking activates with the Maps key.
-                  </AppText>
+                  <AppText style={{ flex: 1, fontFamily: fonts.medium, fontSize: fontSize.sm, color: colors.onBrandSoft }}>Your mixer delivery is active. Open live tracking for per-load locations.</AppText>
                 </Card>
               ) : null}
-              {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? (
-                <Button testID="order-track-live" label="Track Live" onPress={() => router.push(`/track/${id}` as any)} icon={<Ionicons name="navigate" size={18} color={colors.onBrand} />} />
-              ) : null}
-              {o.driver_mobile ? (
-                <Button testID="order-call-driver" label="Call Driver" variant="secondary" onPress={() => Linking.openURL(`tel:${o.driver_mobile}`)} icon={<Ionicons name="call-outline" size={18} color={colors.onSurface} />} />
-              ) : null}
-              {o.challan_number ? (
-                <Button testID="order-view-challan" label="View Challan" onPress={() => router.push(`/challan/${id}` as any)} icon={<Ionicons name="document-text-outline" size={18} color={colors.onBrand} />} />
-              ) : null}
-              {CANCELLABLE.includes(o.status) ? (
-                <Button testID="order-cancel" label="Cancel Order" variant="outline" loading={busy} onPress={() => act(`/customer/orders/${id}/cancel`, undefined, "Order cancelled")} />
-              ) : null}
+              {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? <Button testID="order-track-live" label="Track Live" onPress={() => router.push(`/track/${id}` as any)} icon={<Ionicons name="navigate" size={18} color={colors.onBrand} />} /> : null}
+              {o.driver_mobile ? <Button testID="order-call-driver" label="Call Driver" variant="secondary" onPress={() => Linking.openURL(`tel:${o.driver_mobile}`)} icon={<Ionicons name="call-outline" size={18} color={colors.onSurface} />} /> : null}
+              {o.challan_number ? <Button testID="order-view-challan" label="View Challan" onPress={() => router.push(`/challan/${id}` as any)} icon={<Ionicons name="document-text-outline" size={18} color={colors.onBrand} />} /> : null}
+              {CANCELLABLE.includes(o.status) ? <Button testID="order-cancel" label="Cancel Order" variant="outline" loading={busy} onPress={() => act(`/customer/orders/${id}/cancel`, undefined, "Order cancelled")} /> : null}
             </View>
           )}
         </ScrollView>
@@ -241,5 +220,4 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   podPhoto: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: "#0002" },
-  podSign: { width: "100%", height: 90, borderRadius: radius.sm, borderWidth: 1, backgroundColor: "#fff" },
 });
