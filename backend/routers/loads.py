@@ -6,6 +6,7 @@ load therefore has its own driver trip, challan, gate pass and delivery state.
 from datetime import datetime, timezone
 from typing import Optional
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -139,6 +140,8 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
     order = await _order_for_ctx(order_id, ctx)
     if order.get("status") in ("REJECTED", "CANCELLED", "DELIVERED"):
         raise HTTPException(409, f"Cannot add a load to an order that is {order.get('status')}")
+    if bool(body.vehicle_id) != bool(body.driver_id):
+        raise HTTPException(422, "Assign both a transit mixer and driver together")
 
     existing = await order_loads.find({"order_id": order_id, "status": {"$ne": "CANCELLED"}}).to_list(500)
     planned = sum(float(d.get("quantity_m3") or 0) for d in existing)
@@ -149,6 +152,7 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
     load_number = await next_sequence(f"order_load:{order_id}")
     now = datetime.now(timezone.utc)
     doc = {
+        "_id": ObjectId(),
         "order_id": order_id,
         "order_number": order.get("order_number"),
         "plant_id": order["plant_id"],
@@ -167,27 +171,37 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
         "updated_at": now,
         "created_by": ctx["user_id"],
     }
-    result = await order_loads.insert_one(doc)
-    doc["_id"] = result.inserted_id
 
+    # Validate optional assignment before insertion so a bad vehicle/driver can
+    # never leave an orphan planned-load row behind.
     if body.vehicle_id and body.driver_id:
         vehicle, driver = await _validate_assignment(order, doc, body.vehicle_id, body.driver_id)
-        await order_loads.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {
+        doc.update(
+            {
                 "vehicle_id": body.vehicle_id,
                 "tm_number": vehicle.get("tm_number"),
                 "driver_id": body.driver_id,
                 "driver_name": driver.get("name"),
                 "status": "ASSIGNED",
-                "updated_at": now,
-            }},
+            }
         )
-        doc.update({"vehicle_id": body.vehicle_id, "tm_number": vehicle.get("tm_number"),
-                    "driver_id": body.driver_id, "driver_name": driver.get("name"), "status": "ASSIGNED"})
-    elif body.vehicle_id or body.driver_id:
-        await order_loads.delete_one({"_id": result.inserted_id})
-        raise HTTPException(422, "Assign both a transit mixer and driver together")
+
+    await order_loads.insert_one(doc)
+
+    # Concurrent load creation can race the pre-insert total check. Reconcile
+    # after insertion and roll back this candidate if the committed total now
+    # exceeds the commercial order quantity. This fails safe (never overplans).
+    rows = await order_loads.aggregate(
+        [
+            {"$match": {"order_id": order_id, "status": {"$ne": "CANCELLED"}}},
+            {"$group": {"_id": None, "total": {"$sum": "$quantity_m3"}}},
+        ]
+    ).to_list(1)
+    committed_total = float(rows[0]["total"] if rows else 0)
+    if committed_total > ordered + 0.001:
+        await order_loads.delete_one({"_id": doc["_id"]})
+        raise HTTPException(409, "Order loads changed concurrently; reload and plan the remaining quantity")
+
     return {"load": _serialize(doc)}
 
 
@@ -321,8 +335,6 @@ async def prepare_load(load_id: str, body: LoadPrepareBody, ctx: dict = Depends(
                    "updated_at": now}},
     )
 
-    # Keep the established parent-order state machine for the first load only.
-    # Later loads are independent while the parent stays DISPATCHED.
     current = order.get("status")
     await orders.update_one(
         {"_id": order["_id"]},
@@ -388,12 +400,11 @@ async def dispatch_load(load_id: str, ctx: dict = Depends(current_user)):
         )
     elif order.get("status") != DISPATCHED:
         raise HTTPException(409, f"Parent order is not dispatchable ({order.get('status')})")
-    else:
-        if order.get("customer_id"):
-            await record_notification(
-                order["customer_id"], "load_dispatched", f"Load {load.get('load_code')} dispatched",
-                f"Mixer {load.get('tm_number')} is carrying {load.get('quantity_m3')} m³ of {order.get('grade')}.",
-            )
+    elif order.get("customer_id"):
+        await record_notification(
+            order["customer_id"], "load_dispatched", f"Load {load.get('load_code')} dispatched",
+            f"Mixer {load.get('tm_number')} is carrying {load.get('quantity_m3')} m³ of {order.get('grade')}.",
+        )
     return {"status": "DISPATCHED", "load_id": load_id, "trip_id": str(trip["_id"])}
 
 
