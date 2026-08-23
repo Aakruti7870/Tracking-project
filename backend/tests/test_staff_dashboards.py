@@ -180,7 +180,9 @@ def test_store_manager_low_stock_item(staff_tokens):
     low_item = next((x for x in items if x.get("primary") == name), None)
     assert low_item, f"controlled low-stock material not present: {[i.get('primary') for i in items]}"
     assert low_item.get("badge") == "LOW", f"controlled material should be LOW, got {low_item}"
-    assert "1 MT" in (low_item.get("secondary") or ""), low_item.get("secondary")
+    stock_text = low_item.get("secondary") or ""
+    assert stock_text.endswith("MT in stock"), stock_text
+    assert float(stock_text.split()[0]) == 1.0, stock_text
 
 
 def test_store_manager_home_low_stock_kpi(staff_tokens):
