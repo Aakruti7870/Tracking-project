@@ -10,11 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.rmcfleetops.m06ads",
+      "bundleIdentifier": "com.trackmyrmc.concreteking",
       "infoPlist": {
         "NSCameraUsageDescription": "Capture site photos for proof of delivery",
         "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery",
-        "NSLocationWhenInUseUsageDescription": "Allow TrackMyRMC to use your location while an active delivery trip is running"
+        "NSLocationWhenInUseUsageDescription": "Allow TrackMyRMC to use your location while an active delivery trip is running",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow TrackMyRMC to share the mixer location while an active delivery trip is running"
       }
     },
     "android": {
