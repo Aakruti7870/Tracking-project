@@ -48,6 +48,7 @@ counters = db.counters
 account_deletion_requests = db.account_deletion_requests
 
 plants = db.plants
+plant_listing_requests = db.plant_listing_requests
 orders = db.orders
 kyc_profiles = db.kyc_profiles
 order_status_history = db.order_status_history
@@ -125,6 +126,17 @@ async def ensure_indexes() -> None:
     # Core tenant/order access paths.
     await plants.create_index([("status", 1), ("verified", 1)])
     await plants.create_index("owner_id")
+    await plants.create_index(
+        "google_place_id",
+        unique=True,
+        partialFilterExpression={"google_place_id": {"$type": "string"}},
+        name="unique_google_place_per_plant",
+    )
+    await plant_listing_requests.create_index(
+        "google_place_id", unique=True, name="unique_google_place_listing_request"
+    )
+    await plant_listing_requests.create_index([("status", 1), ("updated_at", -1)])
+    await plant_listing_requests.create_index([("requested_by", 1), ("updated_at", -1)])
     await orders.create_index([("customer_id", 1), ("created_at", -1)])
     await orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
     await orders.create_index("order_number", unique=True)
