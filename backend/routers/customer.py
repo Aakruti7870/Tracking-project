@@ -39,6 +39,7 @@ def _serialize_order(doc: dict) -> dict:
         "payment_status": doc.get("payment_status"), "tm_number": doc.get("tm_number"),
         "driver_name": doc.get("driver_name"), "driver_mobile": doc.get("driver_mobile"),
         "challan_number": doc.get("challan_number"), "active_load_id": doc.get("active_load_id"),
+        "invoice_number": doc.get("invoice_number"),
     }
 
 
@@ -58,6 +59,7 @@ def _serialize_load(doc: dict) -> dict:
         "load_number": doc.get("load_number"), "quantity_m3": doc.get("quantity_m3"),
         "delivered_quantity": doc.get("delivered_quantity"), "status": doc.get("status"),
         "tm_number": doc.get("tm_number"), "driver_name": doc.get("driver_name"),
+        "driver_mobile": doc.get("driver_mobile"),
         "challan_number": doc.get("challan_number"), "gate_pass_number": doc.get("gate_pass_number"),
         "dispatched_at": doc.get("dispatched_at").isoformat() if doc.get("dispatched_at") else None,
         "delivered_at": doc.get("delivered_at").isoformat() if doc.get("delivered_at") else None,
@@ -268,7 +270,6 @@ async def track_order(order_id: str, ctx: dict = Depends(customer_only)):
                 route_info = await compute_route(location["lat"], location["lng"], order["lat"], order["lng"])
         tracked_loads.append({**_serialize_load(load), "location": location, "route": route_info})
 
-    # Legacy compatibility fields use the latest location across the order.
     active = bool(active_loads) or order.get("status") in ACTIVE_TRACK
     latest_order = await vehicle_locations.find({"order_id": order_id}).sort("created_at", -1).to_list(1) if active else []
     loc = None
