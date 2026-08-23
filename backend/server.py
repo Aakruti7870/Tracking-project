@@ -102,9 +102,11 @@ async def on_startup():
         logger.warning("object storage init failed (uploads may fail): %s", exc)
     if settings.is_dev:
         from seed import run_seed
+        from seed_business import run_business_seed
 
         try:
             await run_seed()
+            await run_business_seed()
         except Exception as exc:
             logger.exception("seed failed: %s", exc)
     logger.info("Tracking-project API started (env=%s)", settings.APP_ENV)
