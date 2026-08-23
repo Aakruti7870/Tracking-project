@@ -1,9 +1,9 @@
 """Persistent master-data APIs for real RMC plant operations."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from business_access import oid, require_business_role, require_visible_plant
+from business_access import oid, require_business_role, require_visible_plant, visible_plant_ids
 from business_models import (
     CustomerSiteBody,
     MixDesignBody,
@@ -13,13 +13,18 @@ from business_models import (
 )
 from database import (
     customer_sites,
+    invoices,
+    materials,
     mix_designs,
+    orders,
     plant_business_profiles,
     plants,
     rate_cards,
     suppliers,
+    users,
+    vehicles,
 )
-from roles import Role
+from roles import ROLE_LABELS, Role
 from security import current_user
 
 router = APIRouter(prefix="/api/master", tags=["master-data"])
@@ -44,6 +49,110 @@ async def _public_or_visible_plant(ctx: dict, plant_id: str) -> dict:
         return plant
     await require_visible_plant(ctx, plant_id)
     return plant
+
+
+@router.get("/my-plants")
+async def my_plants(ctx: dict = Depends(current_user)):
+    """Return the plant selector used by authenticated business screens."""
+    ids = await visible_plant_ids(ctx)
+    if not ids:
+        return {"plants": []}
+    docs = await plants.find({"_id": {"$in": [oid(i) for i in ids]}}).sort("name", 1).to_list(5000)
+    return {
+        "plants": [
+            {
+                "id": str(d["_id"]),
+                "name": d.get("name"),
+                "city": d.get("city"),
+                "status": d.get("status"),
+                "verified": bool(d.get("verified")),
+                "grades": d.get("grades", []),
+            }
+            for d in docs
+        ]
+    }
+
+
+@router.get("/plants/{plant_id}/resources")
+async def plant_resources(plant_id: str, ctx: dict = Depends(current_user)):
+    """Small reference lists for forms: materials, mixers and plant people."""
+    await require_visible_plant(ctx, plant_id)
+    material_docs = await materials.find({"plant_id": plant_id}).sort("name", 1).to_list(1000)
+    vehicle_docs = await vehicles.find({"plant_id": plant_id}).sort("tm_number", 1).to_list(1000)
+    people_docs = await users.find({"plant_id": plant_id, "status": "active"}).sort("name", 1).to_list(2000)
+    return {
+        "materials": [
+            {
+                "id": str(d["_id"]), "code": d.get("code"), "name": d.get("name"),
+                "unit": d.get("unit"), "stock": d.get("stock", 0), "reorder": d.get("reorder", 0),
+            }
+            for d in material_docs
+        ],
+        "vehicles": [
+            {
+                "id": str(d["_id"]), "tm_number": d.get("tm_number"),
+                "capacity_m3": d.get("capacity_m3"), "status": d.get("status"),
+            }
+            for d in vehicle_docs
+        ],
+        "people": [
+            {
+                "id": str(d["_id"]), "name": d.get("name"), "role": d.get("primary_role"),
+                "role_label": ROLE_LABELS.get(d.get("primary_role"), d.get("primary_role")),
+                "phone": d.get("phone"), "email": d.get("email"),
+            }
+            for d in people_docs
+        ],
+    }
+
+
+@router.get("/plants/{plant_id}/people")
+async def plant_people(
+    plant_id: str,
+    role: str | None = Query(default=None),
+    ctx: dict = Depends(current_user),
+):
+    await require_visible_plant(ctx, plant_id)
+    query: dict = {"plant_id": plant_id}
+    if role:
+        query["primary_role"] = role
+    docs = await users.find(query).sort("name", 1).to_list(2000)
+    return {
+        "people": [
+            {
+                "id": str(d["_id"]), "name": d.get("name"), "role": d.get("primary_role"),
+                "role_label": ROLE_LABELS.get(d.get("primary_role"), d.get("primary_role")),
+                "phone": d.get("phone"), "email": d.get("email"), "status": d.get("status", "active"),
+            }
+            for d in docs
+        ]
+    }
+
+
+@router.get("/plants/{plant_id}/summary")
+async def plant_summary(plant_id: str, ctx: dict = Depends(current_user)):
+    await require_visible_plant(ctx, plant_id)
+    order_docs = await orders.find({"plant_id": plant_id}).to_list(5000)
+    invoice_docs = await invoices.find({"plant_id": plant_id}).to_list(5000)
+    material_docs = await materials.find({"plant_id": plant_id}).to_list(2000)
+    vehicle_docs = await vehicles.find({"plant_id": plant_id}).to_list(2000)
+    delivered = [o for o in order_docs if o.get("status") == "DELIVERED"]
+    active = [o for o in order_docs if o.get("status") not in ("DELIVERED", "REJECTED", "CANCELLED")]
+    billed = round(sum(float(i.get("total") or 0) for i in invoice_docs), 2)
+    paid = round(sum(float(i.get("paid") or 0) for i in invoice_docs), 2)
+    return {
+        "orders": len(order_docs),
+        "active_orders": len(active),
+        "delivered_orders": len(delivered),
+        "delivered_m3": round(sum(float(o.get("delivered_quantity") or o.get("quantity") or 0) for o in delivered), 3),
+        "billed": billed,
+        "received": paid,
+        "outstanding": round(billed - paid, 2),
+        "materials": len(material_docs),
+        "low_stock": sum(1 for m in material_docs if float(m.get("stock") or 0) <= float(m.get("reorder") or 0)),
+        "fleet": len(vehicle_docs),
+        "available_mixers": sum(1 for v in vehicle_docs if v.get("status") == "available"),
+    }
 
 
 @router.get("/plants/{plant_id}/profile")
