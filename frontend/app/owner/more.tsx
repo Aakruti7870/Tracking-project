@@ -6,21 +6,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
 import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "plant", label: "Plant Profile", icon: "business-outline" },
-  { key: "subscription", label: "Subscription", icon: "card-outline" },
-  { key: "kyc", label: "Plant KYC", icon: "shield-checkmark-outline" },
-  { key: "staff", label: "Staff", icon: "people-outline" },
-  { key: "customers", label: "Customers", icon: "person-outline" },
-  { key: "reports", label: "Reports", icon: "bar-chart-outline" },
-  { key: "settings", label: "Settings", icon: "settings-outline" },
-  { key: "support", label: "Support", icon: "help-buoy-outline" },
+const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
+  { key: "plant", label: "Plant Profile", icon: "business-outline", route: "/business/profile" },
+  { key: "kyc", label: "Plant KYC", icon: "shield-checkmark-outline", route: "/kyc" },
+  { key: "staff", label: "Staff", icon: "people-outline", route: "/business/staff" },
+  { key: "customers", label: "Customers", icon: "person-outline", route: "/business/customers" },
+  { key: "reports", label: "Reports", icon: "bar-chart-outline", route: "/business/reports" },
 ];
 
 const MODES: { key: "system" | "light" | "dark"; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -33,7 +29,6 @@ export default function OwnerMore() {
   const { colors, mode, setMode } = useTheme();
   const { user, signOut } = useAuth();
   const router = useRouter();
-  const toast = useToast();
   const insets = useSafeAreaInsets();
 
   const doLogout = async () => {
@@ -77,7 +72,7 @@ export default function OwnerMore() {
 
         <Card padded={false}>
           {ITEMS.map((item, i) => (
-            <Pressable key={item.key} testID={`owner-more-${item.key}`} onPress={() => toast(`${item.label} arrives in a later phase`, "info")} style={[styles.item, i < ITEMS.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+            <Pressable key={item.key} testID={`owner-more-${item.key}`} onPress={() => router.push(item.route as any)} style={[styles.item, i < ITEMS.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}>
               <Ionicons name={item.icon} size={20} color={colors.onSurfaceSecondary} />
               <AppText style={{ flex: 1, fontFamily: fonts.medium, fontSize: fontSize.base, color: colors.onSurface }}>{item.label}</AppText>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
@@ -85,12 +80,16 @@ export default function OwnerMore() {
           ))}
         </Card>
 
+        <Card style={{ gap: 4 }}>
+          <AppText variant="label">Application</AppText>
+          <AppText variant="caption">TrackMyRMC 2.0.3 · Android version code 61</AppText>
+          <AppText variant="caption">Business data is plant-scoped and server-authorized.</AppText>
+        </Card>
+
         <Pressable testID="owner-logout" onPress={doLogout} style={[styles.logout, { borderColor: colors.error }]}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
-
-        <AppText variant="caption" center>TrackMyRMC · v1.0.0</AppText>
       </ScrollView>
     </View>
   );
