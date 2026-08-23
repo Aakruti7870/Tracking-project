@@ -88,26 +88,20 @@ class TestDriverSOS:
 
 
 def _find_or_create_approved_order(owner_token, customer_token) -> str:
-    r = requests.get(f"{BASE_URL}/api/owner/orders", headers=_h(owner_token), timeout=15)
-    for o in r.json().get("orders", []):
-        if o.get("status") == "ACCEPTED":
-            return o["id"]
-    for o in r.json().get("orders", []):
-        if o.get("status") == "PENDING":
-            requests.post(f"{BASE_URL}/api/owner/orders/{o['id']}/approve", headers=_h(owner_token), timeout=15)
-            return o["id"]
+    """Create a dedicated 6 m³ order so this stateful suite is deterministic."""
     plants = requests.get(f"{BASE_URL}/api/customer/plants", headers=_h(customer_token), timeout=15).json()["plants"]
-    plant = plants[0]
+    plant = next((p for p in plants if "M25" in p.get("grades", [])), plants[0])
     grade = "M25" if "M25" in plant["grades"] else plant["grades"][0]
     body = {
         "plant_id": plant["id"], "grade": grade, "quantity": 6,
-        "site_name": "TEST_ site", "site_address": "TEST_ addr",
+        "site_name": f"TEST_ production {uuid.uuid4().hex[:8]}", "site_address": "TEST_ addr",
         "lat": 17.4, "lng": 78.5, "delivery_date": "2026-09-01", "delivery_time": "10:00",
     }
     cr = requests.post(f"{BASE_URL}/api/customer/orders", json=body, headers=_h(customer_token), timeout=15)
     assert cr.status_code == 200, cr.text
     oid = cr.json()["id"]
-    requests.post(f"{BASE_URL}/api/owner/orders/{oid}/approve", headers=_h(owner_token), timeout=15)
+    approved = requests.post(f"{BASE_URL}/api/owner/orders/{oid}/approve", headers=_h(owner_token), timeout=15)
+    assert approved.status_code == 200, approved.text
     return oid
 
 
