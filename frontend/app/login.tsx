@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 
 import { useAuth } from "@/src/auth/AuthContext";
+import { roleRouteFor } from "@/src/auth/roleRoutes";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
@@ -26,7 +27,7 @@ export default function Login() {
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { requestOtp, verify } = useAuth();
+  const { hydrating, token, user, requestOtp, verify } = useAuth();
 
   const [phase, setPhase] = useState<"enter" | "otp">("enter");
   const [identifier, setIdentifier] = useState("");
@@ -42,6 +43,12 @@ export default function Login() {
       if (timer.current) clearInterval(timer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hydrating && token && user) {
+      router.replace(roleRouteFor(user.role) as any);
+    }
+  }, [hydrating, token, user, router]);
 
   const startCountdown = (secs: number) => {
     setCountdown(secs);
@@ -95,7 +102,7 @@ export default function Login() {
       const me = await verify(identifier.trim(), code.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast(`Welcome, ${me.name}`, "success");
-      router.replace("/");
+      router.replace(roleRouteFor(me.role) as any);
     } catch (e: any) {
       setError(e.detail || "Invalid OTP");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
