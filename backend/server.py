@@ -1,4 +1,4 @@
-"""Tracking-project API — FastAPI entrypoint.
+"""Application API — FastAPI entrypoint for the Tracking-project repository.
 
 Layered architecture: config -> database -> models -> security/rbac -> services
 -> routers. All product/business routes are mounted under /api.
@@ -30,11 +30,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("tracking-project")
+logger = logging.getLogger("trackmyrmc")
 
-# Do not expose interactive API documentation in production.
+# Preserve the established API identity/client contract; repository isolation
+# is an engineering concern and does not require a breaking product rename.
 app = FastAPI(
-    title="Tracking Project API",
+    title="TrackMyRMC API",
     version="2.0.3",
     docs_url="/docs" if settings.is_dev else None,
     redoc_url="/redoc" if settings.is_dev else None,
@@ -49,7 +50,7 @@ async def health_root():
 
 @app.get("/")
 async def root_root():
-    return {"service": "TrackingProject", "status": "ok"}
+    return {"service": "TrackMyRMC", "status": "ok"}
 
 
 meta = APIRouter(prefix="/api")
@@ -57,7 +58,7 @@ meta = APIRouter(prefix="/api")
 
 @meta.get("/")
 async def root():
-    return {"service": "TrackingProject", "status": "ok"}
+    return {"service": "TrackMyRMC", "status": "ok"}
 
 
 @meta.get("/health")
@@ -106,4 +107,4 @@ async def on_startup():
             await run_seed()
         except Exception as exc:
             logger.exception("seed failed: %s", exc)
-    logger.info("Tracking Project API started (env=%s)", settings.APP_ENV)
+    logger.info("Tracking-project API started (env=%s)", settings.APP_ENV)
