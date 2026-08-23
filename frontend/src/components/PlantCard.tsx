@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { formatDistanceKm } from "@/src/maps/geo";
 import { Card } from "./ui/Card";
 import { AppText } from "./ui/AppText";
 
@@ -21,6 +22,7 @@ export type PlantData = {
   status?: string;
   verified: boolean;
   order_enabled?: boolean;
+  distance_km?: number | null;
 };
 
 function readableStatus(value?: string) {
@@ -33,6 +35,7 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
   const { colors } = useTheme();
   const status = (plant.status || "active").toLowerCase();
   const orderEnabled = plant.order_enabled ?? (status === "active" && plant.verified);
+  const distance = formatDistanceKm(plant.distance_km);
 
   const openDirections = () => {
     const destination =
@@ -56,6 +59,7 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
           <AppText variant="caption" numberOfLines={1}>
             {plant.city}
             {plant.district ? ` · ${plant.district}` : ""}
+            {distance ? ` · ${distance}` : ""}
           </AppText>
           <View style={styles.metaRow}>
             <View style={[styles.statusDot, { backgroundColor: status === "active" ? colors.success : colors.warning }]} />
