@@ -7,6 +7,8 @@ Covers:
   - RBAC 403 for customer / driver / plant_owner on /api/staff/*
 """
 import os
+import uuid
+
 import pytest
 import requests
 
@@ -155,26 +157,41 @@ def test_dispatcher_plant_scoped(staff_tokens):
     assert len(items) == 1, f"dispatcher should be scoped to plant #1, saw {len(items)}"
 
 
-def test_store_manager_low_stock_10mm_aggregate(staff_tokens):
+def _create_low_stock_material(token: str, label: str) -> str:
+    name = f"TEST_{label}_{uuid.uuid4().hex[:8]}"
+    r = requests.post(
+        f"{BASE}/api/staff/materials",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": name, "unit": "MT", "stock": 1, "reorder": 2},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    return name
+
+
+def test_store_manager_low_stock_item(staff_tokens):
     token = staff_tokens["store_manager"]
+    name = _create_low_stock_material(token, "LowStock")
     r = requests.get(f"{BASE}/api/staff/collection/inventory", headers={"Authorization": f"Bearer {token}"}, timeout=15)
     assert r.status_code == 200
     data = r.json()
     items = data.get("items", [])
     assert items, "store_manager should see materials"
-    ten_mm = next((x for x in items if "10mm" in (x.get("primary") or "")), None)
-    assert ten_mm, f"10mm Aggregate not present: {[i.get('primary') for i in items]}"
-    assert ten_mm.get("badge") == "LOW", f"10mm Aggregate should be LOW, got {ten_mm}"
-    assert "22 MT" in (ten_mm.get("secondary") or ""), f"expected '22 MT in stock', got {ten_mm.get('secondary')}"
+    low_item = next((x for x in items if x.get("primary") == name), None)
+    assert low_item, f"controlled low-stock material not present: {[i.get('primary') for i in items]}"
+    assert low_item.get("badge") == "LOW", f"controlled material should be LOW, got {low_item}"
+    assert "1 MT" in (low_item.get("secondary") or ""), low_item.get("secondary")
 
 
 def test_store_manager_home_low_stock_kpi(staff_tokens):
     token = staff_tokens["store_manager"]
+    _create_low_stock_material(token, "LowStockKpiA")
+    _create_low_stock_material(token, "LowStockKpiB")
     r = requests.get(f"{BASE}/api/staff/home", headers={"Authorization": f"Bearer {token}"}, timeout=15)
     assert r.status_code == 200
     kpis = r.json().get("kpis", [])
     low = next((k for k in kpis if k["label"] == "Low Stock"), None)
-    assert low and low["value"] >= 2, f"expected Low Stock >=2 (10mm + FlyAsh), got {low}"
+    assert low and low["value"] >= 2, f"expected at least two controlled low-stock materials, got {low}"
 
 
 # ---------- RBAC ----------
@@ -195,4 +212,4 @@ def test_non_staff_collection_forbidden(role, non_staff_tokens):
 
 def test_no_auth_forbidden():
     r = requests.get(f"{BASE}/api/staff/home", timeout=15)
-    assert r.status_code in (401, 403), f"unauth expected 401/403 got {r.status_code}"
+    assert r.status_code in (401, 403), f"unauth expected 401/403 got {r.status_code} {r.text}"
