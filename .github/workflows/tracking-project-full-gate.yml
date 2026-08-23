@@ -64,10 +64,11 @@ jobs:
           import business_models
           import database
           import server
-          from routers import finance_ops, loads, master_data, operator_ops
+          from routers import account_deletion, business_ui, finance_ops, loads, master_data, operator_ops
           assert server.app is not None
           assert business_models.PlantBusinessProfileBody
-          assert finance_ops.router and loads.router and master_data.router and operator_ops.router
+          assert account_deletion.router and business_ui.router and finance_ops.router
+          assert loads.router and master_data.router and operator_ops.router
           print("full schema/router import OK")
           PY
       - name: Start API
@@ -133,6 +134,19 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
+      - name: Reject unfinished product placeholders
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='arrives in a later phase|arrives in the next phases|arrives in a later/next phase|coming soon|Coming soon|COMING SOON'
+          if git grep -n -I -E "$pattern" -- frontend/app frontend/src; then
+            echo "Unfinished product placeholder copy remains in the application."
+            exit 1
+          fi
+          if git grep -n -I -F 'TrackMyRMC · v1.0.0' -- frontend/app frontend/src; then
+            echo "Stale application version copy remains in the UI."
+            exit 1
+          fi
       - name: Expo Doctor
         working-directory: frontend
         run: npm run doctor
