@@ -12,6 +12,7 @@ from config import settings
 from database import ensure_indexes
 from notifications import provider_status
 from routers import (
+    account_deletion,
     auth,
     business_ui,
     customer,
@@ -69,6 +70,7 @@ async def health():
 app.include_router(meta)
 app.include_router(auth.router)
 app.include_router(me.router)
+app.include_router(account_deletion.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
 app.include_router(driver.router)
