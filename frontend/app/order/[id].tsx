@@ -20,6 +20,7 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { OrderTimeline, HistoryEntry } from "@/src/components/OrderTimeline";
 import { LoadPlanner } from "@/src/components/LoadPlanner";
+import { OwnerProductionBilling } from "@/src/components/OwnerProductionBilling";
 import { OrderData } from "@/src/components/OrderCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -34,6 +35,18 @@ type DeliveryProof = {
   load_code?: string;
 };
 
+type DeliveryLoad = {
+  id: string;
+  load_code?: string;
+  quantity_m3?: number;
+  status?: string;
+  tm_number?: string;
+  driver_name?: string;
+  challan_number?: string;
+  gate_pass_number?: string;
+  delivered_quantity?: number;
+};
+
 type Detail = {
   order: OrderData & { customer_name?: string };
   contact_person?: string;
@@ -41,7 +54,7 @@ type Detail = {
   notes?: string;
   pod?: DeliveryProof | null;
   pods?: DeliveryProof[];
-  loads?: { id: string; load_code?: string; quantity_m3?: number; status?: string; tm_number?: string; driver_name?: string; challan_number?: string; gate_pass_number?: string; delivered_quantity?: number }[];
+  loads?: DeliveryLoad[];
   history: HistoryEntry[];
 };
 
@@ -149,16 +162,25 @@ export default function OrderDetail() {
           {proofs.length ? (
             <View style={{ gap: spacing.sm }}>
               <AppText variant="heading">Proof of Delivery</AppText>
-              {proofs.map((pod, index) => (
-                <Card key={`${pod.load_id || "pod"}-${index}`} style={{ gap: spacing.md }}>
-                  {pod.load_code ? <AppText variant="label">{pod.load_code}</AppText> : null}
-                  {pod.photo_path && token ? <Image testID={`pod-photo-${index}`} source={fileSource(pod.photo_path, token)} style={styles.podPhoto} resizeMode="cover" /> : null}
-                  <Row icon="person-outline" label="Received by" value={pod.receiver_name || "—"} colors={colors} />
-                  <Row icon="cube-outline" label="Delivered quantity" value={`${pod.delivered_quantity ?? o.quantity} m³`} colors={colors} />
-                  {pod.at ? <Row icon="time-outline" label="Delivered at" value={new Date(pod.at).toLocaleString()} colors={colors} /> : null}
-                  {pod.remarks ? <Row icon="chatbubble-ellipses-outline" label="Remarks" value={pod.remarks} colors={colors} /> : null}
-                </Card>
-              ))}
+              {proofs.map((pod, index) => {
+                const code = pod.load_code || data.loads?.find((l) => l.id === pod.load_id)?.load_code;
+                return (
+                  <Card key={`${pod.load_id || "pod"}-${index}`} style={{ gap: spacing.md }}>
+                    {code ? <AppText variant="label">{code}</AppText> : null}
+                    {pod.photo_path && token ? <Image testID={`pod-photo-${index}`} source={fileSource(pod.photo_path, token)} style={styles.podPhoto} resizeMode="cover" /> : null}
+                    <Row icon="person-outline" label="Received by" value={pod.receiver_name || "—"} colors={colors} />
+                    <Row icon="cube-outline" label="Delivered quantity" value={`${pod.delivered_quantity ?? o.quantity} m³`} colors={colors} />
+                    {pod.at ? <Row icon="time-outline" label="Delivered at" value={new Date(pod.at).toLocaleString()} colors={colors} /> : null}
+                    {pod.remarks ? <Row icon="chatbubble-ellipses-outline" label="Remarks" value={pod.remarks} colors={colors} /> : null}
+                    {pod.signature ? (
+                      <View style={{ gap: 4 }}>
+                        <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }}>Receiver signature</AppText>
+                        <Image source={{ uri: pod.signature }} style={[styles.podSign, { borderColor: colors.border }]} resizeMode="contain" />
+                      </View>
+                    ) : null}
+                  </Card>
+                );
+              })}
             </View>
           ) : null}
 
@@ -179,9 +201,12 @@ export default function OrderDetail() {
                   <View style={{ flex: 1 }}><Button testID="owner-approve" label="Approve" loading={busy} onPress={() => act(`/owner/orders/${id}/approve`, undefined, "Order approved")} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} /></View>
                 </View>
               )
-            ) : !["DRAFT", "REJECTED", "CANCELLED", "DELIVERED"].includes(o.status) ? (
-              <LoadPlanner orderId={String(id)} resourceBase="/owner" onChanged={reload} />
-            ) : null
+            ) : (
+              <View style={{ gap: spacing.lg }}>
+                <OwnerProductionBilling orderId={String(id)} status={o.status} invoiceNumber={o.invoice_number} onChanged={reload} />
+                {!["DRAFT", "REJECTED", "CANCELLED", "DELIVERED"].includes(o.status) ? <LoadPlanner orderId={String(id)} resourceBase="/owner" onChanged={reload} /> : null}
+              </View>
+            )
           ) : (
             <View style={{ gap: spacing.sm }}>
               {["DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"].includes(o.status) ? (
@@ -220,4 +245,5 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   podPhoto: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: "#0002" },
+  podSign: { width: "100%", height: 90, borderRadius: radius.sm, borderWidth: 1, backgroundColor: "#fff" },
 });
