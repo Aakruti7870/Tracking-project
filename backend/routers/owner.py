@@ -5,6 +5,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from audit import write_audit
+from billing_service import create_invoice_for_order
 from database import driver_incidents, invoices, next_sequence, order_status_history, orders, payments, plants, production_batches, users, vehicles, driver_trips, challans
 from models import AssignDriverBody, AssignTmBody, ChallanBody, PaymentBody, ProductionBatchBody, RejectOrderBody
 from notifications import record_notification
@@ -21,10 +22,7 @@ from order_service import (
     owner_plant_ids,
     transition_order,
 )
-
-# Indicative rate card (INR per m³) + GST for auto-invoicing.
-RATE_CARD = {"M10": 3800, "M15": 4100, "M20": 4400, "M25": 4800, "M30": 5200, "M35": 5600, "M40": 6000}
-GST_RATE = 0.18
+from production_service import record_production_batch
 from roles import Role
 from security import current_user, require_role
 
@@ -53,6 +51,7 @@ def _serialize_order(doc: dict) -> dict:
         "site_address": doc.get("site_address"),
         "delivery_date": doc.get("delivery_date"),
         "delivery_time": doc.get("delivery_time"),
+        "delivery_mode": doc.get("delivery_mode", "DELIVERY"),
         "status": doc.get("status"),
         "payment_status": doc.get("payment_status"),
         "tm_number": doc.get("tm_number"),
@@ -85,9 +84,19 @@ async def owner_home(ctx: dict = Depends(owner_only)):
 
     ordered_qty = sum(o.get("quantity", 0) for o in all_orders)
     dispatched_qty = sum(o.get("quantity", 0) for o in dispatched)
-    delivered_qty = sum(o.get("quantity", 0) for o in delivered)
+    delivered_qty = sum(o.get("delivered_quantity") or o.get("quantity", 0) for o in delivered)
 
     my_plants = await plants.find({"_id": {"$in": [await _oid(i) for i in plant_ids]}}).to_list(100)
+    fleet_docs = await vehicles.find(base).to_list(1000)
+    active_mixers = len([v for v in fleet_docs if v.get("status") in ("loading", "dispatched")])
+    available_mixers = len([v for v in fleet_docs if v.get("status") == "available"])
+    invoice_docs = await invoices.find(base).to_list(2000)
+    todays_revenue = sum(
+        float(i.get("total") or 0)
+        for i in invoice_docs
+        if i.get("created_at") and i["created_at"].replace(tzinfo=timezone.utc) >= today
+    )
+    receivables = sum(float(i.get("total") or 0) - float(i.get("paid") or 0) for i in invoice_docs)
 
     recent_pending = sorted(pending, key=lambda o: o.get("created_at", today), reverse=True)[:5]
 
@@ -100,10 +109,10 @@ async def owner_home(ctx: dict = Depends(owner_only)):
             "ordered_qty": ordered_qty,
             "dispatched_qty": dispatched_qty,
             "delivered_qty": delivered_qty,
-            "active_mixers": 0,
-            "available_mixers": 0,
-            "todays_revenue": 0,
-            "receivables": 0,
+            "active_mixers": active_mixers,
+            "available_mixers": available_mixers,
+            "todays_revenue": round(todays_revenue, 2),
+            "receivables": round(receivables, 2),
         },
         "pending_orders": [_serialize_order(o) for o in recent_pending],
     }
@@ -250,7 +259,6 @@ async def assign_driver(order_id: str, body: AssignDriverBody, ctx: dict = Depen
         {"$set": {"driver_id": str(d["_id"]), "driver_name": d.get("name"),
                   "driver_mobile": d.get("phone")}},
     )
-    # Create/refresh the driver trip in ASSIGNED state.
     existing_trip = await driver_trips.find_one({"order_id": order_id})
     trip_doc = {
         "order_id": order_id,
@@ -293,7 +301,6 @@ async def generate_challan(order_id: str, body: ChallanBody, ctx: dict = Depends
     if existing:
         return {"challan": _serialize_challan(existing)}
 
-    plant = await plants.find_one({"_id": await _oid(order["plant_id"])})
     seq = await next_sequence("challan_number")
     challan_number = f"CH-{2000 + seq}"
     now = datetime.now(timezone.utc)
@@ -427,15 +434,14 @@ async def add_batch(order_id: str, body: ProductionBatchBody, ctx: dict = Depend
     order = await _guard_owns(ctx, order_id)
     if order.get("status") != IN_PRODUCTION:
         raise HTTPException(409, "Start production before adding a batch")
-    now = datetime.now(timezone.utc)
-    await production_batches.insert_one({
-        "order_id": order_id, "plant_id": order["plant_id"], "grade": order.get("grade"),
-        "quantity": body.quantity, "remarks": body.remarks, "batcher_id": ctx["user_id"], "created_at": now,
-    })
-    produced = await production_batches.aggregate([
-        {"$match": {"order_id": order_id}}, {"$group": {"_id": None, "total": {"$sum": "$quantity"}}}
-    ]).to_list(1)
-    return {"produced": produced[0]["total"] if produced else body.quantity, "required": order.get("quantity")}
+    return await record_production_batch(
+        order=order,
+        quantity=body.quantity,
+        actor_id=ctx["user_id"],
+        remarks=body.remarks,
+        batch_reference=body.batch_reference,
+        consume_materials=body.consume_materials,
+    )
 
 
 @router.post("/orders/{order_id}/production/complete")
@@ -443,9 +449,17 @@ async def complete_production(order_id: str, ctx: dict = Depends(owner_only)):
     order = await _guard_owns(ctx, order_id)
     if order.get("status") != IN_PRODUCTION:
         raise HTTPException(409, "Order is not in production")
+    rows = await production_batches.aggregate([
+        {"$match": {"order_id": order_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$quantity"}}},
+    ]).to_list(1)
+    produced = float(rows[0]["total"] if rows else 0)
+    required = float(order.get("quantity") or 0)
+    if required <= 0 or produced + 0.001 < required * 0.98:
+        raise HTTPException(409, f"Production is incomplete ({produced:g} / {required:g} m³)")
     await transition_order(order_id, PRODUCTION_COMPLETE, ctx["user_id"], note="Production complete",
                            notify_user_ids=[order["customer_id"]], event="production_complete")
-    return {"status": PRODUCTION_COMPLETE}
+    return {"status": PRODUCTION_COMPLETE, "produced": produced, "required": required}
 
 
 @router.get("/orders/{order_id}/production")
@@ -455,8 +469,15 @@ async def production_detail(order_id: str, ctx: dict = Depends(owner_only)):
     produced = sum(b.get("quantity", 0) for b in batches)
     return {
         "status": order.get("status"), "required": order.get("quantity"), "produced": produced,
-        "batches": [{"quantity": b.get("quantity"), "remarks": b.get("remarks"),
-                     "at": b.get("created_at").isoformat() if b.get("created_at") else None} for b in batches],
+        "batches": [{
+            "id": str(b["_id"]),
+            "quantity": b.get("quantity"),
+            "batch_reference": b.get("batch_reference"),
+            "mix_design_version": b.get("mix_design_version"),
+            "material_consumption": b.get("material_consumption", []),
+            "remarks": b.get("remarks"),
+            "at": b.get("created_at").isoformat() if b.get("created_at") else None,
+        } for b in batches],
     }
 
 
@@ -471,6 +492,7 @@ def _serialize_invoice(doc: dict) -> dict:
         "grade": doc.get("grade"),
         "quantity": doc.get("quantity"),
         "rate": doc.get("rate"),
+        "gst_rate": doc.get("gst_rate"),
         "subtotal": doc.get("subtotal"),
         "gst": doc.get("gst"),
         "total": doc.get("total"),
@@ -486,25 +508,11 @@ async def create_invoice(order_id: str, ctx: dict = Depends(owner_only)):
     order = await _guard_owns(ctx, order_id)
     if order.get("status") != "DELIVERED":
         raise HTTPException(409, "Invoice can be raised only after delivery")
-    existing = await invoices.find_one({"order_id": order_id})
-    if existing:
-        return {"invoice": _serialize_invoice(existing)}
-    qty = order.get("quantity", 0)
-    rate = RATE_CARD.get(order.get("grade"), 4500)
-    subtotal = round(qty * rate, 2)
-    gst = round(subtotal * GST_RATE, 2)
-    total = round(subtotal + gst, 2)
-    seq = await next_sequence("invoice_number")
-    now = datetime.now(timezone.utc)
-    doc = {
-        "invoice_number": f"INV-{5000 + seq}", "order_id": order_id, "order_number": order.get("order_number"),
-        "plant_id": order["plant_id"], "customer_id": order.get("customer_id"), "customer_name": order.get("customer_name"),
-        "grade": order.get("grade"), "quantity": qty, "rate": rate, "subtotal": subtotal, "gst": gst, "total": total,
-        "paid": 0, "status": "UNPAID", "created_at": now,
-    }
-    res = await invoices.insert_one(doc)
-    doc["_id"] = res.inserted_id
-    await orders.update_one({"_id": order["_id"]}, {"$set": {"invoice_number": doc["invoice_number"]}})
+    doc = await create_invoice_for_order(order)
+    await orders.update_one(
+        {"_id": order["_id"]},
+        {"$set": {"invoice_number": doc["invoice_number"]}},
+    )
     return {"invoice": _serialize_invoice(doc)}
 
 
