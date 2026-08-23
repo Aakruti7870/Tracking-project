@@ -16,7 +16,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Plant = { id: string; name: string; city?: string; grades?: string[] };
 type FieldDef = { key: string; label: string; placeholder?: string; numeric?: boolean; required?: boolean };
-type Row = { id: string; title: string; subtitle?: string; meta?: string };
+type Row = { id: string; title: string; subtitle?: string; meta?: string; raw?: any };
 
 type ModuleDef = {
   title: string;
@@ -173,12 +173,31 @@ const MODULES: Record<string, ModuleDef> = {
       { key: "notes", label: "Notes" },
     ],
   },
+  fleet: {
+    title: "Fleet",
+    subtitle: "Transit mixers and current availability",
+    addLabel: "Add Transit Mixer",
+    fields: [
+      { key: "tm_number", label: "TM number", required: true },
+      { key: "capacity_m3", label: "Capacity m³", numeric: true, required: true },
+    ],
+  },
+  inventory: {
+    title: "Inventory",
+    subtitle: "Material stock and reorder status",
+    addLabel: "Add Material",
+    fields: [
+      { key: "code", label: "Material code", placeholder: "CEMENT" },
+      { key: "name", label: "Material name", required: true },
+      { key: "unit", label: "Unit", placeholder: "kg / MT / L", required: true },
+      { key: "stock", label: "Opening stock", numeric: true },
+      { key: "reorder", label: "Reorder level", numeric: true },
+    ],
+  },
   attendance: { title: "Attendance", subtitle: "Daily staff attendance register" },
   staff: { title: "Staff", subtitle: "Plant-scoped staff and drivers" },
   customers: { title: "Customers", subtitle: "Customers served by this plant" },
   reports: { title: "Plant Report", subtitle: "Live operational and commercial summary" },
-  fleet: { title: "Fleet", subtitle: "Transit mixers and current availability" },
-  inventory: { title: "Inventory", subtitle: "Material stock and reorder status" },
 };
 
 const numericFields = new Set([
@@ -186,7 +205,7 @@ const numericFields = new Set([
   "cement_kg", "fly_ash_kg", "c_sand_kg", "sand_kg", "aggregate_10mm_kg", "aggregate_20mm_kg",
   "admixture_kg", "water_litre", "target_slump_mm", "quantity_m3", "transport_amount", "pumping_amount",
   "amount", "litres", "rate_per_litre", "odometer_km", "quantity", "rate", "gst_amount", "freight_amount",
-  "basic_amount", "allowances", "overtime_amount", "deductions", "paid_days",
+  "basic_amount", "allowances", "overtime_amount", "deductions", "paid_days", "capacity_m3", "stock", "reorder",
 ]);
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -204,7 +223,7 @@ function dataPath(kind: string, plantId: string) {
   if (kind === "payroll") return `/ops/plants/${plantId}/payroll/${monthNow()}`;
   if (kind === "attendance") return `/ops/plants/${plantId}/attendance/${today()}`;
   if (kind === "staff") return `/master/plants/${plantId}/people`;
-  if (kind === "customers") return `/master/plants/${plantId}/customers`;
+  if (kind === "customers") return `/business/plants/${plantId}/customers`;
   if (kind === "reports") return `/master/plants/${plantId}/summary`;
   if (kind === "fleet" || kind === "inventory") return `/master/plants/${plantId}/resources`;
   return `/master/plants/${plantId}/summary`;
@@ -226,20 +245,23 @@ function unpackRows(kind: string, data: any): Row[] {
     : kind === "inventory" ? data?.materials
     : [];
   return (arr || []).map((d: any, idx: number) => {
-    if (kind === "rates") return { id: d.id, title: `${d.grade} · ₹${d.rate_per_m3}/m³`, subtitle: `GST ${d.gst_rate}% · ${d.active ? "Active" : "Inactive"}`, meta: `From ${d.effective_from}` };
-    if (kind === "mixes") return { id: d.id, title: `${d.grade} · v${d.version}`, subtitle: `Cement ${d.cement_kg}kg · Fly ash ${d.fly_ash_kg}kg`, meta: `10mm ${d.aggregate_10mm_kg} · 20mm ${d.aggregate_20mm_kg} · Water ${d.water_litre}L` };
-    if (kind === "suppliers") return { id: d.id, title: d.name, subtitle: d.gstin || d.phone || "Supplier", meta: d.email || d.address };
-    if (kind === "quotations") return { id: d.id, title: `${d.quotation_number} · ${d.customer_name}`, subtitle: `${d.grade} · ${d.quantity_m3} m³ · ₹${Math.round(d.total || 0)}`, meta: `${d.site_name} · valid ${d.valid_until}` };
-    if (kind === "expenses") return { id: d.id, title: `${d.category} · ₹${d.amount}`, subtitle: d.vendor || d.payment_method, meta: `${d.expense_date}${d.reference ? ` · ${d.reference}` : ""}` };
-    if (kind === "diesel") return { id: d.id, title: `${d.transaction_type} · ${d.litres} L`, subtitle: d.vehicle_id ? `Vehicle ${d.vehicle_id}` : (d.reference || "Diesel stock"), meta: d.created_at };
-    if (kind === "purchases") return { id: d.id, title: `${d.receipt_number} · ${d.supplier_name || "Supplier"}`, subtitle: `₹${Math.round(d.total || 0)} · ${d.status}`, meta: d.receipt_date };
-    if (kind === "payroll") return { id: d.id, title: d.user_name || d.user_id, subtitle: `${d.month} · ₹${Math.round(d.net_amount || 0)}`, meta: d.status };
-    if (kind === "attendance") return { id: d.id || `${idx}`, title: d.user_name || "Staff", subtitle: d.check_in ? `In ${String(d.check_in).slice(11, 16)}` : "Not checked in", meta: d.check_out ? `Out ${String(d.check_out).slice(11, 16)}` : "Open" };
-    if (kind === "staff") return { id: d.id, title: d.name, subtitle: d.role_label || d.role, meta: d.phone || d.email || d.status };
-    if (kind === "customers") return { id: d.id, title: d.name, subtitle: d.phone || d.email || "Customer", meta: `${d.orders || 0} orders · ${d.delivered_m3 || 0} m³ delivered` };
-    if (kind === "fleet") return { id: d.id, title: d.tm_number, subtitle: `${d.capacity_m3} m³ capacity`, meta: d.status };
-    if (kind === "inventory") return { id: d.id, title: d.name, subtitle: `${d.stock} ${d.unit}`, meta: `Reorder ≤ ${d.reorder} ${d.unit}${d.code ? ` · ${d.code}` : ""}` };
-    return { id: d.id || `${idx}`, title: d.name || "Record", subtitle: d.status };
+    let row: Row;
+    if (kind === "rates") row = { id: d.id, title: `${d.grade} · ₹${d.rate_per_m3}/m³`, subtitle: `GST ${d.gst_rate}% · ${d.active ? "Active" : "Inactive"}`, meta: `From ${d.effective_from}` };
+    else if (kind === "mixes") row = { id: d.id, title: `${d.grade} · v${d.version}`, subtitle: `Cement ${d.cement_kg}kg · Fly ash ${d.fly_ash_kg}kg`, meta: `10mm ${d.aggregate_10mm_kg} · 20mm ${d.aggregate_20mm_kg} · Water ${d.water_litre}L` };
+    else if (kind === "suppliers") row = { id: d.id, title: d.name, subtitle: d.gstin || d.phone || "Supplier", meta: d.email || d.address };
+    else if (kind === "quotations") row = { id: d.id, title: `${d.quotation_number} · ${d.customer_name}`, subtitle: `${d.grade} · ${d.quantity_m3} m³ · ₹${Math.round(d.total || 0)}`, meta: `${d.site_name} · valid ${d.valid_until}` };
+    else if (kind === "expenses") row = { id: d.id, title: `${d.category} · ₹${d.amount}`, subtitle: d.vendor || d.payment_method, meta: `${d.expense_date}${d.reference ? ` · ${d.reference}` : ""}` };
+    else if (kind === "diesel") row = { id: d.id, title: `${d.transaction_type} · ${d.litres} L`, subtitle: d.vehicle_id ? `Vehicle ${d.vehicle_id}` : (d.reference || "Diesel stock"), meta: d.created_at };
+    else if (kind === "purchases") row = { id: d.id, title: `${d.receipt_number} · ${d.supplier_name || "Supplier"}`, subtitle: `₹${Math.round(d.total || 0)} · ${d.status}`, meta: d.receipt_date };
+    else if (kind === "payroll") row = { id: d.id, title: d.user_name || d.user_id, subtitle: `${d.month} · ₹${Math.round(d.net_amount || 0)}`, meta: d.status };
+    else if (kind === "attendance") row = { id: d.id || `${idx}`, title: d.user_name || "Staff", subtitle: d.check_in ? `In ${String(d.check_in).slice(11, 16)}` : "Not checked in", meta: d.check_out ? `Out ${String(d.check_out).slice(11, 16)}` : "Open" };
+    else if (kind === "staff") row = { id: d.id, title: d.name, subtitle: d.role_label || d.role, meta: `${d.phone || d.email || ""}${d.status ? ` · ${d.status}` : ""}` };
+    else if (kind === "customers") row = { id: d.id, title: d.name, subtitle: d.phone || d.email || "Customer", meta: `${d.orders || 0} orders · ${d.delivered_m3 || 0} m³ delivered` };
+    else if (kind === "fleet") row = { id: d.id, title: d.tm_number, subtitle: `${d.capacity_m3} m³ capacity`, meta: d.status };
+    else if (kind === "inventory") row = { id: d.id, title: d.name, subtitle: `${d.stock} ${d.unit}`, meta: `Reorder ≤ ${d.reorder} ${d.unit}${d.code ? ` · ${d.code}` : ""}` };
+    else row = { id: d.id || `${idx}`, title: d.name || "Record", subtitle: d.status };
+    row.raw = d;
+    return row;
   });
 }
 
@@ -260,6 +282,10 @@ export function BusinessModule({ kind }: { kind: string }) {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
+  const [adjustRow, setAdjustRow] = useState<Row | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustSign, setAdjustSign] = useState<1 | -1>(1);
 
   const loadPlants = useCallback(async () => {
     if (!token) return;
@@ -273,12 +299,14 @@ export function BusinessModule({ kind }: { kind: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [primary, refs] = await Promise.all([
+      const tasks: Promise<any>[] = [
         apiGet<any>(dataPath(kind, plantId), token),
         apiGet<any>(`/master/plants/${plantId}/resources`, token),
-      ]);
-      setData(primary);
-      setResources(refs);
+      ];
+      if (kind === "purchases" || kind === "diesel") tasks.push(apiGet<any>(`/master/plants/${plantId}/suppliers`, token));
+      const results = await Promise.all(tasks);
+      setData(results[0]);
+      setResources({ ...(results[1] || {}), suppliers: results[2]?.suppliers || [] });
     } catch (e: any) {
       setError(e.detail || "Could not load module");
     } finally {
@@ -306,7 +334,7 @@ export function BusinessModule({ kind }: { kind: string }) {
     if (kind === "diesel") initial.transaction_type = "IN";
     if (kind === "purchases") {
       initial.receipt_date = today();
-      initial.supplier_id = data?.suppliers?.[0]?.id || "";
+      initial.supplier_id = resources?.suppliers?.[0]?.id || "";
       initial.material_id = resources?.materials?.[0]?.id || "";
     }
     if (kind === "payroll") {
@@ -350,7 +378,7 @@ export function BusinessModule({ kind }: { kind: string }) {
       } else if (kind === "diesel") {
         await apiPost(`/ops/plants/${plantId}/diesel`, token, payload);
       } else if (kind === "purchases") {
-        const body = {
+        await apiPost(`/ops/plants/${plantId}/purchases`, token, {
           supplier_id: payload.supplier_id,
           receipt_number: payload.receipt_number,
           receipt_date: payload.receipt_date,
@@ -358,11 +386,15 @@ export function BusinessModule({ kind }: { kind: string }) {
           gst_amount: payload.gst_amount || 0,
           freight_amount: payload.freight_amount || 0,
           notes: payload.notes || null,
-        };
-        await apiPost(`/ops/plants/${plantId}/purchases`, token, body);
+        });
       } else if (kind === "payroll") {
         payload.allowances ??= 0; payload.overtime_amount ??= 0; payload.deductions ??= 0; payload.paid_days ??= 0; payload.status ||= "DRAFT";
         await apiPut(`/ops/plants/${plantId}/payroll`, token, payload);
+      } else if (kind === "fleet") {
+        await apiPost(`/business/plants/${plantId}/vehicles`, token, payload);
+      } else if (kind === "inventory") {
+        payload.stock ??= 0; payload.reorder ??= 0;
+        await apiPost(`/business/plants/${plantId}/materials`, token, payload);
       }
       toast("Saved", "success");
       setModal(false);
@@ -382,6 +414,49 @@ export function BusinessModule({ kind }: { kind: string }) {
       toast(action === "checkin" ? "Checked in" : "Checked out", "success");
       await load();
     } catch (e: any) { toast(e.detail || "Attendance action failed", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const toggleFleet = async (row: Row) => {
+    if (!token || !plantId) return;
+    const current = row.raw?.status;
+    const next = current === "maintenance" ? "available" : "maintenance";
+    setSaving(true);
+    try {
+      await apiPost(`/business/plants/${plantId}/vehicles/${row.id}/status`, token, { status: next });
+      toast(`Mixer set ${next}`, "success");
+      await load();
+    } catch (e: any) { toast(e.detail || "Vehicle update failed", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const toggleStaff = async (row: Row) => {
+    if (!token || !plantId) return;
+    const active = (row.raw?.status || "active") === "active";
+    setSaving(true);
+    try {
+      await apiPost(`/business/plants/${plantId}/people/${row.id}/${active ? "suspend" : "activate"}`, token);
+      toast(active ? "Staff suspended" : "Staff activated", "success");
+      await load();
+    } catch (e: any) { toast(e.detail || "Staff update failed", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const openAdjustment = (row: Row, sign: 1 | -1) => {
+    setAdjustRow(row); setAdjustSign(sign); setAdjustAmount(""); setAdjustNote("");
+  };
+
+  const submitAdjustment = async () => {
+    if (!token || !plantId || !adjustRow) return;
+    const amount = Number(adjustAmount);
+    if (!amount || amount <= 0) return toast("Enter a valid quantity", "error");
+    setSaving(true);
+    try {
+      await apiPost(`/business/plants/${plantId}/materials/${adjustRow.id}/adjust`, token, { delta: amount * adjustSign, note: adjustNote || null });
+      toast("Stock updated", "success");
+      setAdjustRow(null);
+      await load();
+    } catch (e: any) { toast(e.detail || "Stock update failed", "error"); }
     finally { setSaving(false); }
   };
 
@@ -413,6 +488,7 @@ export function BusinessModule({ kind }: { kind: string }) {
           </ScrollView>
         ) : null}
 
+        {!plantId && !loading ? <Card><AppText variant="bodyMuted">No plant is assigned to this account.</AppText></Card> : null}
         {error ? <Card><AppText style={{ color: colors.error }}>{error}</AppText><Button label="Retry" onPress={load} /></Card> : null}
 
         {loading ? (
@@ -430,7 +506,7 @@ export function BusinessModule({ kind }: { kind: string }) {
         ) : kind === "profile" ? (
           <Card style={{ gap: spacing.sm }}>
             {profile ? Object.entries(profile).filter(([k]) => !["id", "plant_id", "created_at", "updated_at", "updated_by"].includes(k)).map(([k, v]) => (
-              <View key={k} style={{ gap: 2 }}><AppText variant="caption">{k.replace(/_/g, " ").toUpperCase()}</AppText><AppText>{String(v || "—")}</AppText></View>
+              <View key={k} style={{ gap: 2 }}><AppText variant="caption">{k.replace(/_/g, " ").toUpperCase()}</AppText><AppText>{String(v ?? "—")}</AppText></View>
             )) : <AppText variant="bodyMuted">Plant business profile is not configured yet.</AppText>}
           </Card>
         ) : (
@@ -442,10 +518,24 @@ export function BusinessModule({ kind }: { kind: string }) {
               </View>
             ) : null}
             {rows.length ? rows.map((r) => (
-              <Card key={r.id} style={{ gap: 4 }}>
-                <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }}>{r.title}</AppText>
-                {r.subtitle ? <AppText variant="caption">{r.subtitle}</AppText> : null}
-                {r.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }}>{r.meta}</AppText> : null}
+              <Card key={r.id} style={{ gap: spacing.sm }}>
+                <View style={{ gap: 4 }}>
+                  <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }}>{r.title}</AppText>
+                  {r.subtitle ? <AppText variant="caption">{r.subtitle}</AppText> : null}
+                  {r.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }}>{r.meta}</AppText> : null}
+                </View>
+                {kind === "fleet" && ["available", "maintenance"].includes(r.raw?.status) ? (
+                  <Button label={r.raw?.status === "maintenance" ? "Set Available" : "Set Maintenance"} variant="outline" onPress={() => toggleFleet(r)} />
+                ) : null}
+                {kind === "inventory" ? (
+                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}><Button label="Stock In" onPress={() => openAdjustment(r, 1)} /></View>
+                    <View style={{ flex: 1 }}><Button label="Stock Out" variant="outline" onPress={() => openAdjustment(r, -1)} /></View>
+                  </View>
+                ) : null}
+                {kind === "staff" && !["plant_owner", "central_admin", "customer"].includes(r.raw?.role) ? (
+                  <Button label={(r.raw?.status || "active") === "active" ? "Suspend" : "Activate"} variant="outline" onPress={() => toggleStaff(r)} />
+                ) : null}
               </Card>
             )) : <Card><AppText variant="bodyMuted">No records yet.</AppText></Card>}
           </>
@@ -456,12 +546,12 @@ export function BusinessModule({ kind }: { kind: string }) {
             <View style={{ flex: 1 }}><Button label="Check In" onPress={() => attendanceAction("checkin")} loading={saving} /></View>
             <View style={{ flex: 1 }}><Button label="Check Out" variant="outline" onPress={() => attendanceAction("checkout")} /></View>
           </View>
-        ) : def.addLabel ? <Button label={def.addLabel} onPress={openForm} /> : null}
+        ) : def.addLabel && plantId ? <Button label={def.addLabel} onPress={openForm} /> : null}
 
         {(kind === "purchases" || kind === "payroll" || kind === "diesel") && resources ? (
           <Card style={{ gap: spacing.sm }}>
             <AppText variant="label">Reference data</AppText>
-            {kind === "purchases" ? <AppText variant="caption">Suppliers: {(data?.suppliers || []).map((x: any) => `${x.name} (${x.id})`).join(" · ") || "Create a supplier first"}</AppText> : null}
+            {kind === "purchases" ? <AppText variant="caption">Suppliers: {(resources.suppliers || []).map((x: any) => `${x.name} (${x.id})`).join(" · ") || "Create a supplier first"}</AppText> : null}
             {kind === "purchases" ? <AppText variant="caption">Materials: {(resources.materials || []).map((x: any) => `${x.name} (${x.id})`).join(" · ") || "No materials"}</AppText> : null}
             {kind === "payroll" ? <AppText variant="caption">Staff: {(resources.people || []).map((x: any) => `${x.name} (${x.id})`).join(" · ") || "No plant staff"}</AppText> : null}
             {kind === "diesel" ? <AppText variant="caption">Mixers: {(resources.vehicles || []).map((x: any) => `${x.tm_number} (${x.id})`).join(" · ") || "No mixers"}</AppText> : null}
@@ -493,6 +583,19 @@ export function BusinessModule({ kind }: { kind: string }) {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!adjustRow} transparent animationType="fade" onRequestClose={() => setAdjustRow(null)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.adjustSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <AppText variant="heading">{adjustSign > 0 ? "Stock In" : "Stock Out"}</AppText>
+            <AppText variant="caption">{adjustRow?.title}</AppText>
+            <Input label="Quantity" value={adjustAmount} keyboardType="numeric" onChangeText={(v) => setAdjustAmount(v.replace(/[^0-9.]/g, ""))} />
+            <Input label="Reason / note" value={adjustNote} onChangeText={setAdjustNote} />
+            <Button label="Confirm" onPress={submitAdjustment} loading={saving} />
+            <Button label="Cancel" variant="outline" onPress={() => setAdjustRow(null)} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -504,4 +607,5 @@ const styles = StyleSheet.create({
   stat: { width: "48%", gap: 4 },
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: { maxHeight: "88%", borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderWidth: 1, padding: spacing.lg },
+  adjustSheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
 });
