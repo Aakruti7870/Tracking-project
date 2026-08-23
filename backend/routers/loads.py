@@ -114,11 +114,8 @@ async def _validate_assignment(order: dict, load: dict, vehicle_id: str, driver_
     )
     if not driver:
         raise HTTPException(422, "Driver not found for this plant")
-    active_trip = await driver_trips.find_one(
-        {"driver_id": driver_id, "status": {"$in": list(ACTIVE_TRIP_STATUSES)}, "load_id": {"$ne": str(load["_id"])}}
-    )
-    if active_trip:
-        raise HTTPException(409, "Driver already has another active trip")
+    # A driver may be planned for a later load while another trip is active.
+    # Active-trip exclusivity is enforced when a load is actually prepared.
     return vehicle, driver
 
 
