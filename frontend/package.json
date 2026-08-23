@@ -11,6 +11,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "check:auth-routing": "node ./scripts/check-role-routing.mjs",
     "doctor": "expo-doctor",
     "build:preview": "expo export --platform web --output-dir dist"
   },
