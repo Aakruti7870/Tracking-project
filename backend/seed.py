@@ -1,14 +1,24 @@
-"""Idempotent development seed data for TrackMyRMC.
+"""Idempotent development seed data for the Tracking-project application.
 
-Deterministic demo accounts (Customer, Driver, Plant Owner, Admin) + a few
-plants and orders so the Customer flow works end-to-end. Never run in prod.
+This module is development/test only. It seeds complete master data so preview
+flows exercise the same persisted rate-card, mix-design and inventory paths used
+by production instead of relying on hard-coded fallbacks.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from bson import ObjectId
 
-from database import kyc_profiles, orders, plants, users
+from database import (
+    kyc_profiles,
+    materials,
+    mix_designs,
+    orders,
+    plants,
+    rate_cards,
+    users,
+    vehicles,
+)
 from models import User
 from roles import Role
 from security import identifier_key
@@ -31,20 +41,26 @@ DEMO_ACCOUNTS = [
     {"name": "Central Admin", "email": "central@trackmyrmc.test", "role": Role.CENTRAL_ADMIN.value},
 ]
 
-# Plant-scoped staff roles get linked to the first demo plant.
 PLANT_STAFF_ROLES = {
-    Role.ADMIN.value, Role.DISPATCHER.value, Role.OPERATOR.value,
-    Role.SUPERVISOR.value, Role.ACCOUNTANT.value, Role.QUALITY_ENGINEER.value,
-    Role.FLEET_MANAGER.value, Role.STORE_MANAGER.value,
+    Role.ADMIN.value,
+    Role.DISPATCHER.value,
+    Role.OPERATOR.value,
+    Role.SUPERVISOR.value,
+    Role.ACCOUNTANT.value,
+    Role.QUALITY_ENGINEER.value,
+    Role.FLEET_MANAGER.value,
+    Role.STORE_MANAGER.value,
 }
 
 DEMO_MATERIALS = [
-    {"name": "Cement (OPC 53)", "unit": "MT", "stock": 120, "reorder": 50},
-    {"name": "River Sand", "unit": "MT", "stock": 80, "reorder": 40},
-    {"name": "20mm Aggregate", "unit": "MT", "stock": 65, "reorder": 40},
-    {"name": "10mm Aggregate", "unit": "MT", "stock": 22, "reorder": 40},
-    {"name": "Admixture (SP)", "unit": "L", "stock": 450, "reorder": 200},
-    {"name": "Fly Ash", "unit": "MT", "stock": 30, "reorder": 35},
+    {"code": "CEMENT", "name": "Cement (OPC 53)", "unit": "MT", "stock": 120, "reorder": 50},
+    {"code": "FLY_ASH", "name": "Fly Ash", "unit": "MT", "stock": 45, "reorder": 35},
+    {"code": "C_SAND", "name": "C-Sand", "unit": "MT", "stock": 90, "reorder": 40},
+    {"code": "SAND", "name": "River Sand", "unit": "MT", "stock": 80, "reorder": 40},
+    {"code": "AGGREGATE_20MM", "name": "20mm Aggregate", "unit": "MT", "stock": 100, "reorder": 40},
+    {"code": "AGGREGATE_10MM", "name": "10mm Aggregate", "unit": "MT", "stock": 80, "reorder": 40},
+    {"code": "ADMIXTURE", "name": "Admixture (SP)", "unit": "kg", "stock": 750, "reorder": 200},
+    {"code": "WATER", "name": "Water", "unit": "KL", "stock": 100, "reorder": 25},
 ]
 
 DEMO_PLANTS = [
@@ -53,7 +69,7 @@ DEMO_PLANTS = [
         "city": "Hyderabad", "district": "Rangareddy",
         "address": "Plot 42, Kondapur Industrial Area, Hyderabad",
         "lat": 17.4615, "lng": 78.3648,
-        "grades": ["M10", "M15", "M20", "M25", "M30"],
+        "grades": ["M10", "M15", "M20", "M25", "M30", "M35", "M40"],
         "contact_phone": "+914012345678", "service_area_km": 30,
         "status": "active", "verified": True,
     },
@@ -77,9 +93,32 @@ DEMO_PLANTS = [
     },
 ]
 
+# Preview-only commercial data. Production values must be configured through
+# the rate-card/master-data APIs and are never copied from this seed.
+DEMO_RATES = {
+    "M10": 4200,
+    "M15": 4600,
+    "M20": 4900,
+    "M25": 5100,
+    "M30": 5200,
+    "M35": 5400,
+    "M40": 5900,
+}
+
+# Preview-only mix designs. These exist to exercise automatic material
+# consumption in tests; production plants must enter their approved designs.
+DEMO_MIX_DESIGNS = {
+    "M10": {"cement_kg": 165, "fly_ash_kg": 85, "c_sand_kg": 720, "aggregate_10mm_kg": 430, "aggregate_20mm_kg": 720, "admixture_kg": 2.5, "water_litre": 165},
+    "M15": {"cement_kg": 185, "fly_ash_kg": 100, "c_sand_kg": 700, "aggregate_10mm_kg": 430, "aggregate_20mm_kg": 710, "admixture_kg": 2.8, "water_litre": 165},
+    "M20": {"cement_kg": 240, "fly_ash_kg": 110, "c_sand_kg": 680, "aggregate_10mm_kg": 420, "aggregate_20mm_kg": 700, "admixture_kg": 3.5, "water_litre": 165},
+    "M25": {"cement_kg": 270, "fly_ash_kg": 110, "c_sand_kg": 660, "aggregate_10mm_kg": 420, "aggregate_20mm_kg": 690, "admixture_kg": 3.8, "water_litre": 165},
+    "M30": {"cement_kg": 310, "fly_ash_kg": 110, "c_sand_kg": 650, "aggregate_10mm_kg": 410, "aggregate_20mm_kg": 680, "admixture_kg": 4.2, "water_litre": 165},
+    "M35": {"cement_kg": 360, "fly_ash_kg": 100, "c_sand_kg": 640, "aggregate_10mm_kg": 400, "aggregate_20mm_kg": 670, "admixture_kg": 4.6, "water_litre": 165},
+    "M40": {"cement_kg": 390, "fly_ash_kg": 100, "c_sand_kg": 630, "aggregate_10mm_kg": 400, "aggregate_20mm_kg": 660, "admixture_kg": 5.0, "water_litre": 165},
+}
+
 
 async def run_seed() -> None:
-    # Users
     user_ids: dict[str, str] = {}
     for acc in DEMO_ACCOUNTS:
         value = acc.get("email") or acc.get("phone")
@@ -89,12 +128,8 @@ async def run_seed() -> None:
             user_ids[acc["role"]] = str(existing["_id"])
             continue
         u = User(
-            name=acc["name"],
-            email=acc.get("email"),
-            phone=acc.get("phone"),
-            identifier_keys=[key],
-            roles=[acc["role"]],
-            primary_role=acc["role"],
+            name=acc["name"], email=acc.get("email"), phone=acc.get("phone"),
+            identifier_keys=[key], roles=[acc["role"]], primary_role=acc["role"],
         )
         res = await users.insert_one(u.to_mongo())
         user_ids[acc["role"]] = str(res.inserted_id)
@@ -104,36 +139,56 @@ async def run_seed() -> None:
     customer_id = user_ids.get(Role.CUSTOMER.value)
     driver_id = user_ids.get(Role.DRIVER.value)
 
-    # Plants
     plant_ids: list[str] = []
     for p in DEMO_PLANTS:
         existing = await plants.find_one({"name": p["name"]})
         if existing:
+            await plants.update_one({"_id": existing["_id"]}, {"$set": {"grades": p["grades"]}})
             plant_ids.append(str(existing["_id"]))
             continue
         doc = {**p, "owner_id": owner_id}
         res = await plants.insert_one(doc)
         plant_ids.append(str(res.inserted_id))
 
-    # Link the demo driver to the first plant so it can be assigned.
     if driver_id and plant_ids:
         await users.update_one({"_id": ObjectId(driver_id)}, {"$set": {"plant_id": plant_ids[0]}})
-
-    # Link plant-scoped staff (admin, dispatcher, operator, etc.) to the first plant.
     if plant_ids:
         for role, uid in user_ids.items():
             if role in PLANT_STAFF_ROLES:
                 await users.update_one({"_id": ObjectId(uid)}, {"$set": {"plant_id": plant_ids[0]}})
 
-    # Materials (store inventory) for the first plant.
-    from database import materials
+    # Upsert coded inventory so existing preview DBs are upgraded idempotently.
+    if plant_ids:
+        for material in DEMO_MATERIALS:
+            existing = await materials.find_one({"plant_id": plant_ids[0], "name": material["name"]})
+            if existing:
+                await materials.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"code": material["code"], "unit": material["unit"]},
+                     "$setOnInsert": {"stock": material["stock"], "reorder": material["reorder"]}},
+                )
+            else:
+                await materials.insert_one({**material, "plant_id": plant_ids[0]})
+        logger.info("ensured coded preview inventory")
 
-    if plant_ids and await materials.count_documents({"plant_id": plant_ids[0]}) == 0:
-        await materials.insert_many([{**m, "plant_id": plant_ids[0]} for m in DEMO_MATERIALS])
-        logger.info("seeded %d materials", len(DEMO_MATERIALS))
-
-    # Vehicles (transit mixers) for the first plant.
-    from database import vehicles
+        # Ensure each offered grade has a persistent current rate and mix design.
+        today = date.today().isoformat()
+        for grade, rate in DEMO_RATES.items():
+            await rate_cards.update_one(
+                {"plant_id": plant_ids[0], "grade": grade, "effective_from": today},
+                {"$setOnInsert": {"rate_per_m3": rate, "gst_rate": 18.0, "active": True,
+                                  "transport_rate_per_km": 0, "pumping_rate_per_m3": 0,
+                                  "effective_to": None, "created_at": datetime.now(timezone.utc),
+                                  "created_by": "development-seed"}},
+                upsert=True,
+            )
+        for grade, values in DEMO_MIX_DESIGNS.items():
+            await mix_designs.update_one(
+                {"plant_id": plant_ids[0], "grade": grade, "version": 1},
+                {"$setOnInsert": {**values, "active": True, "notes": "Development preview design",
+                                  "created_at": datetime.now(timezone.utc), "created_by": "development-seed"}},
+                upsert=True,
+            )
 
     if plant_ids and await vehicles.count_documents({"plant_id": plant_ids[0]}) == 0:
         demo_vehicles = [
@@ -142,62 +197,44 @@ async def run_seed() -> None:
             {"plant_id": plant_ids[0], "tm_number": "TS09UB9012", "capacity_m3": 6, "status": "maintenance"},
         ]
         await vehicles.insert_many(demo_vehicles)
-        logger.info("seeded %d vehicles", len(demo_vehicles))
 
-    # Customer KYC -> VERIFIED (so demo customer can place orders)
     if customer_id:
         await kyc_profiles.update_one(
             {"user_id": customer_id, "purpose": "CUSTOMER"},
-            {"$setOnInsert": {"status": "VERIFIED"}},
-            upsert=True,
+            {"$setOnInsert": {"status": "VERIFIED"}}, upsert=True,
         )
-
-    # Seed a couple of PENDING KYC requests so the Authority has items to review.
     if driver_id:
         await kyc_profiles.update_one(
             {"user_id": driver_id, "purpose": "DRIVER"},
-            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}},
-            upsert=True,
+            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}}, upsert=True,
         )
     if owner_id:
         await kyc_profiles.update_one(
             {"user_id": owner_id, "purpose": "PLANT"},
-            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}},
-            upsert=True,
+            {"$setOnInsert": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}}, upsert=True,
         )
 
-    # Demo orders for the customer
     if customer_id and plant_ids and await orders.count_documents({"customer_id": customer_id}) == 0:
         from database import next_sequence
-
         demo_orders = [
-            {
-                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
-                "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
-                "grade": "M25", "quantity": 12.0,
-                "site_name": "Skyline Towers", "site_address": "Financial District, Hyderabad",
-                "lat": 17.4213, "lng": 78.3421,
-                "delivery_date": "2026-06-20", "delivery_time": "10:00",
-                "status": "DISPATCHED", "payment_status": "PARTIAL",
-            },
-            {
-                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
-                "plant_id": plant_ids[1], "plant_name": DEMO_PLANTS[1]["name"],
-                "grade": "M30", "quantity": 8.0,
-                "site_name": "Green Villa", "site_address": "Kokapet, Hyderabad",
-                "lat": 17.4102, "lng": 78.3301,
-                "delivery_date": "2026-06-10", "delivery_time": "14:00",
-                "status": "DELIVERED", "payment_status": "PAID",
-            },
-            {
-                "customer_id": customer_id, "customer_name": "Rajesh Kumar",
-                "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
-                "grade": "M20", "quantity": 10.0,
-                "site_name": "Lake View Apartments", "site_address": "Narsingi, Hyderabad",
-                "lat": 17.3915, "lng": 78.3475,
-                "delivery_date": "2026-06-30", "delivery_time": "08:00",
-                "status": "PENDING", "payment_status": "UNPAID",
-            },
+            {"customer_id": customer_id, "customer_name": "Rajesh Kumar",
+             "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
+             "grade": "M25", "quantity": 12.0, "delivery_mode": "DELIVERY",
+             "site_name": "Skyline Towers", "site_address": "Financial District, Hyderabad",
+             "lat": 17.4213, "lng": 78.3421, "delivery_date": "2026-06-20", "delivery_time": "10:00",
+             "status": "DISPATCHED", "payment_status": "PARTIAL"},
+            {"customer_id": customer_id, "customer_name": "Rajesh Kumar",
+             "plant_id": plant_ids[1], "plant_name": DEMO_PLANTS[1]["name"],
+             "grade": "M30", "quantity": 8.0, "delivery_mode": "DELIVERY",
+             "site_name": "Green Villa", "site_address": "Kokapet, Hyderabad",
+             "lat": 17.4102, "lng": 78.3301, "delivery_date": "2026-06-10", "delivery_time": "14:00",
+             "status": "DELIVERED", "payment_status": "PAID"},
+            {"customer_id": customer_id, "customer_name": "Rajesh Kumar",
+             "plant_id": plant_ids[0], "plant_name": DEMO_PLANTS[0]["name"],
+             "grade": "M20", "quantity": 10.0, "delivery_mode": "ONLY_LOADING",
+             "site_name": "Lake View Apartments", "site_address": "Narsingi, Hyderabad",
+             "lat": 17.3915, "lng": 78.3475, "delivery_date": "2026-06-30", "delivery_time": "08:00",
+             "status": "PENDING", "payment_status": "UNPAID"},
         ]
         for o in demo_orders:
             seq = await next_sequence("order_number")

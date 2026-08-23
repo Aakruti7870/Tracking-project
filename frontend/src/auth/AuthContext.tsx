@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
 import { apiGet, apiPost, requestOtp, verifyOtp } from "@/src/api/client";
 import { stopTripLocationTracking } from "@/src/location/tripTracking";
+import { unregisterPushDevice } from "@/src/notifications/pushClient";
 
 const TOKEN_KEY = "tmrmc_token";
 
@@ -74,10 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    // Stop the Android foreground/background location service before removing
-    // the token so no delivery tracker remains running after logout.
+    // Stop tracking and unregister this native push token before revoking the
+    // session so a signed-out phone no longer receives account notifications.
     await stopTripLocationTracking();
     if (token) {
+      try {
+        await unregisterPushDevice(token);
+      } catch {
+        /* push cleanup is best effort; server/session logout must still run */
+      }
       try {
         await apiPost("/auth/logout", token);
       } catch {

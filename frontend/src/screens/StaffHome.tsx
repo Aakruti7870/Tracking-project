@@ -8,7 +8,6 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
-import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { StaffCollection } from "@/src/screens/StaffCollection";
@@ -21,6 +20,79 @@ type HomeData = {
   name: string;
   kpis: Kpi[];
   primary: { title: string; kind: string };
+};
+type ModuleLink = { label: string; icon: keyof typeof Ionicons.glyphMap; route: string };
+
+const ROLE_MODULES: Record<string, ModuleLink[]> = {
+  admin: [
+    { label: "Rate Cards", icon: "pricetag-outline", route: "/business/rates" },
+    { label: "Mix Designs", icon: "flask-outline", route: "/business/mixes" },
+    { label: "Inventory", icon: "cube-outline", route: "/business/inventory" },
+    { label: "Suppliers", icon: "people-circle-outline", route: "/business/suppliers" },
+    { label: "Purchases", icon: "cart-outline", route: "/business/purchases" },
+    { label: "Fleet", icon: "bus-outline", route: "/business/fleet" },
+    { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
+    { label: "Quotations", icon: "document-text-outline", route: "/business/quotations" },
+    { label: "Expenses", icon: "cash-outline", route: "/business/expenses" },
+    { label: "Payroll", icon: "card-outline", route: "/business/payroll" },
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+    { label: "Staff", icon: "people-outline", route: "/business/staff" },
+    { label: "Customers", icon: "person-outline", route: "/business/customers" },
+    { label: "Reports", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  dispatcher: [
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+    { label: "Plant Report", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  operator: [
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+    { label: "Plant Report", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  supervisor: [
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+    { label: "Plant Report", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  accountant: [
+    { label: "Rate Cards", icon: "pricetag-outline", route: "/business/rates" },
+    { label: "Quotations", icon: "document-text-outline", route: "/business/quotations" },
+    { label: "Expenses", icon: "cash-outline", route: "/business/expenses" },
+    { label: "Payroll", icon: "card-outline", route: "/business/payroll" },
+    { label: "Plant Report", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  quality_engineer: [
+    { label: "Mix Designs", icon: "flask-outline", route: "/business/mixes" },
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+    { label: "Plant Report", icon: "bar-chart-outline", route: "/business/reports" },
+  ],
+  fleet_manager: [
+    { label: "Fleet", icon: "bus-outline", route: "/business/fleet" },
+    { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+  ],
+  store_manager: [
+    { label: "Inventory", icon: "cube-outline", route: "/business/inventory" },
+    { label: "Suppliers", icon: "people-circle-outline", route: "/business/suppliers" },
+    { label: "Purchases", icon: "cart-outline", route: "/business/purchases" },
+    { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
+    { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
+  ],
+  central_admin: [
+    { label: "Plant Profiles", icon: "business-outline", route: "/business/profile" },
+    { label: "Rate Cards", icon: "pricetag-outline", route: "/business/rates" },
+    { label: "Mix Designs", icon: "flask-outline", route: "/business/mixes" },
+    { label: "Inventory", icon: "cube-outline", route: "/business/inventory" },
+    { label: "Suppliers", icon: "people-circle-outline", route: "/business/suppliers" },
+    { label: "Purchases", icon: "cart-outline", route: "/business/purchases" },
+    { label: "Fleet", icon: "bus-outline", route: "/business/fleet" },
+    { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
+    { label: "Quotations", icon: "document-text-outline", route: "/business/quotations" },
+    { label: "Expenses", icon: "cash-outline", route: "/business/expenses" },
+    { label: "Payroll", icon: "card-outline", route: "/business/payroll" },
+    { label: "Staff", icon: "people-outline", route: "/business/staff" },
+    { label: "Customers", icon: "person-outline", route: "/business/customers" },
+    { label: "Reports", icon: "bar-chart-outline", route: "/business/reports" },
+    { label: "Deletion Requests", icon: "trash-outline", route: "/account-deletion-admin" },
+  ],
 };
 
 function formatValue(k: Kpi): string {
@@ -35,6 +107,8 @@ export function StaffHome() {
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<HomeData>("/staff/home");
   const { data: notif } = useGet<{ unread: number }>("/notifications");
+  const role = data?.role || user?.role || "";
+  const modules = ROLE_MODULES[role] || [];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -87,6 +161,21 @@ export function StaffHome() {
                 <AppText variant="heading">{data.primary.title}</AppText>
                 <StaffCollection kind={data.primary.kind} embedded limit={6} />
               </View>
+
+              {modules.length ? (
+                <View style={{ gap: spacing.sm }}>
+                  <AppText variant="heading">Operations</AppText>
+                  <View style={styles.moduleGrid}>
+                    {modules.map((m) => (
+                      <Pressable key={m.label} onPress={() => router.push(m.route as any)} style={[styles.module, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                        <Ionicons name={m.icon} size={20} color={colors.brand} />
+                        <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.onSurface, flex: 1 }}>{m.label}</AppText>
+                        <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceTertiary} />
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
             </>
           ) : null}
         </ScrollView>
@@ -102,4 +191,6 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   kpi: { width: "48%", flexGrow: 1, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, gap: spacing.xs },
   kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: spacing.xs },
+  moduleGrid: { gap: spacing.sm },
+  module: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
 });

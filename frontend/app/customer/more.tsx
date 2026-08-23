@@ -6,22 +6,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
 import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route?: string }[] = [
-  { key: "profile", label: "Profile", icon: "person-outline" },
+const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "kyc", label: "KYC Verification", icon: "id-card-outline", route: "/kyc" },
-  { key: "sites", label: "Saved Sites", icon: "location-outline" },
-  { key: "notifications", label: "Notifications", icon: "notifications-outline" },
-  { key: "documents", label: "Documents", icon: "folder-outline" },
-  { key: "support", label: "Support", icon: "help-buoy-outline" },
-  { key: "privacy", label: "Privacy Policy", icon: "shield-outline" },
-  { key: "terms", label: "Terms of Service", icon: "document-text-outline" },
-  { key: "delete", label: "Request Account Deletion", icon: "trash-outline" },
+  { key: "sites", label: "Saved Sites", icon: "location-outline", route: "/customer/sites" },
+  { key: "quotations", label: "Quotations", icon: "document-text-outline", route: "/customer/quotations" },
+  { key: "notifications", label: "Notifications", icon: "notifications-outline", route: "/notifications" },
+  { key: "documents", label: "Documents", icon: "folder-outline", route: "/customer/documents" },
+  { key: "delete", label: "Account Deletion", icon: "trash-outline", route: "/account-deletion" },
 ];
 
 const MODES: { key: "system" | "light" | "dark"; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -34,13 +30,7 @@ export default function CustomerMore() {
   const { colors, mode, setMode } = useTheme();
   const { user, signOut } = useAuth();
   const router = useRouter();
-  const toast = useToast();
   const insets = useSafeAreaInsets();
-
-  const onItem = (item: (typeof ITEMS)[number]) => {
-    if (item.route) return router.push(item.route as any);
-    toast(`${item.label} arrives in a later phase`, "info");
-  };
 
   const doLogout = async () => {
     await signOut();
@@ -56,7 +46,6 @@ export default function CustomerMore() {
       >
         <AppText variant="title">More</AppText>
 
-        {/* Profile card */}
         <Card style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           <View style={[styles.avatar, { backgroundColor: colors.brand }]}>
             <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.xl, color: colors.onBrand }}>
@@ -73,7 +62,6 @@ export default function CustomerMore() {
           </View>
         </Card>
 
-        {/* Theme selector */}
         <View style={{ gap: spacing.sm }}>
           <AppText variant="label">Appearance</AppText>
           <View style={styles.modeRow}>
@@ -99,13 +87,12 @@ export default function CustomerMore() {
           </View>
         </View>
 
-        {/* Menu */}
         <Card padded={false}>
           {ITEMS.map((item, i) => (
             <Pressable
               key={item.key}
               testID={`more-${item.key}`}
-              onPress={() => onItem(item)}
+              onPress={() => router.push(item.route as any)}
               style={[styles.item, i < ITEMS.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}
             >
               <Ionicons name={item.icon} size={20} color={item.key === "delete" ? colors.error : colors.onSurfaceSecondary} />
@@ -117,12 +104,17 @@ export default function CustomerMore() {
           ))}
         </Card>
 
+        <Card style={{ gap: 4 }}>
+          <AppText variant="label">Legal & support</AppText>
+          <AppText variant="caption">Privacy Policy, Terms of Service and official support details must use your approved business/legal content before release. No placeholder policy text is shown.</AppText>
+        </Card>
+
         <Pressable testID="logout-button" onPress={doLogout} style={[styles.logout, { borderColor: colors.error }]}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · v1.0.0</AppText>
+        <AppText variant="caption" center>TrackMyRMC · 2.0.3 (61)</AppText>
       </ScrollView>
     </View>
   );

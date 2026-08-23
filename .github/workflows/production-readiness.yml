@@ -3,7 +3,9 @@ name: Production Readiness
 on:
   push:
     branches:
+      - main
       - fix/production-readiness-final
+      - fix/tracking-project-100-percent
   pull_request:
     branches:
       - main
@@ -20,7 +22,7 @@ jobs:
   backend:
     name: Backend API + security tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       mongo:
         image: mongo:7
@@ -32,11 +34,11 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      APP_ENV: development
+      APP_ENV: test
       MONGO_URL: mongodb://127.0.0.1:27017
       DB_NAME: trackmyrmc_ci
-      JWT_SECRET: ci-only-trackmyrmc-jwt-secret-not-for-production
-      OTP_PEPPER: ci-only-trackmyrmc-otp-pepper-not-for-production
+      JWT_SECRET: ci-only-trackmyrmc-jwt-secret-not-for-production-32chars
+      OTP_PEPPER: ci-only-trackmyrmc-otp-pepper-not-for-production-32chars
       DEBUG_OTP: "true"
       OTP_RESEND_SECONDS: "1"
       CORS_ORIGINS: http://127.0.0.1:8081
@@ -58,7 +60,7 @@ jobs:
         run: python -m compileall -q backend
       - name: Focused production-hardening unit tests
         working-directory: backend
-        run: pytest -n 0 -q tests/test_production_hardening_unit.py
+        run: pytest -n 0 -q tests/test_production_hardening_unit.py tests/test_runtime_config_unit.py tests/test_business_domain_unit.py
       - name: Start TrackMyRMC API
         working-directory: backend
         run: |
@@ -67,7 +69,8 @@ jobs:
       - name: Wait for health
         run: |
           for i in {1..45}; do
-            if curl -fsS http://127.0.0.1:8000/api/health >/tmp/health.json; then
+            if curl -fsS http://127.0.0.1:8000/health >/tmp/root-health.json && curl -fsS http://127.0.0.1:8000/api/health >/tmp/health.json; then
+              cat /tmp/root-health.json
               cat /tmp/health.json
               exit 0
             fi
@@ -84,7 +87,7 @@ jobs:
           status=$?
           if [ $status -ne 0 ]; then
             echo "--- backend pytest failure summary ---"
-            tail -n 220 /tmp/backend-pytest.log
+            tail -n 260 /tmp/backend-pytest.log
           else
             cat /tmp/backend-pytest.log
           fi
@@ -102,7 +105,7 @@ jobs:
           retention-days: 7
       - name: API log on failure
         if: failure()
-        run: tail -n 160 /tmp/trackmyrmc-api.log || true
+        run: tail -n 200 /tmp/trackmyrmc-api.log || true
 
   frontend:
     name: Expo typecheck + lint + config + build
@@ -115,11 +118,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
-          cache: yarn
-          cache-dependency-path: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         working-directory: frontend
-        run: yarn install --non-interactive
+        run: npm ci
       - name: Verify preview backend if configured
         shell: bash
         run: |
@@ -132,24 +135,24 @@ jobs:
           cat /tmp/preview-health.json
       - name: TypeScript
         working-directory: frontend
-        run: yarn typecheck
+        run: npm run typecheck
       - name: Lint
         working-directory: frontend
-        run: yarn lint
+        run: npm run lint
       - name: Expo Doctor
         working-directory: frontend
-        run: yarn doctor
+        run: npm run doctor
       - name: Validate public Expo config
         working-directory: frontend
         run: npx expo config --type public >/tmp/expo-config.txt && test -s /tmp/expo-config.txt
       - name: Build Expo web preview
         working-directory: frontend
-        run: yarn build:preview
+        run: npm run build:preview
 
   android-native:
     name: Android native preview build
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
       CI: "1"
@@ -158,15 +161,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
-          cache: yarn
-          cache-dependency-path: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - name: Install frontend dependencies
         working-directory: frontend
-        run: yarn install --non-interactive
+        run: npm ci
       - name: Verify preview backend if configured
         shell: bash
         run: |

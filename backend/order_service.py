@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from pymongo import ReturnDocument
 
 from audit import write_audit
-from database import order_status_history, orders, plants, users
+from database import order_status_history, orders, plants, production_batches, users
 from notifications import delivery, record_notification
 
 # --- States ---
@@ -36,7 +36,6 @@ POD_PENDING = "POD_PENDING"
 DELIVERED = "DELIVERED"
 CANCELLED = "CANCELLED"
 
-# Allowed transitions (edges implemented so far + placeholders for later phases).
 TRANSITIONS: dict[str, set[str]] = {
     DRAFT: {PENDING, CANCELLED},
     PENDING: {ACCEPTED, REJECTED, CANCELLED},
@@ -57,7 +56,6 @@ TRANSITIONS: dict[str, set[str]] = {
     CANCELLED: set(),
 }
 
-# Customer-facing status label helper reused by clients if needed.
 TERMINAL = {DELIVERED, REJECTED, CANCELLED}
 
 
@@ -72,6 +70,28 @@ async def _oid(value: str):
         return value
 
 
+async def _guard_transition_invariants(order: dict, target: str) -> None:
+    """Enforce domain invariants shared by every role and endpoint."""
+    if target != PRODUCTION_COMPLETE:
+        return
+
+    order_id = str(order["_id"])
+    rows = await production_batches.aggregate(
+        [
+            {"$match": {"order_id": order_id}},
+            {"$group": {"_id": None, "total": {"$sum": "$quantity"}}},
+        ]
+    ).to_list(1)
+    produced = float(rows[0]["total"] if rows else 0)
+    required = float(order.get("quantity") or 0)
+    if required <= 0:
+        raise HTTPException(409, "Order quantity is invalid; production cannot be completed")
+    # Small batching/tolerance difference is allowed, but materially incomplete
+    # production must never be marked complete by any role-specific endpoint.
+    if produced + 0.001 < required * 0.98:
+        raise HTTPException(409, f"Production is incomplete ({produced:g} / {required:g} m³)")
+
+
 async def transition_order(
     order_id: str,
     target: str,
@@ -80,24 +100,20 @@ async def transition_order(
     notify_user_ids: Optional[list[str]] = None,
     event: Optional[str] = None,
 ) -> dict:
-    """Perform a validated, compare-and-set status transition.
-
-    The status field is included in the update predicate so two concurrent
-    transitions cannot both succeed against the same previous state.
-    """
+    """Perform a validated, compare-and-set status transition."""
     order = await orders.find_one({"_id": await _oid(order_id)})
     if not order:
         raise HTTPException(404, "Order not found")
 
     current = order.get("status")
     if current == target:
-        # Replaying a milestone transition is harmless and gives a previously
-        # failed provider delivery one safe chance to retry.
         if target in (DISPATCHED, DELIVERED):
             await _customer_sms_once(order, target)
         return order
     if not can_transition(current, target):
         raise HTTPException(409, f"Cannot move order from {current} to {target}")
+
+    await _guard_transition_invariants(order, target)
 
     now = datetime.now(timezone.utc)
     updated = await orders.find_one_and_update(
@@ -106,8 +122,6 @@ async def transition_order(
         return_document=ReturnDocument.AFTER,
     )
     if not updated:
-        # Another request changed the order between read and write. Treat a
-        # same-target winner as idempotent; otherwise reject the stale request.
         latest = await orders.find_one({"_id": order["_id"]})
         if latest and latest.get("status") == target:
             if target in (DISPATCHED, DELIVERED):
@@ -145,9 +159,6 @@ async def transition_order(
             note or f"Your order is now {target.replace('_', ' ').title()}.",
         )
 
-    # Customer SMS on milestone events. A failed provider attempt is marked
-    # failed and can be retried by an idempotent replay without duplicating a
-    # successfully recorded send.
     if target in (DISPATCHED, DELIVERED):
         await _customer_sms_once(updated, target)
 
@@ -155,12 +166,7 @@ async def transition_order(
 
 
 async def _customer_sms_once(order: dict, event: str) -> None:
-    """Send at most one concurrently active SMS per (order,event).
-
-    Successful sends are durable (`status=sent`). Failed attempts are durable
-    (`status=failed`) and may be retried. A stale `sending` claim can be taken
-    over after two minutes to recover from a worker crash.
-    """
+    """Send at most one concurrently active SMS per (order,event)."""
     if not delivery.sms_configured or not order.get("customer_id"):
         return
 
@@ -170,7 +176,7 @@ async def _customer_sms_once(order: dict, event: str) -> None:
     claimed = await orders.find_one_and_update(
         {
             "_id": order["_id"],
-            flag: {"$ne": True},  # backwards-compatible with legacy boolean flag
+            flag: {"$ne": True},
             "$or": [
                 {f"{flag}.status": {"$exists": False}},
                 {f"{flag}.status": "failed"},
@@ -208,7 +214,7 @@ async def _customer_sms_once(order: dict, event: str) -> None:
             )
             if link:
                 msg += f" Track live: {link}"
-        else:  # DELIVERED
+        else:
             qty = order.get("delivered_quantity") or order.get("quantity")
             base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
             link = f"{base}/order/{order['_id']}" if base else ""
@@ -236,7 +242,7 @@ async def _customer_sms_once(order: dict, event: str) -> None:
                 {"$set": {f"{flag}.status": "failed", f"{flag}.failed_at": datetime.now(timezone.utc),
                            f"{flag}.reason": "provider_delivery_failed"}},
             )
-    except Exception:  # noqa: BLE001 — never block an order transition on SMS
+    except Exception:
         await orders.update_one(
             {"_id": order["_id"]},
             {"$set": {f"{flag}.status": "failed", f"{flag}.failed_at": datetime.now(timezone.utc),

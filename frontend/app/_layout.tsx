@@ -14,6 +14,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider } from "@/src/theme/ThemeProvider";
 import { AuthProvider } from "@/src/auth/AuthContext";
 import { ToastProvider } from "@/src/components/ui/Toast";
+import { PushNotificationBridge } from "@/src/notifications/PushNotificationBridge";
 
 // Keep development previews quiet without hiding production diagnostics.
 if (__DEV__) LogBox.ignoreAllLogs(true);
@@ -50,6 +51,7 @@ export default function RootLayout() {
           <ThemeProvider>
             <AuthProvider>
               <ToastProvider>
+                <PushNotificationBridge />
                 <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
               </ToastProvider>
             </AuthProvider>

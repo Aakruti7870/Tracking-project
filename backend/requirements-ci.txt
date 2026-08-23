@@ -11,6 +11,7 @@ python-dotenv==1.2.3
 PyJWT==2.13.0
 httpx==0.28.1
 requests==2.34.2
+google-auth==2.56.3
 twilio==9.11.0
 pillow==12.3.0
 python-multipart==0.0.32

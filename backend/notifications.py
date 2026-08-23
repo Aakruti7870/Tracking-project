@@ -1,19 +1,21 @@
 """Provider-agnostic notification/OTP delivery service.
 
 SMS delivery uses Twilio. Staff email OTP delivery uses SendGrid when
-EMAIL_PROVIDER_API_KEY and EMAIL_FROM are configured. Provider failures are
-best-effort here; authentication decides whether a failed OTP delivery can be
-accepted (development) or must fail closed (production).
+EMAIL_PROVIDER_API_KEY and EMAIL_FROM are configured. Durable in-app events are
+also delivered best-effort through Firebase Cloud Messaging to registered
+Android devices.
 """
 import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 
 from config import settings
 from database import notifications
+from push_notifications import push
 
 logger = logging.getLogger("notifications")
 logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
@@ -127,18 +129,34 @@ class SmsEmailAdapter:
 delivery = SmsEmailAdapter()
 
 
-async def record_notification(user_id: str, event: str, title: str, body: str) -> None:
-    """Persist an in-app notification (durable)."""
+async def record_notification(
+    user_id: str,
+    event: str,
+    title: str,
+    body: str,
+    data: dict[str, Any] | None = None,
+) -> None:
+    """Persist an in-app notification, then attempt direct FCM delivery."""
+    now = datetime.now(timezone.utc)
+    push_data: dict[str, Any] = {"event": event, "route": "/notifications"}
+    if data:
+        push_data.update(data)
     await notifications.insert_one(
         {
             "user_id": user_id,
             "event": event,
             "title": title,
             "body": body,
+            "data": push_data,
             "read": False,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": now,
         }
     )
+    try:
+        await push.send_to_user(user_id, title, body, push_data)
+    except Exception as exc:  # noqa: BLE001
+        # Push is a delivery channel, not the transaction source of truth.
+        logger.warning("FCM delivery attempt failed (%s)", type(exc).__name__)
 
 
 def provider_status() -> dict:
@@ -147,4 +165,6 @@ def provider_status() -> dict:
         "configured": delivery.configured,
         "sms": delivery.sms_configured,
         "email": delivery.email_configured,
+        "push": push.configured,
+        "push_adapter": push.name,
     }

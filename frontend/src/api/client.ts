@@ -28,6 +28,13 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+function authHeaders(token: string) {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export async function requestOtp(identifier: string) {
   const res = await fetch(`${apiBase()}/auth/request-otp`, {
     method: "POST",
@@ -68,11 +75,34 @@ export async function apiGet<T>(path: string, token: string): Promise<T> {
 export async function apiPost<T>(path: string, token: string, body?: any): Promise<T> {
   const res = await fetch(`${apiBase()}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: authHeaders(token),
     body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return handle<T>(res);
+}
+
+export async function apiPut<T>(path: string, token: string, body?: any): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return handle<T>(res);
+}
+
+export async function apiPatch<T>(path: string, token: string, body?: any): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return handle<T>(res);
+}
+
+export async function apiDelete<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
   });
   return handle<T>(res);
 }

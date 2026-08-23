@@ -195,12 +195,27 @@ class TestOperator:
         # find an ACCEPTED order
         acc = next((i for i in items if any(a["key"] == "start" for a in i.get("actions", []))), None)
         if not acc:
-            # try seeded orders being ACCEPTED via badge match — otherwise skip production path
             pytest.skip("no ACCEPTED order available for start")
         oid = acc["id"]
         r1 = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/start", headers=_h(tokens["operator"]), timeout=15)
         assert r1.status_code == 200, r1.text
         assert r1.json()["status"] == "IN_PRODUCTION"
+
+        detail = requests.get(
+            f"{BASE_URL}/api/staff/orders/{oid}/production",
+            headers=_h(tokens["operator"]), timeout=15,
+        )
+        assert detail.status_code == 200, detail.text
+        remaining = float(detail.json()["remaining_quantity"])
+        assert remaining > 0
+        batch = requests.post(
+            f"{BASE_URL}/api/staff/orders/{oid}/production/batch",
+            headers=_h(tokens["operator"]),
+            json={"quantity": remaining, "batch_reference": f"OP-{uuid.uuid4().hex[:8]}"},
+            timeout=15,
+        )
+        assert batch.status_code == 200, batch.text
+
         r2 = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/complete", headers=_h(tokens["operator"]), timeout=15)
         assert r2.status_code == 200 and r2.json()["status"] == "PRODUCTION_COMPLETE"
 
