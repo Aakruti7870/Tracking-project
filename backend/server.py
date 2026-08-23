@@ -21,6 +21,7 @@ from routers import (
     master_data,
     me,
     notify,
+    operator_ops,
     owner,
     staff,
     storage,
@@ -32,8 +33,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("trackmyrmc")
 
-# Preserve the established API identity/client contract; repository isolation
-# is an engineering concern and does not require a breaking product rename.
 app = FastAPI(
     title="TrackMyRMC API",
     version="2.0.3",
@@ -73,6 +72,7 @@ app.include_router(customer.router)
 app.include_router(owner.router)
 app.include_router(driver.router)
 app.include_router(staff.router)
+app.include_router(operator_ops.router)
 app.include_router(master_data.router)
 app.include_router(finance_ops.router)
 app.include_router(loads.router)
