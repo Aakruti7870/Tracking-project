@@ -1,6 +1,16 @@
 # Never bake local/preview environment files into the deploy image.
-# Production runtime environment variables are injected by the platform.
-# (.env.example templates are intentionally NOT excluded.)
+# Runtime environment variables and secrets are injected by Cloud Run.
 backend/.env
 frontend/.env
 **/.env
+
+# Backend-only Cloud Run image: keep the build context small and deterministic.
+.git
+.github
+frontend
+memory
+test_reports
+**/__pycache__
+**/.pytest_cache
+backend/tests
+*.md
