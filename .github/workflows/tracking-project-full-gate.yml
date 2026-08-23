@@ -93,13 +93,18 @@ jobs:
           exit 1
       - name: Full backend test suite
         working-directory: backend
-        run: pytest -n 0 -q --tb=short
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -n 0 -q --tb=short 2>&1 | tee /tmp/tracking-project-pytest.log
       - name: Upload backend diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tracking-project-backend-diagnostics
-          path: /tmp/tracking-project-api.log
+          path: |
+            /tmp/tracking-project-api.log
+            /tmp/tracking-project-pytest.log
           if-no-files-found: warn
           retention-days: 7
 
