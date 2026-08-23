@@ -114,6 +114,11 @@ async def _validate_assignment(order: dict, load: dict, vehicle_id: str, driver_
     )
     if not driver:
         raise HTTPException(422, "Driver not found for this plant")
+    active_trip = await driver_trips.find_one(
+        {"driver_id": driver_id, "status": {"$in": list(ACTIVE_TRIP_STATUSES)}, "load_id": {"$ne": str(load["_id"])}}
+    )
+    if active_trip:
+        raise HTTPException(409, "Driver already has another active trip")
     return vehicle, driver
 
 
@@ -164,6 +169,7 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
         "tm_number": None,
         "driver_id": None,
         "driver_name": None,
+        "driver_mobile": None,
         "scheduled_at": body.scheduled_at,
         "notes": body.notes,
         "status": "PLANNED",
@@ -172,8 +178,6 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
         "created_by": ctx["user_id"],
     }
 
-    # Validate optional assignment before insertion so a bad vehicle/driver can
-    # never leave an orphan planned-load row behind.
     if body.vehicle_id and body.driver_id:
         vehicle, driver = await _validate_assignment(order, doc, body.vehicle_id, body.driver_id)
         doc.update(
@@ -182,15 +186,13 @@ async def create_order_load(order_id: str, body: OrderLoadBody, ctx: dict = Depe
                 "tm_number": vehicle.get("tm_number"),
                 "driver_id": body.driver_id,
                 "driver_name": driver.get("name"),
+                "driver_mobile": driver.get("phone"),
                 "status": "ASSIGNED",
             }
         )
 
     await order_loads.insert_one(doc)
 
-    # Concurrent load creation can race the pre-insert total check. Reconcile
-    # after insertion and roll back this candidate if the committed total now
-    # exceeds the commercial order quantity. This fails safe (never overplans).
     rows = await order_loads.aggregate(
         [
             {"$match": {"order_id": order_id, "status": {"$ne": "CANCELLED"}}},
@@ -214,18 +216,21 @@ async def assign_load(load_id: str, body: LoadAssignmentBody, ctx: dict = Depend
     order = await _order_for_ctx(load["order_id"], ctx)
     vehicle, driver = await _validate_assignment(order, load, body.vehicle_id, body.driver_id)
     now = datetime.now(timezone.utc)
-    await order_loads.update_one(
+    result = await order_loads.update_one(
         {"_id": load["_id"], "status": {"$in": ["PLANNED", "ASSIGNED"]}},
         {"$set": {
             "vehicle_id": body.vehicle_id,
             "tm_number": vehicle.get("tm_number"),
             "driver_id": body.driver_id,
             "driver_name": driver.get("name"),
+            "driver_mobile": driver.get("phone"),
             "status": "ASSIGNED",
             "updated_at": now,
             "assigned_by": ctx["user_id"],
         }},
     )
+    if result.matched_count != 1:
+        raise HTTPException(409, "Load assignment changed concurrently; reload the load")
     updated = await order_loads.find_one({"_id": load["_id"]})
     return {"load": _serialize(updated)}
 
@@ -280,6 +285,7 @@ async def prepare_load(load_id: str, body: LoadPrepareBody, ctx: dict = Depends(
             "plant_id": load["plant_id"],
             "customer_id": order.get("customer_id"),
             "driver_id": load["driver_id"],
+            "driver_mobile": load.get("driver_mobile"),
             "vehicle_id": load["vehicle_id"],
             "tm_number": load.get("tm_number"),
             "grade": order.get("grade"),
@@ -314,6 +320,7 @@ async def prepare_load(load_id: str, body: LoadPrepareBody, ctx: dict = Depends(
             "quantity": load.get("quantity_m3"),
             "tm_number": load.get("tm_number"),
             "driver_name": load.get("driver_name"),
+            "driver_mobile": load.get("driver_mobile"),
             "batcher": body.batcher,
             "supervisor": body.supervisor,
             "quality_engineer": body.quality_engineer,
@@ -328,18 +335,21 @@ async def prepare_load(load_id: str, body: LoadPrepareBody, ctx: dict = Depends(
         {"_id": vehicle["_id"]},
         {"$set": {"status": "loading", "current_order_id": load["order_id"], "current_load_id": load_id}},
     )
-    await order_loads.update_one(
+    claimed = await order_loads.update_one(
         {"_id": load["_id"], "status": "ASSIGNED"},
         {"$set": {"status": "READY_TO_DISPATCH", "trip_id": str(trip["_id"]),
                    "challan_id": str(challan["_id"]), "challan_number": challan["challan_number"],
                    "updated_at": now}},
     )
+    if claimed.modified_count != 1:
+        raise HTTPException(409, "Load preparation changed concurrently; reload the load")
 
     current = order.get("status")
     await orders.update_one(
         {"_id": order["_id"]},
         {"$set": {"tm_id": load["vehicle_id"], "tm_number": load.get("tm_number"),
                    "driver_id": load["driver_id"], "driver_name": load.get("driver_name"),
+                   "driver_mobile": load.get("driver_mobile"),
                    "active_load_id": load_id, "challan_number": challan["challan_number"]}},
     )
     if current == PRODUCTION_COMPLETE:
@@ -368,16 +378,27 @@ async def dispatch_load(load_id: str, ctx: dict = Depends(current_user)):
         return {"status": "DISPATCHED", "idempotent": True}
     if load.get("status") != "READY_TO_DISPATCH":
         raise HTTPException(409, "Prepare the load and challan before dispatching")
+    if order.get("status") not in (READY_TO_DISPATCH, DISPATCHED):
+        raise HTTPException(409, f"Parent order is not dispatchable ({order.get('status')})")
     trip = await driver_trips.find_one({"load_id": load_id, "driver_id": load.get("driver_id")})
     challan = await challans.find_one({"load_id": load_id})
+    gate_pass = await gate_passes.find_one({"load_id": load_id})
     if not trip or not challan:
         raise HTTPException(409, "Load trip/challan is incomplete")
+    if not gate_pass:
+        raise HTTPException(409, "Issue a gate pass before dispatching the load")
 
     now = datetime.now(timezone.utc)
-    await order_loads.update_one(
+    claimed = await order_loads.update_one(
         {"_id": load["_id"], "status": "READY_TO_DISPATCH"},
         {"$set": {"status": "DISPATCHED", "dispatched_at": now, "updated_at": now, "dispatched_by": ctx["user_id"]}},
     )
+    if claimed.modified_count != 1:
+        latest = await order_loads.find_one({"_id": load["_id"]})
+        if latest and latest.get("status") == "DISPATCHED":
+            return {"status": "DISPATCHED", "idempotent": True}
+        raise HTTPException(409, "Load dispatch changed concurrently; reload the load")
+
     await driver_trips.update_one(
         {"_id": trip["_id"]}, {"$set": {"status": "DISPATCHED", "updated_at": now}}
     )
@@ -389,6 +410,7 @@ async def dispatch_load(load_id: str, ctx: dict = Depends(current_user)):
         {"_id": order["_id"]},
         {"$set": {"tm_id": load["vehicle_id"], "tm_number": load.get("tm_number"),
                    "driver_id": load["driver_id"], "driver_name": load.get("driver_name"),
+                   "driver_mobile": load.get("driver_mobile"),
                    "active_load_id": load_id, "dispatched_at": now}},
     )
     if order.get("status") == READY_TO_DISPATCH:
@@ -398,8 +420,6 @@ async def dispatch_load(load_id: str, ctx: dict = Depends(current_user)):
             notify_user_ids=[order["customer_id"]] if order.get("customer_id") else [],
             event="dispatched",
         )
-    elif order.get("status") != DISPATCHED:
-        raise HTTPException(409, f"Parent order is not dispatchable ({order.get('status')})")
     elif order.get("customer_id"):
         await record_notification(
             order["customer_id"], "load_dispatched", f"Load {load.get('load_code')} dispatched",
@@ -415,10 +435,12 @@ async def cancel_load(load_id: str, ctx: dict = Depends(current_user)):
     if load.get("status") not in ("PLANNED", "ASSIGNED"):
         raise HTTPException(409, "This load can no longer be cancelled")
     now = datetime.now(timezone.utc)
-    await order_loads.update_one(
+    result = await order_loads.update_one(
         {"_id": load["_id"], "status": {"$in": ["PLANNED", "ASSIGNED"]}},
         {"$set": {"status": "CANCELLED", "cancelled_at": now, "updated_at": now, "cancelled_by": ctx["user_id"]}},
     )
+    if result.modified_count != 1:
+        raise HTTPException(409, "Load cancellation changed concurrently; reload the load")
     return {"status": "CANCELLED"}
 
 
