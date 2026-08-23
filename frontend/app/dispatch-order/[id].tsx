@@ -12,7 +12,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
-import { OwnerDispatchPanel } from "@/src/components/OwnerDispatchPanel";
+import { LoadPlanner } from "@/src/components/LoadPlanner";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type OrderDetail = {
@@ -24,10 +24,6 @@ type OrderDetail = {
   site_name?: string;
   site_address?: string;
   status: string;
-  tm_number?: string | null;
-  driver_name?: string | null;
-  challan_number?: string | null;
-  invoice_number?: string | null;
 };
 
 export default function DispatchOrder() {
@@ -71,20 +67,11 @@ export default function DispatchOrder() {
             {o.site_address ? <AppText variant="caption">{o.site_address}</AppText> : null}
           </Card>
 
-          <OwnerDispatchPanel
-            orderId={o.id}
-            status={o.status}
-            quantity={o.quantity}
-            tmNumber={o.tm_number}
-            driverName={o.driver_name}
-            challanNumber={o.challan_number}
-            invoiceNumber={o.invoice_number}
-            onChanged={refetch}
-            onViewChallan={() => router.push(`/challan/${o.id}` as any)}
-            basePath="/staff"
-            showProduction={false}
-            showInvoice={false}
-          />
+          {o.status === "IN_PRODUCTION" ? (
+            <Card><AppText variant="bodyMuted">Production is in progress. You can plan mixer loads now; preparing them remains blocked until production is complete.</AppText></Card>
+          ) : null}
+
+          <LoadPlanner orderId={o.id} resourceBase="/staff" onChanged={refetch} />
         </ScrollView>
       ) : null}
     </View>
