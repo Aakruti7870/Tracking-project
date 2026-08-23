@@ -64,10 +64,10 @@ jobs:
           import business_models
           import database
           import server
-          from routers import finance_ops, loads, master_data
+          from routers import finance_ops, loads, master_data, operator_ops
           assert server.app is not None
           assert business_models.PlantBusinessProfileBody
-          assert finance_ops.router and loads.router and master_data.router
+          assert finance_ops.router and loads.router and master_data.router and operator_ops.router
           print("full schema/router import OK")
           PY
       - name: Start API
@@ -111,11 +111,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
-          cache: yarn
-          cache-dependency-path: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         working-directory: frontend
-        run: yarn install --non-interactive
+        run: npm ci
       - name: Validate mobile identities
         working-directory: frontend
         run: |
@@ -129,19 +129,19 @@ jobs:
           NODE
       - name: TypeScript
         working-directory: frontend
-        run: yarn typecheck
+        run: npm run typecheck
       - name: Lint
         working-directory: frontend
-        run: yarn lint
+        run: npm run lint
       - name: Expo Doctor
         working-directory: frontend
-        run: yarn doctor
+        run: npm run doctor
       - name: Public Expo config
         working-directory: frontend
         run: npx expo config --type public >/tmp/expo-config.txt && test -s /tmp/expo-config.txt
       - name: Web preview build
         working-directory: frontend
-        run: yarn build:preview
+        run: npm run build:preview
 
   android-native:
     name: Android native generation + debug compile
@@ -155,15 +155,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
-          cache: yarn
-          cache-dependency-path: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - name: Install frontend dependencies
         working-directory: frontend
-        run: yarn install --non-interactive
+        run: npm ci
       - name: Generate Android project
         working-directory: frontend
         run: npx expo prebuild --platform android --clean --no-install
