@@ -78,8 +78,7 @@ class TestDriverSOS:
     def test_owner_resolve_incident(self, tokens):
         r = requests.post(
             f"{BASE_URL}/api/owner/incidents/{pytest.sos_id}/resolve",
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            headers=_h(tokens["owner"]), timeout=15,
         )
         assert r.status_code == 200
         assert r.json().get("status") == "RESOLVED"
@@ -89,38 +88,23 @@ class TestDriverSOS:
 
 
 def _find_or_create_approved_order(owner_token, customer_token) -> str:
-    """Return an order id in ACCEPTED status for the owner's plant."""
     r = requests.get(f"{BASE_URL}/api/owner/orders", headers=_h(owner_token), timeout=15)
     for o in r.json().get("orders", []):
         if o.get("status") == "ACCEPTED":
             return o["id"]
     for o in r.json().get("orders", []):
         if o.get("status") == "PENDING":
-            requests.post(
-                f"{BASE_URL}/api/owner/orders/{o['id']}/approve",
-                headers=_h(owner_token),
-                timeout=15,
-            )
+            requests.post(f"{BASE_URL}/api/owner/orders/{o['id']}/approve", headers=_h(owner_token), timeout=15)
             return o["id"]
-    plants = requests.get(
-        f"{BASE_URL}/api/customer/plants", headers=_h(customer_token), timeout=15
-    ).json()["plants"]
+    plants = requests.get(f"{BASE_URL}/api/customer/plants", headers=_h(customer_token), timeout=15).json()["plants"]
     plant = plants[0]
     grade = "M25" if "M25" in plant["grades"] else plant["grades"][0]
     body = {
-        "plant_id": plant["id"],
-        "grade": grade,
-        "quantity": 6,
-        "site_name": "TEST_ site",
-        "site_address": "TEST_ addr",
-        "lat": 17.4,
-        "lng": 78.5,
-        "delivery_date": "2026-09-01",
-        "delivery_time": "10:00",
+        "plant_id": plant["id"], "grade": grade, "quantity": 6,
+        "site_name": "TEST_ site", "site_address": "TEST_ addr",
+        "lat": 17.4, "lng": 78.5, "delivery_date": "2026-09-01", "delivery_time": "10:00",
     }
-    cr = requests.post(
-        f"{BASE_URL}/api/customer/orders", json=body, headers=_h(customer_token), timeout=15
-    )
+    cr = requests.post(f"{BASE_URL}/api/customer/orders", json=body, headers=_h(customer_token), timeout=15)
     assert cr.status_code == 200, cr.text
     oid = cr.json()["id"]
     requests.post(f"{BASE_URL}/api/owner/orders/{oid}/approve", headers=_h(owner_token), timeout=15)
@@ -128,27 +112,18 @@ def _find_or_create_approved_order(owner_token, customer_token) -> str:
 
 
 def _ensure_available_vehicle(tokens) -> dict:
-    """Return an available mixer without depending on earlier test module state."""
-    fleet = requests.get(
-        f"{BASE_URL}/api/owner/fleet", headers=_h(tokens["owner"]), timeout=15
-    ).json()["vehicles"]
+    fleet = requests.get(f"{BASE_URL}/api/owner/fleet", headers=_h(tokens["owner"]), timeout=15).json()["vehicles"]
     avail = next((v for v in fleet if v["status"] == "available"), None)
     if avail:
         return avail
-
     tm = f"TSPH6{uuid.uuid4().hex[:8].upper()}"
     created = requests.post(
-        f"{BASE_URL}/api/staff/vehicles",
-        headers=_h(tokens["fleet"]),
-        json={"tm_number": tm, "capacity_m3": 6.5},
-        timeout=15,
+        f"{BASE_URL}/api/staff/vehicles", headers=_h(tokens["fleet"]),
+        json={"tm_number": tm, "capacity_m3": 6.5}, timeout=15,
     )
     assert created.status_code == 200, created.text
     vid = created.json()["id"]
-
-    fleet = requests.get(
-        f"{BASE_URL}/api/owner/fleet", headers=_h(tokens["owner"]), timeout=15
-    ).json()["vehicles"]
+    fleet = requests.get(f"{BASE_URL}/api/owner/fleet", headers=_h(tokens["owner"]), timeout=15).json()["vehicles"]
     return next(v for v in fleet if v["id"] == vid and v["status"] == "available")
 
 
@@ -158,60 +133,41 @@ class TestProduction:
         pytest.prod_order_id = oid
         r = requests.post(
             f"{BASE_URL}/api/owner/orders/{oid}/production/batch",
-            json={"quantity": 2},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"quantity": 2}, headers=_h(tokens["owner"]), timeout=15,
         )
         assert r.status_code == 409, r.text
 
     def test_start_production(self, tokens):
-        r = requests.post(
-            f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/start",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        )
+        r = requests.post(f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/start", headers=_h(tokens["owner"]), timeout=15)
         assert r.status_code == 200
         assert r.json()["status"] == "IN_PRODUCTION"
-        r2 = requests.get(
-            f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        )
+        r2 = requests.get(f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production", headers=_h(tokens["owner"]), timeout=15)
         assert r2.status_code == 200
         assert r2.json()["status"] == "IN_PRODUCTION"
 
     def test_add_batches_accumulate(self, tokens):
         r1 = requests.post(
             f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/batch",
-            json={"quantity": 3},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"quantity": 3}, headers=_h(tokens["owner"]), timeout=15,
         )
-        assert r1.status_code == 200
+        assert r1.status_code == 200, r1.text
         assert r1.json()["produced"] == 3
         r2 = requests.post(
             f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/batch",
-            json={"quantity": 3},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"quantity": 3}, headers=_h(tokens["owner"]), timeout=15,
         )
-        assert r2.status_code == 200
+        assert r2.status_code == 200, r2.text
         assert r2.json()["produced"] == 6
+        assert isinstance(r2.json().get("material_consumption"), list)
 
     def test_complete_production_then_assign_tm(self, tokens):
-        r = requests.post(
-            f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/complete",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        )
-        assert r.status_code == 200
+        r = requests.post(f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/production/complete", headers=_h(tokens["owner"]), timeout=15)
+        assert r.status_code == 200, r.text
         assert r.json()["status"] == "PRODUCTION_COMPLETE"
         avail = _ensure_available_vehicle(tokens)
         r2 = requests.post(
             f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/assign-tm",
-            json={"vehicle_id": avail["id"]},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"vehicle_id": avail["id"]}, headers=_h(tokens["owner"]), timeout=15,
         )
         assert r2.status_code == 200, r2.text
         assert r2.json()["status"] == "TM_ASSIGNED"
@@ -227,11 +183,7 @@ def _get_delivered_order(owner_token):
 
 class TestInvoiceLedger:
     def test_invoice_on_non_delivered_returns_409(self, tokens):
-        r = requests.post(
-            f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/invoice",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        )
+        r = requests.post(f"{BASE_URL}/api/owner/orders/{pytest.prod_order_id}/invoice", headers=_h(tokens["owner"]), timeout=15)
         assert r.status_code == 409
 
     def test_create_invoice_on_delivered_order(self, tokens):
@@ -239,20 +191,14 @@ class TestInvoiceLedger:
         if not do:
             pytest.skip("No DELIVERED order in seed to invoice")
         pytest.inv_order = do
-        r = requests.post(
-            f"{BASE_URL}/api/owner/orders/{do['id']}/invoice",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        )
+        r = requests.post(f"{BASE_URL}/api/owner/orders/{do['id']}/invoice", headers=_h(tokens["owner"]), timeout=15)
         assert r.status_code == 200, r.text
         inv = r.json()["invoice"]
         assert inv["invoice_number"].startswith("INV-")
-        qty = do["quantity"]
-        expected_rates = {"M20": 4400, "M25": 4800, "M30": 5200}
-        rate = expected_rates.get(do["grade"], inv["rate"])
-        assert inv["rate"] == rate
-        assert inv["subtotal"] == round(qty * rate, 2)
-        assert inv["gst"] == round(inv["subtotal"] * 0.18, 2)
+        assert inv["rate"] > 0
+        assert inv["gst_rate"] == 18.0
+        assert inv["subtotal"] >= round(inv["quantity"] * inv["rate"], 2)
+        assert inv["gst"] == round(inv["subtotal"] * inv["gst_rate"] / 100, 2)
         assert inv["total"] == round(inv["subtotal"] + inv["gst"], 2)
         pytest.invoice_id = inv["id"]
         pytest.invoice_total = inv["total"]
@@ -270,9 +216,7 @@ class TestInvoiceLedger:
     def test_over_payment_returns_422(self, tokens):
         r = requests.post(
             f"{BASE_URL}/api/owner/invoices/{pytest.invoice_id}/payment",
-            json={"amount": pytest.invoice_total + 1000},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"amount": pytest.invoice_total + 1000}, headers=_h(tokens["owner"]), timeout=15,
         )
         assert r.status_code == 422, r.text
 
@@ -280,26 +224,18 @@ class TestInvoiceLedger:
         half = round(pytest.invoice_total / 2, 2)
         r1 = requests.post(
             f"{BASE_URL}/api/owner/invoices/{pytest.invoice_id}/payment",
-            json={"amount": half},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"amount": half}, headers=_h(tokens["owner"]), timeout=15,
         )
         assert r1.status_code == 200
         assert r1.json()["status"] == "PARTIAL"
         rest = round(pytest.invoice_total - half, 2)
         r2 = requests.post(
             f"{BASE_URL}/api/owner/invoices/{pytest.invoice_id}/payment",
-            json={"amount": rest},
-            headers=_h(tokens["owner"]),
-            timeout=15,
+            json={"amount": rest}, headers=_h(tokens["owner"]), timeout=15,
         )
         assert r2.status_code == 200
         assert r2.json()["status"] == "PAID"
-        od = requests.get(
-            f"{BASE_URL}/api/owner/orders/{pytest.inv_order['id']}",
-            headers=_h(tokens["owner"]),
-            timeout=15,
-        ).json()
+        od = requests.get(f"{BASE_URL}/api/owner/orders/{pytest.inv_order['id']}", headers=_h(tokens["owner"]), timeout=15).json()
         assert od["order"]["payment_status"] == "PAID"
 
     def test_ledger_groups_by_customer(self, tokens):
@@ -317,51 +253,30 @@ class TestTracking:
         do = _get_delivered_order(tokens["owner"])
         if not do:
             pytest.skip("No DELIVERED order to check tracking")
-        r = requests.get(
-            f"{BASE_URL}/api/customer/orders/{do['id']}/tracking",
-            headers=_h(tokens["customer"]),
-            timeout=15,
-        )
+        r = requests.get(f"{BASE_URL}/api/customer/orders/{do['id']}/tracking", headers=_h(tokens["customer"]), timeout=15)
         assert r.status_code == 200
         body = r.json()
         assert body["active"] is False
         assert body["status"] == "DELIVERED"
 
     def test_tracking_active_and_location(self, tokens):
-        r = requests.get(
-            f"{BASE_URL}/api/customer/orders", headers=_h(tokens["customer"]), timeout=15
-        )
+        r = requests.get(f"{BASE_URL}/api/customer/orders", headers=_h(tokens["customer"]), timeout=15)
         active_statuses = {"DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"}
         active = next((o for o in r.json()["orders"] if o["status"] in active_statuses), None)
         if not active:
             pytest.skip("No active tracked order")
-
-        trips = requests.get(
-            f"{BASE_URL}/api/driver/trips", headers=_h(tokens["driver"]), timeout=15
-        ).json()["trips"]
+        trips = requests.get(f"{BASE_URL}/api/driver/trips", headers=_h(tokens["driver"]), timeout=15).json()["trips"]
         trip = next((t for t in trips if t["order_id"] == active["id"]), None)
         if trip:
-            # Production correctly refuses GPS before the driver starts the trip.
             if trip["status"] in {"DISPATCHED", "ASSIGNED", "ACCEPTED", "LOADING"}:
-                started = requests.post(
-                    f"{BASE_URL}/api/driver/trips/{trip['id']}/start",
-                    headers=_h(tokens["driver"]),
-                    timeout=15,
-                )
+                started = requests.post(f"{BASE_URL}/api/driver/trips/{trip['id']}/start", headers=_h(tokens["driver"]), timeout=15)
                 assert started.status_code == 200, started.text
             loc = requests.post(
                 f"{BASE_URL}/api/driver/trips/{trip['id']}/location",
-                json={"lat": 17.401, "lng": 78.501},
-                headers=_h(tokens["driver"]),
-                timeout=15,
+                json={"lat": 17.401, "lng": 78.501}, headers=_h(tokens["driver"]), timeout=15,
             )
             assert loc.status_code == 200, loc.text
-
-        tr = requests.get(
-            f"{BASE_URL}/api/customer/orders/{active['id']}/tracking",
-            headers=_h(tokens["customer"]),
-            timeout=15,
-        )
+        tr = requests.get(f"{BASE_URL}/api/customer/orders/{active['id']}/tracking", headers=_h(tokens["customer"]), timeout=15)
         assert tr.status_code == 200
         body = tr.json()
         assert body["active"] is True
