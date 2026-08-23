@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 from database import BaseDocument
 
+GRADE_PATTERN = r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$"
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -85,6 +87,7 @@ class Order(BaseDocument):
     lng: Optional[float] = None
     delivery_date: str
     delivery_time: Optional[str] = None
+    delivery_mode: Literal["DELIVERY", "ONLY_LOADING"] = "DELIVERY"
     status: str = "PENDING"
     payment_status: str = "UNPAID"
     created_at: datetime = Field(default_factory=utcnow)
@@ -108,7 +111,7 @@ class VerifyOtpBody(BaseModel):
 
 class CreateOrderBody(BaseModel):
     plant_id: str = Field(min_length=1, max_length=128)
-    grade: str = Field(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)$")
+    grade: str = Field(pattern=GRADE_PATTERN)
     quantity: float = Field(gt=0, le=10000)
     site_name: str = Field(min_length=1, max_length=160)
     site_address: str = Field(min_length=1, max_length=500)
@@ -116,6 +119,7 @@ class CreateOrderBody(BaseModel):
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
     delivery_date: str = Field(min_length=8, max_length=32)
     delivery_time: Optional[str] = Field(default=None, max_length=32)
+    delivery_mode: Literal["DELIVERY", "ONLY_LOADING"] = "DELIVERY"
     contact_person: Optional[str] = Field(default=None, max_length=160)
     contact_mobile: Optional[str] = Field(default=None, pattern=r"^\+?[0-9][0-9 -]{7,19}$")
     notes: Optional[str] = Field(default=None, max_length=2000)
@@ -165,7 +169,9 @@ class SosBody(BaseModel):
 
 class ProductionBatchBody(BaseModel):
     quantity: float = Field(gt=0, le=10000)
+    batch_reference: Optional[str] = Field(default=None, max_length=160)
     remarks: Optional[str] = Field(default=None, max_length=2000)
+    consume_materials: bool = True
 
 
 class PaymentBody(BaseModel):
@@ -184,8 +190,23 @@ class KycDecisionBody(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+MaterialCode = Literal[
+    "CEMENT",
+    "FLY_ASH",
+    "C_SAND",
+    "SAND",
+    "AGGREGATE_10MM",
+    "AGGREGATE_20MM",
+    "ADMIXTURE",
+    "WATER",
+    "DIESEL",
+    "OTHER",
+]
+
+
 class MaterialBody(BaseModel):
     name: str = Field(min_length=1, max_length=160)
+    code: Optional[MaterialCode] = None
     unit: str = Field(min_length=1, max_length=32)
     stock: float = Field(ge=0, le=1000000000)
     reorder: float = Field(ge=0, le=1000000000)
