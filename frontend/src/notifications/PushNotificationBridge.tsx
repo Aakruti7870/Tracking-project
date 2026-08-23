@@ -19,7 +19,7 @@ export function PushNotificationBridge() {
   useEffect(() => {
     if (Platform.OS !== "android" || !token || !user) return;
     let disposed = false;
-    let removeTokenListener = () => undefined;
+    let removeTokenListener: () => void = () => {};
 
     void (async () => {
       await configureForegroundNotifications();
@@ -38,7 +38,7 @@ export function PushNotificationBridge() {
   useEffect(() => {
     if (Platform.OS !== "android" || !token) return;
     let disposed = false;
-    let removeResponseListener = () => undefined;
+    let removeResponseListener: () => void = () => {};
     const openRoute = (route: string) => {
       if (!disposed) router.push(route as never);
     };
