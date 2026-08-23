@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
@@ -46,10 +46,12 @@ export function OwnerProductionBilling({
     if (!token || !["IN_PRODUCTION", "PRODUCTION_COMPLETE"].includes(status)) return;
     try {
       const p: any = await apiGet(`/owner/orders/${orderId}/production`, token);
+      const ordered = Number(p.required ?? p.ordered ?? p.ordered_quantity ?? 0);
+      const produced = Number(p.produced ?? p.produced_quantity ?? 0);
       setProduction({
-        ordered: Number(p.ordered ?? p.ordered_quantity ?? 0),
-        produced: Number(p.produced ?? p.produced_quantity ?? 0),
-        remaining: Number(p.remaining ?? p.remaining_quantity ?? Math.max(0, Number(p.ordered || 0) - Number(p.produced || 0))),
+        ordered,
+        produced,
+        remaining: Number(p.remaining ?? p.remaining_quantity ?? Math.max(0, ordered - produced)),
         batches: p.batches || [],
       });
     } catch {
