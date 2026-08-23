@@ -45,6 +45,7 @@ otps = db.otps
 audit_logs = db.audit_logs
 notifications = db.notifications
 counters = db.counters
+account_deletion_requests = db.account_deletion_requests
 
 plants = db.plants
 orders = db.orders
@@ -95,11 +96,6 @@ async def next_sequence(name: str) -> int:
 
 
 async def _drop_legacy_unique_index(collection, name: str) -> None:
-    """Safely relax a former one-order/one-record invariant.
-
-    Existing installations may already have the old unique index. New/empty
-    databases may not. Only the specifically named unique index is removed.
-    """
     info = await collection.index_information()
     spec = info.get(name)
     if spec and spec.get("unique"):
@@ -119,6 +115,12 @@ async def ensure_indexes() -> None:
     )
     await users.create_index("identifier_keys", unique=True, name="unique_login_identifier")
     await users.create_index([("plant_id", 1), ("primary_role", 1), ("status", 1)])
+    await account_deletion_requests.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    await account_deletion_requests.create_index(
+        "user_id", unique=True,
+        partialFilterExpression={"status": "PENDING"},
+        name="one_pending_account_deletion_per_user",
+    )
 
     # Core tenant/order access paths.
     await plants.create_index([("status", 1), ("verified", 1)])
