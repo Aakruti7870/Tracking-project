@@ -46,6 +46,7 @@
     "react-native-dotenv": "3.4.11",
     "react-native-gesture-handler": "2.28.0",
     "react-native-keyboard-controller": "1.18.5",
+    "react-native-maps": "1.20.1",
     "react-native-reanimated": "4.1.1",
     "react-native-safe-area-context": "5.6.0",
     "react-native-screens": "4.16.0",
@@ -67,8 +68,8 @@
     "uuid": "11.1.1",
     "undici": "6.27.0",
     "tar": "7.5.19",
-    "**/@eslint/eslintrc/js-yaml": "4.3.0",
-    "**/@expo/xcpretty/js-yaml": "4.3.0",
+    "**/@eslint/eslintrc/js-yaml": "3.14.1",
+    "**/@expo/xcpretty/js-yaml": "3.15.0",
     "**/@istanbuljs/load-nyc-config/js-yaml": "3.15.0",
     "shell-quote": "1.9.0"
   },
