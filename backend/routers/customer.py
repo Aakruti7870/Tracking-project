@@ -20,10 +20,9 @@ from models import CreateOrderBody
 from notifications import record_notification
 from order_service import CANCELLED, DRAFT, PENDING, transition_order
 from roles import Role
-from security import current_user, require_role
+from security import require_role
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
-
 customer_only = require_role(Role.CUSTOMER.value)
 
 
@@ -39,6 +38,7 @@ def _serialize_order(doc: dict) -> dict:
         "site_address": doc.get("site_address"),
         "delivery_date": doc.get("delivery_date"),
         "delivery_time": doc.get("delivery_time"),
+        "delivery_mode": doc.get("delivery_mode", "DELIVERY"),
         "status": doc.get("status"),
         "payment_status": doc.get("payment_status"),
         "tm_number": doc.get("tm_number"),
@@ -77,12 +77,10 @@ async def home(ctx: dict = Depends(customer_only)):
     user = ctx["user"]
     kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
     my_orders = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(50)
-
     active = next((o for o in my_orders if o.get("status") in ACTIVE_STATUSES), None)
     recent = my_orders[:5]
     nearby = await plants.find({"status": "active", "verified": True}).limit(5).to_list(5)
     unread = await notifications.count_documents({"user_id": uid, "read": False})
-
     return {
         "name": user.get("name"),
         "kyc_status": (kyc or {}).get("status", "NOT_STARTED"),
@@ -95,8 +93,7 @@ async def home(ctx: dict = Depends(customer_only)):
 
 @router.get("/orders")
 async def list_orders(ctx: dict = Depends(customer_only)):
-    uid = ctx["user_id"]
-    docs = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(200)
+    docs = await orders.find({"customer_id": ctx["user_id"]}).sort("created_at", -1).to_list(200)
     return {"orders": [_serialize_order(o) for o in docs]}
 
 
@@ -137,8 +134,6 @@ async def _oid(value: str):
 @router.post("/orders")
 async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)):
     uid = ctx["user_id"]
-
-    # Live (non-draft) orders require a VERIFIED customer KYC.
     if not body.save_draft:
         kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
         if (kyc or {}).get("status") != "VERIFIED":
@@ -154,7 +149,6 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
     order_number = f"RMC-{1000 + seq}"
     now = datetime.now(timezone.utc)
     status = DRAFT if body.save_draft else PENDING
-
     doc = {
         "order_number": order_number,
         "customer_id": uid,
@@ -169,6 +163,7 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
         "lng": body.lng,
         "delivery_date": body.delivery_date,
         "delivery_time": body.delivery_time,
+        "delivery_mode": body.delivery_mode,
         "contact_person": body.contact_person,
         "contact_mobile": body.contact_mobile,
         "notes": body.notes,
@@ -179,21 +174,16 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
     }
     res = await orders.insert_one(doc)
     oid = str(res.inserted_id)
-
     await order_status_history.insert_one(
         {"order_id": oid, "from_status": None, "to_status": status,
          "actor_id": uid, "note": "Order created", "created_at": now}
     )
-    await write_audit(uid, "order.create", "order", oid, {"status": status})
-
-    # Notify the plant owner of a new pending order.
+    await write_audit(uid, "order.create", "order", oid, {"status": status, "delivery_mode": body.delivery_mode})
     if status == PENDING and plant.get("owner_id"):
         await record_notification(
-            plant["owner_id"], "new_order",
-            f"New order {order_number}",
+            plant["owner_id"], "new_order", f"New order {order_number}",
             f"{ctx['user'].get('name')} ordered {body.quantity} m³ of {body.grade}.",
         )
-
     doc["_id"] = res.inserted_id
     return {"id": oid, "order": _serialize_order(doc)}
 
@@ -223,12 +213,8 @@ async def order_detail(order_id: str, ctx: dict = Depends(customer_only)):
         "notes": order.get("notes"),
         "pod": pod,
         "history": [
-            {
-                "from": h.get("from_status"),
-                "to": h.get("to_status"),
-                "note": h.get("note"),
-                "at": h.get("created_at").isoformat() if h.get("created_at") else None,
-            }
+            {"from": h.get("from_status"), "to": h.get("to_status"), "note": h.get("note"),
+             "at": h.get("created_at").isoformat() if h.get("created_at") else None}
             for h in history
         ],
     }
@@ -241,16 +227,15 @@ async def cancel_order(order_id: str, ctx: dict = Depends(customer_only)):
         raise HTTPException(404, "Order not found")
     plant = await plants.find_one({"_id": await _oid(order["plant_id"])})
     notify = [plant["owner_id"]] if plant and plant.get("owner_id") else []
-    await transition_order(order_id, CANCELLED, ctx["user_id"],
-                           note="Cancelled by customer", notify_user_ids=notify,
-                           event="order_cancelled")
+    await transition_order(order_id, CANCELLED, ctx["user_id"], note="Cancelled by customer",
+                           notify_user_ids=notify, event="order_cancelled")
     return {"status": CANCELLED}
 
 
 @router.get("/plants/{plant_id}")
 async def plant_detail(plant_id: str, ctx: dict = Depends(customer_only)):
     plant = await plants.find_one({"_id": await _oid(plant_id)})
-    if not plant:
+    if not plant or plant.get("status") != "active" or not plant.get("verified"):
         raise HTTPException(404, "Plant not found")
     return _serialize_plant(plant)
 
@@ -271,10 +256,8 @@ async def track_order(order_id: str, ctx: dict = Depends(customer_only)):
         if last:
             loc = {"lat": last[0]["lat"], "lng": last[0]["lng"],
                    "at": last[0]["created_at"].isoformat() if last[0].get("created_at") else None}
-            # Live road ETA/distance + polyline via Google Routes (server key).
             if order.get("lat") is not None and order.get("lng") is not None:
                 from routers.maps import compute_route
-
                 route_info = await compute_route(loc["lat"], loc["lng"], order["lat"], order["lng"])
     return {
         "active": active,
@@ -299,22 +282,14 @@ async def customer_challan(order_id: str, ctx: dict = Depends(customer_only)):
         raise HTTPException(404, "Challan not available yet")
     return {
         "challan": {
-            "id": str(doc["_id"]),
-            "challan_number": doc.get("challan_number"),
-            "order_number": doc.get("order_number"),
-            "plant_name": doc.get("plant_name"),
-            "customer_name": doc.get("customer_name"),
-            "site_name": doc.get("site_name"),
-            "site_address": doc.get("site_address"),
-            "grade": doc.get("grade"),
-            "quantity": doc.get("quantity"),
-            "tm_number": doc.get("tm_number"),
-            "driver_name": doc.get("driver_name"),
-            "driver_mobile": doc.get("driver_mobile"),
-            "batcher": doc.get("batcher"),
-            "supervisor": doc.get("supervisor"),
-            "quality_engineer": doc.get("quality_engineer"),
-            "remarks": doc.get("remarks"),
+            "id": str(doc["_id"]), "challan_number": doc.get("challan_number"),
+            "order_number": doc.get("order_number"), "plant_name": doc.get("plant_name"),
+            "customer_name": doc.get("customer_name"), "site_name": doc.get("site_name"),
+            "site_address": doc.get("site_address"), "grade": doc.get("grade"),
+            "quantity": doc.get("quantity"), "tm_number": doc.get("tm_number"),
+            "driver_name": doc.get("driver_name"), "driver_mobile": doc.get("driver_mobile"),
+            "batcher": doc.get("batcher"), "supervisor": doc.get("supervisor"),
+            "quality_engineer": doc.get("quality_engineer"), "remarks": doc.get("remarks"),
             "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
         }
     }
