@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import Constants from "expo-constants";
+import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 
 import { PlantData } from "./PlantCard";
 import { MapPlaceholder } from "./ui/MapPlaceholder";
@@ -39,8 +40,19 @@ function regionFor(plants: PlantData[], userLocation?: LatLng | null): Region | 
 
 export function PlantMap({ plants, userLocation, onSelectPlant }: Props) {
   const { colors } = useTheme();
+  const mapsConfigured = Boolean(Constants.expoConfig?.extra?.googleMapsAndroidConfigured);
   const mappedPlants = useMemo(() => plants.filter((plant) => validLatLng(plant)), [plants]);
   const initialRegion = useMemo(() => regionFor(mappedPlants, userLocation), [mappedPlants, userLocation]);
+
+  if (!mapsConfigured) {
+    return (
+      <MapPlaceholder
+        pins={mappedPlants.length}
+        label="Google Maps will activate after the Android Maps key is added to the build"
+        style={{ minHeight: 210 }}
+      />
+    );
+  }
 
   if (!initialRegion) {
     return (
