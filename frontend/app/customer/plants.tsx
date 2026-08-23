@@ -25,7 +25,11 @@ export default function CustomerPlants() {
     if (!q.trim()) return list;
     const t = q.toLowerCase();
     return list.filter(
-      (p) => p.name.toLowerCase().includes(t) || p.city.toLowerCase().includes(t) || (p.district || "").toLowerCase().includes(t),
+      (p) =>
+        (p.name || "").toLowerCase().includes(t) ||
+        (p.city || "").toLowerCase().includes(t) ||
+        (p.district || "").toLowerCase().includes(t) ||
+        (p.address || "").toLowerCase().includes(t),
     );
   }, [data, q]);
 
@@ -34,7 +38,9 @@ export default function CustomerPlants() {
       <View style={{ height: insets.top }} />
       <View style={styles.titleRow}>
         <AppText variant="title">Nearby Plants</AppText>
-        <AppText variant="caption">Only verified & active RMC plants are shown</AppText>
+        <AppText variant="caption">
+          All registered RMC plants are shown. Verification and operating status are displayed separately.
+        </AppText>
       </View>
 
       {error && !data ? (
@@ -50,12 +56,16 @@ export default function CustomerPlants() {
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.md, flexGrow: 1 }}
           ListHeaderComponent={
             <View style={{ gap: spacing.md, marginBottom: spacing.xs }}>
-              <MapPlaceholder pins={filtered.length} style={{ minHeight: 170 }} />
+              <MapPlaceholder
+                pins={filtered.length}
+                label="Map and distance sorting will activate with Google Maps"
+                style={{ minHeight: 170 }}
+              />
               <Input
                 testID="plants-search"
                 value={q}
                 onChangeText={setQ}
-                placeholder="Search by plant, city or district"
+                placeholder="Search by plant, city, district or address"
               />
             </View>
           }
@@ -72,7 +82,11 @@ export default function CustomerPlants() {
                 ))}
               </View>
             ) : (
-              <EmptyView icon="business-outline" title="No plants found" subtitle="Try a different search" />
+              <EmptyView
+                icon="business-outline"
+                title="No plants found"
+                subtitle={q.trim() ? "Try a different search" : "No registered RMC plants are available yet"}
+              />
             )
           }
         />

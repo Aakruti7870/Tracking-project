@@ -167,12 +167,18 @@ export default function CustomerHome() {
                       <View key={p.id} style={[styles.plantChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                         <View style={styles.rowBetween}>
                           <Ionicons name="business" size={16} color={colors.brand} />
-                          <Ionicons name="shield-checkmark" size={14} color={colors.success} />
+                          {p.verified ? (
+                            <Ionicons name="shield-checkmark" size={14} color={colors.success} />
+                          ) : (
+                            <Ionicons name="time-outline" size={14} color={colors.warning} />
+                          )}
                         </View>
                         <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={2}>
                           {p.name}
                         </AppText>
-                        <AppText variant="caption" numberOfLines={1}>{p.city}</AppText>
+                        <AppText variant="caption" numberOfLines={1}>
+                          {p.city} · {(p.status || "active").replace(/_/g, " ")}
+                        </AppText>
                       </View>
                     ))}
                   </ScrollView>
