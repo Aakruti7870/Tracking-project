@@ -13,6 +13,7 @@ from database import ensure_indexes
 from notifications import provider_status
 from routers import (
     auth,
+    business_ui,
     customer,
     driver,
     finance_ops,
@@ -75,6 +76,7 @@ app.include_router(staff.router)
 app.include_router(operator_ops.router)
 app.include_router(master_data.router)
 app.include_router(finance_ops.router)
+app.include_router(business_ui.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
