@@ -26,6 +26,28 @@ from security import require_role
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 customer_only = require_role(Role.CUSTOMER.value)
 
+# Discovery visibility and order eligibility are intentionally separate.
+# Customers should be able to discover registered RMC plants even while a
+# plant is inactive or awaiting verification. Only explicitly removed plants
+# are hidden from discovery; order creation remains protected below.
+CUSTOMER_HIDDEN_PLANT_STATUSES = ("deleted", "disabled")
+
+
+def _customer_visible_plant_filter() -> dict:
+    return {"status": {"$nin": list(CUSTOMER_HIDDEN_PLANT_STATUSES)}}
+
+
+def _plant_state(doc: dict) -> tuple[str, bool, bool]:
+    status = str(doc.get("status") or "active").lower()
+    verified = bool(doc.get("verified", False))
+    order_enabled = status == "active" and verified
+    return status, verified, order_enabled
+
+
+def _plant_discovery_sort_key(doc: dict) -> tuple[int, int, str]:
+    status, verified, order_enabled = _plant_state(doc)
+    return (0 if order_enabled else 1, 0 if verified else 1, str(doc.get("name") or "").lower())
+
 
 def _serialize_order(doc: dict) -> dict:
     return {
@@ -44,12 +66,13 @@ def _serialize_order(doc: dict) -> dict:
 
 
 def _serialize_plant(doc: dict) -> dict:
+    status, verified, order_enabled = _plant_state(doc)
     return {
         "id": str(doc["_id"]), "name": doc.get("name"), "city": doc.get("city"),
         "district": doc.get("district"), "address": doc.get("address"),
         "lat": doc.get("lat"), "lng": doc.get("lng"), "grades": doc.get("grades", []),
         "contact_phone": doc.get("contact_phone"), "service_area_km": doc.get("service_area_km"),
-        "verified": doc.get("verified", False),
+        "status": status, "verified": verified, "order_enabled": order_enabled,
     }
 
 
@@ -105,7 +128,8 @@ async def home(ctx: dict = Depends(customer_only)):
     kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
     my_orders = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(50)
     active = next((o for o in my_orders if o.get("status") in ACTIVE_STATUSES), None)
-    nearby = await plants.find({"status": "active", "verified": True}).limit(5).to_list(5)
+    visible_plants = await plants.find(_customer_visible_plant_filter()).to_list(500)
+    nearby = sorted(visible_plants, key=_plant_discovery_sort_key)[:5]
     unread = await notifications.count_documents({"user_id": uid, "read": False})
     return {
         "name": user.get("name"), "kyc_status": (kyc or {}).get("status", "NOT_STARTED"),
@@ -123,7 +147,8 @@ async def list_orders(ctx: dict = Depends(customer_only)):
 
 @router.get("/plants")
 async def nearby_plants(ctx: dict = Depends(customer_only)):
-    docs = await plants.find({"status": "active", "verified": True}).to_list(200)
+    docs = await plants.find(_customer_visible_plant_filter()).to_list(500)
+    docs.sort(key=_plant_discovery_sort_key)
     return {"plants": [_serialize_plant(p) for p in docs]}
 
 
@@ -242,7 +267,7 @@ async def cancel_order(order_id: str, ctx: dict = Depends(customer_only)):
 @router.get("/plants/{plant_id}")
 async def plant_detail(plant_id: str, ctx: dict = Depends(customer_only)):
     plant = await plants.find_one({"_id": await _oid(plant_id)})
-    if not plant or plant.get("status") != "active" or not plant.get("verified"):
+    if not plant or str(plant.get("status") or "active").lower() in CUSTOMER_HIDDEN_PLANT_STATUSES:
         raise HTTPException(404, "Plant not found")
     return _serialize_plant(plant)
 
