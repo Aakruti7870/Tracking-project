@@ -155,6 +155,7 @@ jobs:
     timeout-minutes: 40
     env:
       EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
       CI: "1"
     steps:
       - uses: actions/checkout@v4
