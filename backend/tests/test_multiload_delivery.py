@@ -4,12 +4,12 @@ import os
 import time
 import uuid
 
+from pymongo import MongoClient
 import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://tracking-verify.preview.emergentagent.com"
 API = f"{BASE_URL}/api"
 CUSTOMER = "+919000000001"
-DRIVER = "+919000000002"
 OWNER = "owner@trackmyrmc.test"
 FLEET = "fleet@trackmyrmc.test"
 
@@ -28,6 +28,34 @@ def _login(session, identifier):
     v = session.post(f"{API}/auth/verify-otp", json={"identifier": identifier, "code": code})
     assert v.status_code == 200, v.text
     return v.json()["access_token"]
+
+
+def _new_isolated_driver(session, plant_id):
+    """Create a disposable driver so other integration tests cannot hold its trip lock."""
+    phone = f"+919{uuid.uuid4().int % 1_000_000_000:09d}"
+    _login(session, phone)  # self-register a disposable user through the real auth flow
+
+    client = MongoClient(os.environ["MONGO_URL"])
+    try:
+        db = client[os.environ["DB_NAME"]]
+        updated = db.users.find_one_and_update(
+            {"phone": phone},
+            {"$set": {
+                "name": "Multi Load Test Driver",
+                "primary_role": "driver",
+                "roles": ["driver"],
+                "plant_id": plant_id,
+                "status": "active",
+            }},
+            return_document=True,
+        )
+        assert updated, "disposable driver registration was not persisted"
+        driver_id = str(updated["_id"])
+    finally:
+        client.close()
+
+    # Re-authenticate after the role update so the JWT contains the driver role.
+    return driver_id, _login(session, phone)
 
 
 def _tiny_jpeg():
@@ -99,11 +127,12 @@ def test_two_mixer_loads_finalize_one_commercial_order():
     s = requests.Session()
     customer = _login(s, CUSTOMER)
     owner = _login(s, OWNER)
-    driver = _login(s, DRIVER)
     fleet = _login(s, FLEET)
 
     plants = s.get(f"{API}/customer/plants", headers=_h(customer)).json()["plants"]
     plant = next(p for p in plants if "M25" in p["grades"])
+    driver_id, driver = _new_isolated_driver(s, plant["id"])
+
     created = s.post(
         f"{API}/customer/orders",
         headers=_h(customer),
@@ -133,8 +162,6 @@ def test_two_mixer_loads_finalize_one_commercial_order():
     complete = s.post(f"{API}/owner/orders/{order_id}/production/complete", headers=_h(owner))
     assert complete.status_code == 200, complete.text
 
-    drivers = s.get(f"{API}/owner/drivers", headers=_h(owner)).json()["drivers"]
-    driver_id = drivers[0]["id"]
     vehicle1 = _new_vehicle(s, fleet, 6)
     vehicle2 = _new_vehicle(s, fleet, 6)
 
