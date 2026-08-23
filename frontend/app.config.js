@@ -15,5 +15,9 @@ module.exports = ({ config }) => {
   return {
     ...config,
     android,
+    extra: {
+      ...(config.extra || {}),
+      googleMapsAndroidConfigured: Boolean(googleMapsAndroidKey),
+    },
   };
 };
