@@ -22,6 +22,7 @@ from database import (
     sessions,
     users,
 )
+from push_notifications import device_push_tokens
 from roles import Role
 from security import current_user, require_role
 
@@ -152,6 +153,7 @@ async def complete_deletion(
     await sessions.update_many({"user_id": request["user_id"]}, {"$set": {"revoked": True, "revoked_at": now}})
     await customer_sites.delete_many({"customer_id": request["user_id"]})
     await notifications.delete_many({"user_id": request["user_id"]})
+    await device_push_tokens.delete_many({"user_id": request["user_id"]})
     await account_deletion_requests.update_one(
         {"_id": request["_id"], "status": "PENDING"},
         {"$set": {

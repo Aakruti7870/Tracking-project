@@ -63,10 +63,12 @@ jobs:
           python - <<'PY'
           import business_models
           import database
+          import push_notifications
           import server
           from routers import account_deletion, business_ui, finance_ops, loads, master_data, operator_ops
           assert server.app is not None
           assert business_models.PlantBusinessProfileBody
+          assert push_notifications.push.name == "firebase_fcm_v1"
           assert account_deletion.router and business_ui.router and finance_ops.router
           assert loads.router and master_data.router and operator_ops.router
           print("full schema/router import OK")
@@ -117,16 +119,21 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Validate mobile identities
+      - name: Validate mobile identities and Firebase client
         working-directory: frontend
         run: |
           node - <<'NODE'
           const cfg = require('./app.json').expo;
+          const firebase = require('./google-services.json');
           if (cfg.android.package !== 'com.trackmyrmc.concreteking') throw new Error('Android package mismatch');
           if (cfg.ios.bundleIdentifier !== 'com.trackmyrmc.concreteking') throw new Error('iOS bundle identifier mismatch');
           if (cfg.android.versionCode !== 61) throw new Error('versionCode mismatch');
           if (cfg.version !== '2.0.3') throw new Error('version mismatch');
-          console.log('mobile identity OK');
+          if (cfg.android.googleServicesFile !== './google-services.json') throw new Error('Firebase config path mismatch');
+          const pkg = firebase.client?.[0]?.client_info?.android_client_info?.package_name;
+          if (pkg !== cfg.android.package) throw new Error('Firebase Android package mismatch');
+          if (firebase.project_info?.project_id !== 'track-my-rmc') throw new Error('Firebase project mismatch');
+          console.log('mobile identity + Firebase client OK');
           NODE
       - name: TypeScript
         working-directory: frontend
@@ -181,15 +188,17 @@ jobs:
       - name: Generate Android project
         working-directory: frontend
         run: npx expo prebuild --platform android --clean --no-install
-      - name: Verify generated Android identity
+      - name: Verify generated Android identity and Firebase wiring
         working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
           gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
           test -n "$gradle_file"
+          test -f android/app/google-services.json
           grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
           grep -E "versionCode[[:space:]=]+61" "$gradle_file" >/dev/null
+          grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
       - name: Compile debug APK
         working-directory: frontend/android
         run: |
@@ -216,7 +225,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(\.env($|\.)|credentials\.json$|\.credentials($|/)|.*\.(key|pem|p12|pfx|jks|keystore)$)' | grep -v -E '(^|/)\.env\.example$' || true)
+          bad=$(git ls-files | grep -E '(^|/)(\.env($|\.)|credentials\.json$|firebase-adminsdk[^/]*\.json$|[^/]*service[-_]?account[^/]*\.json$|\.credentials($|/)|.*\.(key|pem|p12|pfx|jks|keystore)$)' | grep -v -E '(^|/)\.env\.example$' || true)
           if [ -n "$bad" ]; then
             echo "Tracked secret/signing files are forbidden:"
             echo "$bad"
