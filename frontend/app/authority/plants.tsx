@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -36,15 +36,30 @@ export default function AuthorityPlants() {
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<{ requests: ListingRequest[] }>("/plant-discovery/requests");
   const [busy, setBusy] = useState<string | null>(null);
+  const [owners, setOwners] = useState<Record<string, { name: string; email: string; phone: string }>>({});
+
+  const updateOwner = (id: string, field: "name" | "email" | "phone", value: string) => {
+    setOwners((current) => ({
+      ...current,
+      [id]: { ...(current[id] || { name: "", email: "", phone: "" }), [field]: value },
+    }));
+  };
 
   const review = async (request: ListingRequest, action: "approve" | "reject") => {
     if (!token) return;
+    const owner = owners[request.id] || { name: "", email: "", phone: "" };
+    if (action === "approve" && (!owner.name.trim() || (!owner.email.trim() && !owner.phone.trim()))) {
+      toast("Enter the owner name and email or mobile number", "error");
+      return;
+    }
     setBusy(`${request.id}:${action}`);
     try {
       await apiPost(
         `/plant-discovery/requests/${request.id}/${action}`,
         token,
-        action === "reject" ? { reason: "Not approved by Authority" } : undefined,
+        action === "reject"
+          ? { reason: "Not approved by Authority" }
+          : { name: owner.name.trim(), email: owner.email.trim() || undefined, phone: owner.phone.trim() || undefined },
       );
       toast(action === "approve" ? "Plant listing approved" : "Plant listing rejected", "success");
       refetch();
@@ -109,6 +124,40 @@ export default function AuthorityPlants() {
                     </AppText>
                   </View>
                 </View>
+                <View style={{ gap: spacing.sm }}>
+                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface }}>
+                    Assign first Plant Owner
+                  </AppText>
+                  <TextInput
+                    value={owners[request.id]?.name || ""}
+                    onChangeText={(value) => updateOwner(request.id, "name", value)}
+                    placeholder="Owner full name"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    autoCapitalize="words"
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                  />
+                  <TextInput
+                    value={owners[request.id]?.email || ""}
+                    onChangeText={(value) => updateOwner(request.id, "email", value)}
+                    placeholder="Owner email"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                  />
+                  <TextInput
+                    value={owners[request.id]?.phone || ""}
+                    onChangeText={(value) => updateOwner(request.id, "phone", value)}
+                    placeholder="Owner mobile (optional when email is entered)"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="phone-pad"
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                  />
+                  <AppText variant="caption">
+                    A secure Plant Owner account will be created and linked to this plant. The owner signs in using OTP.
+                  </AppText>
+                </View>
                 <View style={styles.actions}>
                   <Pressable
                     testID={`reject-listing-${request.id}`}
@@ -154,6 +203,7 @@ const styles = StyleSheet.create({
   sectionTitle: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   count: { minWidth: 26, height: 26, paddingHorizontal: 7, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   icon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  input: { minHeight: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontFamily: fonts.medium, fontSize: fontSize.sm },
   actions: { flexDirection: "row", gap: spacing.sm, justifyContent: "flex-end", flexWrap: "wrap" },
   action: {
     minHeight: 38,
