@@ -22,6 +22,12 @@ from notifications import record_notification
 from order_service import CANCELLED, DRAFT, PENDING, transition_order
 from roles import Role
 from security import require_role
+from services.digilocker import (
+    DigiLockerConfigurationError,
+    DigiLockerProviderError,
+    get_digilocker_session_status,
+    initiate_digilocker_session,
+)
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 customer_only = require_role(Role.CUSTOMER.value)
@@ -154,8 +160,48 @@ async def nearby_plants(ctx: dict = Depends(customer_only)):
 
 @router.get("/kyc")
 async def get_kyc(ctx: dict = Depends(customer_only)):
-    kyc = await kyc_profiles.find_one({"user_id": ctx["user_id"], "purpose": "CUSTOMER"})
-    return {"status": (kyc or {}).get("status", "NOT_STARTED")}
+    uid = ctx["user_id"]
+    kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
+    if not kyc:
+        return {"status": "NOT_STARTED"}
+
+    status = kyc.get("status", "NOT_STARTED")
+    session_id = kyc.get("provider_session_id")
+    if status == "IN_PROGRESS" and session_id:
+        try:
+            provider = await get_digilocker_session_status(session_id)
+        except (DigiLockerConfigurationError, DigiLockerProviderError):
+            # Never convert a transient provider/configuration problem into a
+            # successful or rejected KYC decision.
+            return {"status": "IN_PROGRESS", "provider": "DIGILOCKER", "refresh_failed": True}
+
+        if provider["status"] == "SUCCEEDED":
+            status = "PENDING"
+            await kyc_profiles.update_one(
+                {"_id": kyc["_id"], "status": "IN_PROGRESS"},
+                {"$set": {
+                    "status": status,
+                    "provider_status": provider["provider_status"],
+                    "provider_transaction_id": provider["transaction_id"],
+                    "consent_verified_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+            await write_audit(uid, "kyc.digilocker.completed", "kyc_profile", str(kyc["_id"]), {"purpose": "CUSTOMER"})
+        elif provider["status"] == "FAILED":
+            status = "REQUIRES_REVERIFICATION"
+            await kyc_profiles.update_one(
+                {"_id": kyc["_id"], "status": "IN_PROGRESS"},
+                {"$set": {
+                    "status": status,
+                    "provider_status": provider["provider_status"],
+                    "provider_transaction_id": provider["transaction_id"],
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+            await write_audit(uid, "kyc.digilocker.failed", "kyc_profile", str(kyc["_id"]), {"purpose": "CUSTOMER"})
+
+    return {"status": status, "provider": "DIGILOCKER"}
 
 
 @router.post("/kyc/start")
@@ -164,12 +210,35 @@ async def start_kyc(ctx: dict = Depends(customer_only)):
     existing = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
     if existing and existing.get("status") == "VERIFIED":
         raise HTTPException(409, "KYC already verified")
+    if existing and existing.get("status") == "PENDING":
+        raise HTTPException(409, "KYC is awaiting Authority review")
+
+    try:
+        session = await initiate_digilocker_session()
+    except DigiLockerConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except DigiLockerProviderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
     await kyc_profiles.update_one(
         {"user_id": uid, "purpose": "CUSTOMER"},
-        {"$set": {"status": "PENDING", "updated_at": datetime.now(timezone.utc)}}, upsert=True,
+        {"$set": {
+            "status": "IN_PROGRESS",
+            "provider": "DIGILOCKER",
+            "provider_session_id": session["session_id"],
+            "provider_transaction_id": session["transaction_id"],
+            "reject_reason": None,
+            "updated_at": now,
+        }, "$setOnInsert": {"created_at": now}},
+        upsert=True,
     )
-    await write_audit(uid, "kyc.start", "kyc_profile", uid, {"purpose": "CUSTOMER"})
-    return {"status": "PENDING"}
+    await write_audit(uid, "kyc.digilocker.start", "kyc_profile", uid, {"purpose": "CUSTOMER"})
+    return {
+        "status": "IN_PROGRESS",
+        "provider": "DIGILOCKER",
+        "authorization_url": session["authorization_url"],
+    }
 
 
 async def _oid(value: str):

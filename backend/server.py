@@ -4,8 +4,10 @@ Layered architecture: config -> database -> models -> security/rbac -> services
 -> routers. All product/business routes are mounted under /api.
 """
 import logging
+import os
 
 from fastapi import APIRouter, FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from config import settings
@@ -43,6 +45,35 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_dev else None,
     openapi_url="/openapi.json" if settings.is_dev else None,
 )
+
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+async def android_asset_links():
+    fingerprint = os.getenv("PLAY_SIGNING_SHA256", "").strip().upper()
+    if not fingerprint:
+        return JSONResponse(status_code=503, content={"detail": "App Link verification is not configured"})
+    return [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.trackmyrmc.concreteking",
+            "sha256_cert_fingerprints": [fingerprint],
+        },
+    }]
+
+
+@app.get("/kyc/return", response_class=HTMLResponse, include_in_schema=False)
+async def kyc_return():
+    # Android App Links open the installed app before this fallback is served.
+    # This page remains useful when consent finishes in a browser without the app.
+    return """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Return to TrackMyRMC</title></head>
+<body style="font-family:system-ui;background:#101010;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0">
+<main style="text-align:center;padding:24px"><h1>KYC consent received</h1>
+<p>Return to TrackMyRMC and tap Refresh Status.</p>
+<a href="trackmyrmc://kyc" style="color:#dfff62">Open TrackMyRMC</a></main></body></html>"""
 
 
 @app.get("/health")
