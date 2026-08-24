@@ -5,6 +5,8 @@ flows exercise the same persisted rate-card, mix-design and inventory paths used
 by production instead of relying on hard-coded fallbacks.
 """
 import logging
+import os
+import re
 from datetime import date, datetime, timezone
 
 from bson import ObjectId
@@ -40,6 +42,23 @@ DEMO_ACCOUNTS = [
     {"name": "Arjun Authority", "email": "authority@trackmyrmc.test", "role": Role.AUTHORITY.value},
     {"name": "Central Admin", "email": "central@trackmyrmc.test", "role": Role.CENTRAL_ADMIN.value},
 ]
+
+_EMAIL_RE = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+
+
+def _preview_accounts() -> list[dict]:
+    accounts = list(DEMO_ACCOUNTS)
+    authority_email = os.environ.get("PREVIEW_AUTHORITY_EMAIL", "").strip().lower()
+    if authority_email:
+        if not _EMAIL_RE.fullmatch(authority_email):
+            raise RuntimeError("PREVIEW_AUTHORITY_EMAIL must be a valid email address")
+        accounts.append({
+            "name": os.environ.get("PREVIEW_AUTHORITY_NAME", "Preview Authority").strip() or "Preview Authority",
+            "email": authority_email,
+            "role": Role.AUTHORITY.value,
+        })
+    return accounts
+
 
 PLANT_STAFF_ROLES = {
     Role.ADMIN.value,
@@ -120,7 +139,7 @@ DEMO_MIX_DESIGNS = {
 
 async def run_seed() -> None:
     user_ids: dict[str, str] = {}
-    for acc in DEMO_ACCOUNTS:
+    for acc in _preview_accounts():
         value = acc.get("email") or acc.get("phone")
         key = identifier_key(value.lower() if "@" in value else value)
         existing = await users.find_one({"identifier_keys": key})
