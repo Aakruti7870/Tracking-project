@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 
 from services.digilocker import (
@@ -25,10 +26,9 @@ def test_digilocker_rejects_non_https_urls(monkeypatch):
         _settings()
 
 
-@pytest.mark.asyncio
-async def test_digilocker_rejects_unsafe_session_id():
+def test_digilocker_rejects_unsafe_session_id():
     with pytest.raises(DigiLockerProviderError):
-        await get_digilocker_session_status("../credentials")
+        asyncio.run(get_digilocker_session_status("../credentials"))
 
 
 def test_digilocker_accepts_https_configuration(monkeypatch):
