@@ -43,7 +43,7 @@ DEMO_ACCOUNTS = [
     {"name": "Central Admin", "email": "central@trackmyrmc.test", "role": Role.CENTRAL_ADMIN.value},
 ]
 
-_EMAIL_RE = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _preview_accounts() -> list[dict]:
