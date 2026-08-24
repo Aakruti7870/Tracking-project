@@ -25,6 +25,7 @@ from routers import (
     notify,
     operator_ops,
     owner,
+    plant_discovery,
     staff,
     storage,
 )
@@ -82,6 +83,7 @@ app.include_router(business_ui.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
+app.include_router(plant_discovery.router)
 app.include_router(storage.router)
 
 _is_wildcard_cors = "*" in settings.CORS_ORIGINS
