@@ -132,27 +132,27 @@ export default function AuthorityPlants() {
                     value={owners[request.id]?.name || ""}
                     onChangeText={(value) => updateOwner(request.id, "name", value)}
                     placeholder="Owner full name"
-                    placeholderTextColor={colors.onSurfaceMuted}
+                    placeholderTextColor={colors.onSurfaceTertiary}
                     autoCapitalize="words"
-                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
                   />
                   <TextInput
                     value={owners[request.id]?.email || ""}
                     onChangeText={(value) => updateOwner(request.id, "email", value)}
                     placeholder="Owner email"
-                    placeholderTextColor={colors.onSurfaceMuted}
+                    placeholderTextColor={colors.onSurfaceTertiary}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
                   />
                   <TextInput
                     value={owners[request.id]?.phone || ""}
                     onChangeText={(value) => updateOwner(request.id, "phone", value)}
                     placeholder="Owner mobile (optional when email is entered)"
-                    placeholderTextColor={colors.onSurfaceMuted}
+                    placeholderTextColor={colors.onSurfaceTertiary}
                     keyboardType="phone-pad"
-                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
                   />
                   <AppText variant="caption">
                     A secure Plant Owner account will be created and linked to this plant. The owner signs in using OTP.
