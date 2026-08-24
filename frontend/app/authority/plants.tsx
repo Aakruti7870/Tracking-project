@@ -41,7 +41,7 @@ export default function AuthorityPlants() {
   const updateOwner = (id: string, field: "name" | "email" | "phone", value: string) => {
     setOwners((current) => ({
       ...current,
-      [id]: { name: "", email: "", phone: "", ...current[id], [field]: value },
+      [id]: { ...(current[id] || { name: "", email: "", phone: "" }), [field]: value },
     }));
   };
 
