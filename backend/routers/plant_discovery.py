@@ -128,6 +128,8 @@ async def approve_listing(
 
     place_id = req.get("google_place_id")
     existing = await plants.find_one({"google_place_id": place_id})
+    if existing and existing.get("owner_id") and body:
+        raise HTTPException(409, "Plant already has an owner; use the controlled owner-replacement flow")
     now = datetime.now(timezone.utc)
     owner = await _provision_plant_owner(body) if body else None
     if existing:
