@@ -415,6 +415,16 @@ async def create_receiving_record(body: CustomerReceivingRecordBody, ctx: dict =
             raise HTTPException(422, "Customer order not found")
         if order.get("site_id") and order.get("site_id") != body.site_id:
             raise HTTPException(422, "Order does not belong to this saved site")
+        if order.get("grade") != body.grade:
+            raise HTTPException(422, "Receiving grade must match the linked order")
+    recorded_times = [body.arrival_time, body.unloading_start_time, body.unloading_end_time]
+    present_times = [value for value in recorded_times if value]
+    if len(present_times) > 1 and present_times != sorted(present_times):
+        raise HTTPException(422, "Receiving times must be in chronological order")
+    if body.sample_cast_date and body.sample_cast_date > datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Sample casting date cannot be in the future")
+    allowed_checks = {"challan", "tm", "seal", "time", "visual", "access"}
+    checklist = {key: bool(value) for key, value in body.checklist.items() if key in allowed_checks}
     cube_ids = [value.strip() for value in body.cube_sample_ids if value.strip()]
     if len(cube_ids) != len(set(value.lower() for value in cube_ids)):
         raise HTTPException(422, "Cube sample IDs must be unique within this record")
@@ -422,6 +432,7 @@ async def create_receiving_record(body: CustomerReceivingRecordBody, ctx: dict =
     doc = {
         **body.model_dump(mode="json"),
         "cube_sample_ids": cube_ids,
+        "checklist": checklist,
         "customer_id": ctx["user_id"],
         "site_name": site.get("name"),
         "site_address": site.get("address"),
