@@ -64,7 +64,9 @@ def test_google_place_summary_normalizes_identity_location_and_address_parts():
             "businessStatus": "OPERATIONAL",
             "addressComponents": [
                 {"longText": "Taloja", "types": ["locality"]},
+                {"longText": "Panvel", "types": ["administrative_area_level_3"]},
                 {"longText": "Raigad", "types": ["administrative_area_level_2"]},
+                {"longText": "Maharashtra", "types": ["administrative_area_level_1"]},
             ],
         }
     )
@@ -72,7 +74,9 @@ def test_google_place_summary_normalizes_identity_location_and_address_parts():
     assert result["place_id"] == "ChIJ-rmc-1"
     assert result["name"] == "Example Ready Mix Concrete"
     assert result["city"] == "Taloja"
+    assert result["taluka"] == "Panvel"
     assert result["district"] == "Raigad"
+    assert result["state"] == "Maharashtra"
     assert result["lat"] == 19.076
     assert result["lng"] == 73.119
 
@@ -93,3 +97,18 @@ def test_distance_and_duration_labels_are_deterministic():
     assert maps._fmt_distance(1250) == "1.2 km"
     assert maps._fmt_duration(600) == "10 min"
     assert maps._fmt_duration(3900) == "1h 5m"
+
+
+
+def test_authority_google_discovery_degrades_safely_without_server_key(monkeypatch):
+    monkeypatch.delenv("GOOGLE_MAPS_KEY", raising=False)
+    result = asyncio.run(
+        maps.authority_discover_rmc_plants(
+            state="Maharashtra",
+            district="Raigad",
+            taluka="Panvel",
+            page_token=None,
+            ctx={"role": "authority"},
+        )
+    )
+    assert result == {"configured": False, "places": [], "next_page_token": None}

@@ -3,7 +3,7 @@ import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, Vi
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { apiPost } from "@/src/api/client";
+import { apiGet, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
@@ -17,6 +17,13 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type UnownedPlant = { id: string; name: string; city?: string | null; address?: string | null; status?: string | null };
+type GooglePlant = {
+  place_id: string; name: string; address?: string | null; city?: string | null;
+  taluka?: string | null; district?: string | null; state?: string | null;
+  lat: number; lng: number; google_maps_uri?: string | null; business_status?: string | null;
+  registered: boolean; request_status?: string | null;
+};
+type GoogleSearchResponse = { configured: boolean; places: GooglePlant[]; next_page_token?: string | null };
 
 type ListingRequest = {
   id: string;
@@ -24,7 +31,9 @@ type ListingRequest = {
   name: string;
   address?: string | null;
   city?: string | null;
+  taluka?: string | null;
   district?: string | null;
+  state?: string | null;
   contact_phone?: string | null;
   business_status?: string | null;
   requested_role?: string | null;
@@ -42,6 +51,75 @@ export default function AuthorityPlants() {
   const [busy, setBusy] = useState<string | null>(null);
   const [owners, setOwners] = useState<Record<string, { name: string; email: string; phone: string }>>({});
   const [selectedPlant, setSelectedPlant] = useState<StaffItem | null>(null);
+  const [stateName, setStateName] = useState("Maharashtra");
+  const [districtName, setDistrictName] = useState("");
+  const [talukaName, setTalukaName] = useState("");
+  const [googleResults, setGoogleResults] = useState<GooglePlant[]>([]);
+  const [selectedPlaces, setSelectedPlaces] = useState<string[]>([]);
+  const [selectedRequests, setSelectedRequests] = useState<string[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const discoverGooglePlants = async () => {
+    if (!token || !stateName.trim() || !districtName.trim() || !talukaName.trim()) {
+      toast("Enter State, District and Taluka", "error");
+      return;
+    }
+    setDiscovering(true);
+    try {
+      const result = await apiGet<GoogleSearchResponse>(
+        `/maps/authority/rmc-plants?state=${encodeURIComponent(stateName.trim())}&district=${encodeURIComponent(districtName.trim())}&taluka=${encodeURIComponent(talukaName.trim())}`,
+        token,
+      );
+      if (!result.configured) {
+        toast("Google Places is not configured on the server", "error");
+        setGoogleResults([]);
+      } else {
+        setGoogleResults(result.places || []);
+        setSelectedPlaces([]);
+        toast(`${result.places?.length || 0} Google plants found`, "success");
+      }
+    } catch (e: any) {
+      toast(e?.detail || "Google plant discovery failed", "error");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const importSelectedPlaces = async () => {
+    if (!token || !selectedPlaces.length) return;
+    setBulkBusy(true);
+    try {
+      const result = await apiPost<{ imported: any[]; skipped: any[] }>("/plant-discovery/requests/bulk-import", token, { place_ids: selectedPlaces });
+      toast(`${result.imported.length} plant${result.imported.length === 1 ? "" : "s"} sent to Pending Review`, "success");
+      setGoogleResults((rows) => rows.map((row) => selectedPlaces.includes(row.place_id) ? { ...row, request_status: "PENDING" } : row));
+      setSelectedPlaces([]);
+      refetch();
+    } catch (e: any) {
+      toast(e?.detail || "Bulk import failed", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const approveSelectedRequests = async () => {
+    if (!token || !selectedRequests.length) return;
+    setBulkBusy(true);
+    try {
+      const result = await apiPost<{ approved: any[]; skipped: any[] }>("/plant-discovery/requests/bulk-approve", token, { request_ids: selectedRequests });
+      toast(`${result.approved.length} plant${result.approved.length === 1 ? "" : "s"} approved into setup mode`, "success");
+      setSelectedRequests([]);
+      refetch();
+      refetchUnowned();
+    } catch (e: any) {
+      toast(e?.detail || "Bulk approval failed", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const togglePlace = (id: string) => setSelectedPlaces((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  const toggleRequest = (id: string) => setSelectedRequests((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
 
   const updateOwner = (id: string, field: "name" | "email" | "phone", value: string) => {
     setOwners((current) => ({
@@ -117,6 +195,55 @@ export default function AuthorityPlants() {
           </AppText>
         </View>
 
+        <Card style={{ gap: spacing.md }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
+              <Ionicons name="logo-google" size={20} color={colors.onBrandSoft} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <AppText variant="heading">Discover RMC Plants on Google</AppText>
+              <AppText variant="caption">Search by State, District and Taluka, then select multiple verified business locations.</AppText>
+            </View>
+          </View>
+          <View style={styles.locationRow}>
+            <TextInput testID="google-state" value={stateName} onChangeText={setStateName} placeholder="State" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.locationInput, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+            <TextInput testID="google-district" value={districtName} onChangeText={setDistrictName} placeholder="District" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.locationInput, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+            <TextInput testID="google-taluka" value={talukaName} onChangeText={setTalukaName} placeholder="Taluka" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.locationInput, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+          </View>
+          <Pressable testID="authority-google-search" onPress={discoverGooglePlants} disabled={discovering || bulkBusy} style={[styles.action, { alignSelf: "stretch", borderColor: colors.brand, backgroundColor: colors.brand }]}>
+            <Ionicons name="search" size={17} color={colors.onBrand} />
+            <AppText style={{ fontFamily: fonts.semibold, color: colors.onBrand }}>{discovering ? "Searching Google…" : "Find RMC Plants"}</AppText>
+          </Pressable>
+          {googleResults.length ? (
+            <View style={{ gap: spacing.sm }}>
+              <View style={styles.sectionTitle}>
+                <AppText variant="label">{googleResults.length} Google result{googleResults.length === 1 ? "" : "s"}</AppText>
+                <Pressable onPress={() => setSelectedPlaces(googleResults.filter((row) => !row.registered && row.request_status !== "PENDING" && row.request_status !== "APPROVED").map((row) => row.place_id))}>
+                  <AppText style={{ color: colors.brand, fontFamily: fonts.semibold, fontSize: 12 }}>Select available</AppText>
+                </Pressable>
+              </View>
+              {googleResults.map((place) => {
+                const unavailable = place.registered || place.request_status === "PENDING" || place.request_status === "APPROVED";
+                const selected = selectedPlaces.includes(place.place_id);
+                return (
+                  <Pressable key={place.place_id} disabled={unavailable} onPress={() => togglePlace(place.place_id)} style={[styles.googleResult, { borderColor: selected ? colors.brand : colors.border, backgroundColor: selected ? colors.brandSoft : colors.surfaceSecondary, opacity: unavailable ? 0.65 : 1 }]}>
+                    <Ionicons name={unavailable ? "checkmark-circle" : selected ? "checkbox" : "square-outline"} size={21} color={unavailable ? colors.success : selected ? colors.brand : colors.onSurfaceTertiary} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }} numberOfLines={1}>{place.name}</AppText>
+                      <AppText variant="caption" numberOfLines={2}>{place.address || [place.taluka || place.city, place.district, place.state].filter(Boolean).join(", ")}</AppText>
+                      <AppText variant="caption" color={unavailable ? colors.success : colors.warning}>{place.registered ? "Already registered" : place.request_status === "PENDING" ? "Already pending review" : place.request_status === "APPROVED" ? "Already approved" : "Available to import"}</AppText>
+                    </View>
+                  </Pressable>
+                );
+              })}
+              <Pressable testID="bulk-import-google-plants" disabled={!selectedPlaces.length || bulkBusy} onPress={importSelectedPlaces} style={[styles.action, { alignSelf: "stretch", borderColor: colors.brand, backgroundColor: selectedPlaces.length ? colors.brand : colors.surfaceTertiary }]}>
+                <Ionicons name="cloud-download-outline" size={17} color={selectedPlaces.length ? colors.onBrand : colors.onSurfaceTertiary} />
+                <AppText style={{ fontFamily: fonts.semibold, color: selectedPlaces.length ? colors.onBrand : colors.onSurfaceTertiary }}>{bulkBusy ? "Importing…" : `Import ${selectedPlaces.length} to Pending Review`}</AppText>
+              </Pressable>
+            </View>
+          ) : null}
+        </Card>
+
         <View style={{ gap: spacing.sm }}>
           <View style={styles.sectionTitle}>
             <AppText variant="heading">Pending Google listings</AppText>
@@ -124,6 +251,17 @@ export default function AuthorityPlants() {
               <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onBrandSoft }}>{requests.length}</AppText>
             </View>
           </View>
+          {requests.length ? (
+            <View style={styles.bulkRow}>
+              <Pressable onPress={() => setSelectedRequests(selectedRequests.length === requests.length ? [] : requests.map((row) => row.id))}>
+                <AppText style={{ color: colors.brand, fontFamily: fonts.semibold, fontSize: 12 }}>{selectedRequests.length === requests.length ? "Clear selection" : "Select all pending"}</AppText>
+              </Pressable>
+              <Pressable testID="bulk-approve-google-listings" disabled={!selectedRequests.length || bulkBusy} onPress={approveSelectedRequests} style={[styles.action, { borderColor: colors.brand, backgroundColor: selectedRequests.length ? colors.brand : colors.surfaceTertiary }]}>
+                <Ionicons name="checkmark-done-outline" size={16} color={selectedRequests.length ? colors.onBrand : colors.onSurfaceTertiary} />
+                <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: selectedRequests.length ? colors.onBrand : colors.onSurfaceTertiary }}>{bulkBusy ? "Approving…" : `Approve selected (${selectedRequests.length})`}</AppText>
+              </Pressable>
+            </View>
+          ) : null}
 
           {error && !data ? (
             <ErrorView message={error} onRetry={reload} />
@@ -141,6 +279,9 @@ export default function AuthorityPlants() {
             requests.map((request) => (
               <Card key={request.id} style={{ gap: spacing.md }}>
                 <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" }}>
+                  <Pressable testID={`select-request-${request.id}`} onPress={() => toggleRequest(request.id)} hitSlop={8}>
+                    <Ionicons name={selectedRequests.includes(request.id) ? "checkbox" : "square-outline"} size={22} color={selectedRequests.includes(request.id) ? colors.brand : colors.onSurfaceTertiary} />
+                  </Pressable>
                   <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
                     <Ionicons name="business-outline" size={19} color={colors.onBrandSoft} />
                   </View>
@@ -316,6 +457,10 @@ export default function AuthorityPlants() {
 
 const styles = StyleSheet.create({
   sectionTitle: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  locationRow: { flexDirection: "row", gap: spacing.sm },
+  locationInput: { flex: 1, minHeight: 44, minWidth: 0, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.sm, fontFamily: fonts.medium, fontSize: 12 },
+  googleResult: { minHeight: 70, flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
+  bulkRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, flexWrap: "wrap" },
   count: { minWidth: 26, height: 26, paddingHorizontal: 7, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   icon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   input: { minHeight: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontFamily: fonts.medium, fontSize: fontSize.sm },

@@ -114,7 +114,7 @@ export default function CustomerMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · 2.0.6 (64)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · 2.0.7 (65)</AppText>
       </ScrollView>
     </View>
   );

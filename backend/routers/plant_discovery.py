@@ -9,6 +9,7 @@ from pymongo.errors import DuplicateKeyError
 from audit import write_audit
 from database import plant_listing_requests, plants, users
 from notifications import record_notification
+from routers.maps import _fetch_place_detail, _key
 from models import User
 from roles import Role
 from security import identifier_key, normalize_identifier, require_role
@@ -90,7 +91,9 @@ def _serialize(doc: dict) -> dict:
         "name": doc.get("name"),
         "address": doc.get("address"),
         "city": doc.get("city"),
+        "taluka": doc.get("taluka"),
         "district": doc.get("district"),
+        "state": doc.get("state"),
         "lat": doc.get("lat"),
         "lng": doc.get("lng"),
         "contact_phone": doc.get("contact_phone"),
@@ -110,6 +113,82 @@ def _serialize(doc: dict) -> dict:
 async def list_requests(ctx: dict = Depends(reviewer_only)):
     docs = await plant_listing_requests.find({"status": "PENDING"}).sort("updated_at", -1).to_list(500)
     return {"requests": [_serialize(d) for d in docs]}
+
+
+class BulkGoogleImportBody(BaseModel):
+    place_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class BulkApproveBody(BaseModel):
+    request_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.post("/requests/bulk-import")
+async def bulk_import_google_places(body: BulkGoogleImportBody, ctx: dict = Depends(reviewer_only)):
+    """Import selected Google places into Pending Review, never directly into plants."""
+    if not _key():
+        raise HTTPException(409, "Maps NOT_CONFIGURED")
+    place_ids = list(dict.fromkeys(value.strip() for value in body.place_ids if value.strip()))
+    imported = []
+    skipped = []
+    now = datetime.now(timezone.utc)
+    for place_id in place_ids:
+        if await plants.find_one({"google_place_id": place_id}):
+            skipped.append({"place_id": place_id, "reason": "ALREADY_REGISTERED"})
+            continue
+        existing = await plant_listing_requests.find_one({"google_place_id": place_id})
+        if existing and existing.get("status") in ("PENDING", "APPROVED"):
+            skipped.append({"place_id": place_id, "reason": existing.get("status")})
+            continue
+        detail = await _fetch_place_detail(place_id)
+        payload = {
+            "google_place_id": place_id,
+            "name": detail.get("name"),
+            "address": detail.get("address"),
+            "city": detail.get("city"),
+            "taluka": detail.get("taluka"),
+            "district": detail.get("district"),
+            "state": detail.get("state"),
+            "lat": detail.get("lat"),
+            "lng": detail.get("lng"),
+            "contact_phone": detail.get("contact_phone"),
+            "google_maps_uri": detail.get("google_maps_uri"),
+            "business_status": detail.get("business_status"),
+            "source": "google_places_authority_bulk",
+            "status": "PENDING",
+            "requested_by": ctx["user_id"],
+            "requested_role": ctx.get("role"),
+            "claim_requested": False,
+            "updated_at": now,
+        }
+        if existing:
+            await plant_listing_requests.update_one({"_id": existing["_id"]}, {"$set": payload})
+            request_id = str(existing["_id"])
+        else:
+            payload["created_at"] = now
+            result = await plant_listing_requests.insert_one(payload)
+            request_id = str(result.inserted_id)
+        await write_audit(
+            ctx["user_id"], "plant_listing.bulk_import", "plant_listing_request", request_id,
+            {"google_place_id": place_id},
+        )
+        imported.append({"place_id": place_id, "request_id": request_id})
+    return {"status": "PENDING_REVIEW", "imported": imported, "skipped": skipped}
+
+
+@router.post("/requests/bulk-approve")
+async def bulk_approve_listings(body: BulkApproveBody, ctx: dict = Depends(reviewer_only)):
+    """Approve reviewed requests without assigning owners; plants enter pending_setup."""
+    request_ids = list(dict.fromkeys(body.request_ids))
+    approved = []
+    skipped = []
+    for request_id in request_ids:
+        try:
+            result = await approve_listing(request_id, None, ctx)
+            approved.append({"request_id": request_id, "plant_id": result.get("plant_id")})
+        except HTTPException as exc:
+            skipped.append({"request_id": request_id, "reason": str(exc.detail)})
+    return {"status": "COMPLETED", "approved": approved, "skipped": skipped}
 
 
 @router.post("/requests/{request_id}/approve")
@@ -140,7 +219,9 @@ async def approve_listing(
         plant_doc = {
             "name": req.get("name"),
             "city": req.get("city"),
+            "taluka": req.get("taluka"),
             "district": req.get("district"),
+            "state": req.get("state"),
             "address": req.get("address"),
             "lat": req.get("lat"),
             "lng": req.get("lng"),
