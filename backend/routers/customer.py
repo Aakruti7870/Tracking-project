@@ -27,7 +27,7 @@ from database import (
     vehicle_locations,
     next_sequence,
 )
-from business_models import CustomerPourPlanBody, CustomerReceivingRecordBody
+from business_models import CustomerCubeTestResultBody, CustomerPourPlanBody, CustomerReceivingRecordBody
 from models import CreateOrderBody
 from notifications import record_notification
 from order_service import CANCELLED, DRAFT, PENDING, transition_order
@@ -362,6 +362,8 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             "delivered_m3": round(sum(float(doc.get("delivered_quantity") or doc.get("quantity") or 0) for doc in delivered), 2),
             "pour_plans": len(site_plans),
             "receiving_records": len(site_receiving),
+            "pending_cube_tests": sum(_serialize_receiving_record(doc)["pending_cube_tests"] for doc in site_receiving),
+            "overdue_cube_tests": sum(_serialize_receiving_record(doc)["overdue_cube_tests"] for doc in site_receiving),
             "quotation_requests": len(site_requests),
             "official_quotations": len(site_quotes),
             "open_quotations": sum(1 for doc in site_quotes if doc.get("status") in ("OPEN", "ACCEPTED")),
@@ -391,6 +393,22 @@ def _serialize_receiving_record(doc: dict) -> dict:
             row[key] = str(value)
         elif hasattr(value, "isoformat"):
             row[key] = value.isoformat()
+
+    results = row.get("cube_test_results") or []
+    completed = {(str(item.get("sample_id") or "").lower(), int(item.get("age_days") or 0)) for item in results}
+    today = datetime.now(timezone.utc).date()
+    follow_up = []
+    for sample_id in row.get("cube_sample_ids") or []:
+        for age_days, due_value in ((7, row.get("cube_7d_date")), (28, row.get("cube_28d_date"))):
+            if not due_value:
+                continue
+            key = (str(sample_id).lower(), age_days)
+            due_date = datetime.fromisoformat(str(due_value)).date()
+            status = "RECORDED" if key in completed else ("OVERDUE" if due_date < today else ("DUE" if due_date == today else "UPCOMING"))
+            follow_up.append({"sample_id": sample_id, "age_days": age_days, "due_date": str(due_value), "status": status})
+    row["cube_follow_up"] = follow_up
+    row["pending_cube_tests"] = sum(1 for item in follow_up if item["status"] != "RECORDED")
+    row["overdue_cube_tests"] = sum(1 for item in follow_up if item["status"] == "OVERDUE")
     return row
 
 
@@ -447,6 +465,57 @@ async def create_receiving_record(body: CustomerReceivingRecordBody, ctx: dict =
     doc["_id"] = result.inserted_id
     await write_audit(ctx["user_id"], "receiving_record.create", "receiving_record", str(result.inserted_id), {"site_id": body.site_id, "order_id": body.order_id})
     return {"record": _serialize_receiving_record(doc)}
+
+
+@router.patch("/receiving-records/{record_id}/cube-results")
+async def record_cube_test_result(
+    record_id: str,
+    body: CustomerCubeTestResultBody,
+    ctx: dict = Depends(customer_only),
+):
+    record = await receiving_records.find_one({"_id": await _oid(record_id), "customer_id": ctx["user_id"]})
+    if not record:
+        raise HTTPException(404, "Receiving record not found")
+    samples = {str(value).lower(): str(value) for value in record.get("cube_sample_ids") or []}
+    sample_key = body.sample_id.strip().lower()
+    if sample_key not in samples:
+        raise HTTPException(422, "Cube sample ID is not part of this receiving record")
+    if body.tested_on > datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Test date cannot be in the future")
+    cast_value = record.get("sample_cast_date")
+    cast_date = datetime.fromisoformat(str(cast_value)).date() if cast_value else None
+    if cast_date and body.tested_on < cast_date:
+        raise HTTPException(422, "Test date cannot be before the sample casting date")
+
+    result = {
+        **body.model_dump(mode="json"),
+        "sample_id": samples[sample_key],
+        "recorded_at": datetime.now(timezone.utc),
+        "recorded_by": ctx["user_id"],
+        "record_type": "CUSTOMER_RECORDED_LAB_RESULT",
+        "acceptance_status": None,
+    }
+    existing = record.get("cube_test_results") or []
+    updated = [
+        item for item in existing
+        if not (str(item.get("sample_id") or "").lower() == sample_key and int(item.get("age_days") or 0) == body.age_days)
+    ]
+    updated.append(result)
+    now = datetime.now(timezone.utc)
+    await receiving_records.update_one(
+        {"_id": record["_id"], "customer_id": ctx["user_id"]},
+        {"$set": {"cube_test_results": updated, "updated_at": now}},
+    )
+    record["cube_test_results"] = updated
+    record["updated_at"] = now
+    await write_audit(
+        ctx["user_id"], "receiving_record.cube_result", "receiving_record", record_id,
+        {"sample_id": samples[sample_key], "age_days": body.age_days, "result_mpa": body.result_mpa},
+    )
+    return {
+        "record": _serialize_receiving_record(record),
+        "disclaimer": "Recorded result only. Acceptance must follow the approved project specification and authorised engineer or laboratory assessment.",
+    }
 
 
 @router.delete("/receiving-records/{record_id}")
