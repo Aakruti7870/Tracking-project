@@ -2,7 +2,10 @@
 import pytest
 from fastapi import HTTPException
 
-from routers.plant_plans import QuoteBody, product_price, quote_amount
+from routers.plant_plans import QuoteBody, product_price, quote_amount, verify_cashfree_signature
+import base64
+import hashlib
+import hmac
 
 
 def test_promotion_prices_are_fixed_and_separate():
@@ -27,3 +30,12 @@ def test_unknown_duration_is_rejected():
     with pytest.raises(HTTPException) as exc:
         product_price(QuoteBody(plant_id="x", product="PROMOTION", duration_days=10))
     assert exc.value.status_code == 422
+
+
+def test_cashfree_signature_uses_timestamp_plus_raw_body():
+    timestamp = "1710000000000"
+    raw = b'{"data":{"payment":{"payment_status":"SUCCESS"}}}'
+    secret = "sandbox-secret"
+    signature = base64.b64encode(hmac.new(secret.encode(), timestamp.encode() + raw, hashlib.sha256).digest()).decode()
+    assert verify_cashfree_signature(timestamp, raw, signature, secret)
+    assert not verify_cashfree_signature(timestamp, raw + b" ", signature, secret)
