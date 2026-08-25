@@ -64,7 +64,7 @@ export default function DriverMore() {
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
-        <AppText variant="caption" center>TrackMyRMC · v2.0.16 (74)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.17 (75)</AppText>
       </ScrollView>
     </View>
   );
