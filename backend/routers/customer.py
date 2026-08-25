@@ -1,8 +1,10 @@
 """Customer role endpoints (server-side authorized to the customer role)."""
 from datetime import datetime, timezone
+import math
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from audit import write_audit
 from database import (
@@ -15,6 +17,8 @@ from database import (
     plants,
     plant_promotions,
     proof_of_delivery,
+    quotation_requests,
+    rate_cards,
     vehicle_locations,
     next_sequence,
 )
@@ -175,6 +179,110 @@ async def nearby_plants(ctx: dict = Depends(customer_only)):
     await _attach_active_promotions(docs)
     docs.sort(key=_plant_discovery_sort_key)
     return {"plants": [_serialize_plant(p) for p in docs]}
+
+
+def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    radius = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    value = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+
+@router.get("/compare-plants")
+async def compare_plants(
+    grade: str = Query(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$"),
+    quantity: float = Query(gt=0, le=100000),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
+    pump_required: bool = False,
+    ctx: dict = Depends(customer_only),
+):
+    """Return fair, rate-card-backed estimates; promoted status never changes sorting."""
+    plant_rows = await plants.find({"status": "active", "verified": True, "grades": grade}).to_list(500)
+    estimates = []
+    for plant in plant_rows:
+        pid = str(plant["_id"])
+        cards = await rate_cards.find({"plant_id": pid, "grade": grade, "active": True}).sort("effective_from", -1).to_list(1)
+        if not cards:
+            continue
+        card = cards[0]
+        distance = None
+        if lat is not None and lng is not None and plant.get("lat") is not None and plant.get("lng") is not None:
+            distance = _distance_km(lat, lng, float(plant["lat"]), float(plant["lng"]))
+        base_amount = float(card.get("rate_per_m3") or 0) * quantity
+        transport = float(card.get("transport_rate_per_km") or 0) * distance if distance is not None else None
+        pumping = float(card.get("pumping_rate_per_m3") or 0) * quantity if pump_required else 0
+        subtotal_known = base_amount + (transport or 0) + pumping
+        gst_rate = float(card.get("gst_rate") or 0)
+        gst_amount = subtotal_known * gst_rate / 100
+        total = subtotal_known + gst_amount
+        service_area = float(plant.get("service_area_km") or 0)
+        estimates.append({
+            "plant_id": pid,
+            "plant_name": plant.get("name"),
+            "city": plant.get("city"),
+            "district": plant.get("district"),
+            "verified": True,
+            "grade": grade,
+            "quantity": quantity,
+            "rate_per_m3": card.get("rate_per_m3"),
+            "distance_km": round(distance, 2) if distance is not None else None,
+            "service_area_km": service_area,
+            "within_service_area": (distance <= service_area) if distance is not None and service_area > 0 else None,
+            "base_amount": round(base_amount, 2),
+            "transport_rate_per_km": card.get("transport_rate_per_km", 0),
+            "transport_amount": round(transport, 2) if transport is not None else None,
+            "pumping_rate_per_m3": card.get("pumping_rate_per_m3", 0),
+            "pumping_amount": round(pumping, 2),
+            "gst_rate": gst_rate,
+            "gst_amount": round(gst_amount, 2),
+            "estimated_total": round(total, 2),
+            "transport_included": transport is not None,
+            "effective_from": card.get("effective_from"),
+        })
+    estimates.sort(key=lambda row: (row["estimated_total"], row["distance_km"] if row["distance_km"] is not None else float("inf"), row["plant_name"] or ""))
+    return {"estimates": estimates, "count": len(estimates), "disclaimer": "Estimate only. Final price, delivery eligibility and tax invoice require plant confirmation."}
+
+
+class QuotationRequestBody(BaseModel):
+    plant_id: str
+    grade: str = Field(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$")
+    quantity: float = Field(gt=0, le=100000)
+    site_name: str = Field(min_length=1, max_length=180)
+    site_address: str = Field(min_length=5, max_length=1000)
+    estimated_total: float | None = Field(default=None, ge=0, le=1_000_000_000)
+    pump_required: bool = False
+
+
+@router.post("/quotation-requests")
+async def request_quotation(body: QuotationRequestBody, ctx: dict = Depends(customer_only)):
+    plant = await plants.find_one({"_id": await _oid(body.plant_id), "status": "active", "verified": True})
+    if not plant:
+        raise HTTPException(404, "Plant not available")
+    if body.grade not in plant.get("grades", []):
+        raise HTTPException(422, "Selected grade not offered by this plant")
+    now = datetime.now(timezone.utc)
+    doc = {
+        **body.model_dump(),
+        "customer_id": ctx["user_id"],
+        "customer_name": ctx["user"].get("name"),
+        "customer_mobile": ctx["user"].get("phone"),
+        "plant_name": plant.get("name"),
+        "status": "REQUESTED",
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await quotation_requests.insert_one(doc)
+    request_id = str(result.inserted_id)
+    await write_audit(ctx["user_id"], "quotation.request", "quotation_request", request_id, {"plant_id": body.plant_id, "grade": body.grade, "quantity": body.quantity})
+    if plant.get("owner_id"):
+        await record_notification(
+            plant["owner_id"], "quotation_request", "New quotation request",
+            f"{ctx['user'].get('name') or 'A customer'} requested {body.quantity} m³ of {body.grade} for {body.site_name}.",
+        )
+    return {"id": request_id, "status": "REQUESTED"}
 
 
 @router.get("/kyc")
