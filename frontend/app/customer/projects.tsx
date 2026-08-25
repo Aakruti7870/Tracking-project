@@ -20,7 +20,7 @@ type Delivery = { order_id: string; order_number?: string; delivery_date?: strin
 type ProjectSite = {
   id: string; name: string; address: string; contact_person?: string | null; contact_mobile?: string | null; is_default?: boolean;
   orders_count: number; active_orders: number; delivered_orders: number; ordered_m3: number; delivered_m3: number;
-  pour_plans: number; receiving_records: number; quotation_requests: number; official_quotations: number; open_quotations: number; upcoming_delivery?: Delivery | null;
+  pour_plans: number; receiving_records: number; pending_cube_tests: number; overdue_cube_tests: number; quotation_requests: number; official_quotations: number; open_quotations: number; upcoming_delivery?: Delivery | null;
   latest_order?: { id: string; order_number?: string; status?: string } | null;
 };
 const normalized = (value?: string) => (value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -91,6 +91,7 @@ export default function CustomerProjects() {
                 <SummaryLine label="Total concrete ordered" value={`${site.ordered_m3} m³`} />
                 <SummaryLine label="Saved pour plans" value={String(site.pour_plans)} />
                 <SummaryLine label="Receiving observations" value={String(site.receiving_records)} />
+                <SummaryLine label="Cube tests pending / overdue" value={`${site.pending_cube_tests} / ${site.overdue_cube_tests}`} />
                 <SummaryLine label="Quotation requests" value={String(site.quotation_requests)} />
                 <SummaryLine label="Official / open quotations" value={`${site.official_quotations} / ${site.open_quotations}`} />
                 <SummaryLine label="Saved calculations on device" value={String(calculations.length)} />
@@ -99,6 +100,7 @@ export default function CustomerProjects() {
               </View>
               {calculations.slice(0, 3).map((item) => <View key={item.id} style={[styles.calcRow, { borderColor: colors.border }]}><Ionicons name="calculator-outline" size={18} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.medium }}>{item.name}</AppText><AppText variant="caption">{item.grade || "Grade not selected"} · {item.quantity} m³</AppText></View></View>)}
               <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Pour Planner" variant="outline" onPress={() => router.push("/customer/pour-planner")} /></View><View style={{ flex: 1 }}><Button label="Receiving Guide" variant="outline" onPress={() => router.push("/customer/receiving-guide")} /></View></View>
+              <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Cube Follow-up" variant="outline" onPress={() => router.push("/customer/cube-test-follow-up")} /></View><View style={{ flex: 1 }}><Button label="Calculate" variant="outline" onPress={() => router.push("/customer/free-tools")} /></View></View>
               <View style={styles.actions}>
                 <View style={{ flex: 1 }}><Button label="Calculate" variant="outline" onPress={() => router.push("/customer/free-tools")} /></View>
                 <View style={{ flex: 1 }}><Button label="Compare" variant="outline" onPress={() => router.push({ pathname: "/customer/compare-plants", params: { siteId: site.id } } as any)} /></View>
