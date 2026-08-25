@@ -12,6 +12,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
+  { key: "tools", label: "Free RMC Tools", icon: "calculator-outline", route: "/customer/free-tools" },
   { key: "kyc", label: "KYC Verification", icon: "id-card-outline", route: "/kyc" },
   { key: "sites", label: "Saved Sites", icon: "location-outline", route: "/customer/sites" },
   { key: "quotations", label: "Quotations", icon: "document-text-outline", route: "/customer/quotations" },
@@ -114,7 +115,7 @@ export default function CustomerMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · 2.0.8 (66)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · 2.0.9 (67)</AppText>
       </ScrollView>
     </View>
   );

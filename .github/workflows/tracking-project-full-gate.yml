@@ -132,8 +132,8 @@ jobs:
           const firebase = require('./google-services.json');
           if (cfg.android.package !== 'com.trackmyrmc.concreteking') throw new Error('Android package mismatch');
           if (cfg.ios.bundleIdentifier !== 'com.trackmyrmc.concreteking') throw new Error('iOS bundle identifier mismatch');
-          if (cfg.android.versionCode !== 66) throw new Error('versionCode mismatch');
-          if (cfg.version !== '2.0.8') throw new Error('version mismatch');
+          if (cfg.android.versionCode !== 67) throw new Error('versionCode mismatch');
+          if (cfg.version !== '2.0.9') throw new Error('version mismatch');
           if (cfg.android.googleServicesFile !== './google-services.json') throw new Error('Firebase config path mismatch');
           const pkg = firebase.client?.[0]?.client_info?.android_client_info?.package_name;
           if (pkg !== cfg.android.package) throw new Error('Firebase Android package mismatch');
@@ -202,7 +202,7 @@ jobs:
           test -n "$gradle_file"
           test -f android/app/google-services.json
           grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
-          grep -E "versionCode[[:space:]=]+66" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+67" "$gradle_file" >/dev/null
           grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
       - name: Compile debug APK
         working-directory: frontend/android
@@ -213,7 +213,7 @@ jobs:
         if: env.EXPO_PUBLIC_BACKEND_URL != 'https://api.example.invalid'
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-2.0.8-vc66-debug-apk
+          name: trackmyrmc-2.0.9-vc67-debug-apk
           path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
