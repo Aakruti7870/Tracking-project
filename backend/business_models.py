@@ -106,6 +106,23 @@ class QuotationRequestResponseBody(BaseModel):
     decline_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+class CustomerReceivingRecordBody(BaseModel):
+    site_id: str = Field(min_length=1, max_length=128)
+    order_id: Optional[str] = Field(default=None, max_length=128)
+    grade: str = Field(pattern=GRADE_PATTERN)
+    received_quantity_m3: float = Field(gt=0, le=10_000)
+    challan_number: Optional[str] = Field(default=None, max_length=160)
+    tm_number: Optional[str] = Field(default=None, max_length=64)
+    arrival_time: Optional[str] = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    unloading_start_time: Optional[str] = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    unloading_end_time: Optional[str] = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    observed_slump_mm: Optional[float] = Field(default=None, ge=0, le=500)
+    cube_sample_ids: list[str] = Field(default_factory=list, max_length=12)
+    sample_cast_date: Optional[date] = None
+    checklist: dict[str, bool] = Field(default_factory=dict)
+    notes: Optional[str] = Field(default=None, max_length=3000)
+
+
 class CustomerPourPlanBody(BaseModel):
     site_id: str = Field(min_length=1, max_length=128)
     grade: str = Field(pattern=GRADE_PATTERN)

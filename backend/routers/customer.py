@@ -23,10 +23,11 @@ from database import (
     quotation_requests,
     quotations,
     rate_cards,
+    receiving_records,
     vehicle_locations,
     next_sequence,
 )
-from business_models import CustomerPourPlanBody
+from business_models import CustomerPourPlanBody, CustomerReceivingRecordBody
 from models import CreateOrderBody
 from notifications import record_notification
 from order_service import CANCELLED, DRAFT, PENDING, transition_order
@@ -83,7 +84,7 @@ async def _attach_active_promotions(rows: list[dict]) -> None:
 def _serialize_order(doc: dict) -> dict:
     return {
         "id": str(doc["_id"]), "order_number": doc.get("order_number"),
-        "plant_id": doc.get("plant_id"), "plant_name": doc.get("plant_name"),
+        "plant_id": doc.get("plant_id"), "plant_name": doc.get("plant_name"), "site_id": doc.get("site_id"),
         "grade": doc.get("grade"), "quantity": doc.get("quantity"),
         "delivered_quantity": doc.get("delivered_quantity"),
         "site_name": doc.get("site_name"), "site_address": doc.get("site_address"),
@@ -325,6 +326,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
     request_docs = await quotation_requests.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
     quote_docs = await quotations.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
     plan_docs = await pour_plans.find({"customer_id": uid}).sort("pour_date", -1).to_list(2000)
+    receiving_docs = await receiving_records.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
     rows = []
     terminal = {"DELIVERED", "REJECTED", "CANCELLED"}
     for site in site_docs:
@@ -336,6 +338,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
         site_requests = [doc for doc in request_docs if belongs(doc)]
         site_quotes = [doc for doc in quote_docs if belongs(doc)]
         site_plans = [doc for doc in plan_docs if doc.get("site_id") == sid]
+        site_receiving = [doc for doc in receiving_docs if doc.get("site_id") == sid]
         active_orders = [doc for doc in site_orders if doc.get("status") not in terminal and doc.get("status") != "DRAFT"]
         delivered = [doc for doc in site_orders if doc.get("status") == "DELIVERED"]
         upcoming = sorted(
@@ -358,6 +361,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             "ordered_m3": round(sum(float(doc.get("quantity") or 0) for doc in site_orders), 2),
             "delivered_m3": round(sum(float(doc.get("delivered_quantity") or doc.get("quantity") or 0) for doc in delivered), 2),
             "pour_plans": len(site_plans),
+            "receiving_records": len(site_receiving),
             "quotation_requests": len(site_requests),
             "official_quotations": len(site_quotes),
             "open_quotations": sum(1 for doc in site_quotes if doc.get("status") in ("OPEN", "ACCEPTED")),
@@ -377,6 +381,81 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             } if latest else None,
         })
     return {"sites": rows, "count": len(rows)}
+
+
+def _serialize_receiving_record(doc: dict) -> dict:
+    row = {**doc, "id": str(doc["_id"])}
+    row.pop("_id", None)
+    for key, value in list(row.items()):
+        if isinstance(value, ObjectId):
+            row[key] = str(value)
+        elif hasattr(value, "isoformat"):
+            row[key] = value.isoformat()
+    return row
+
+
+@router.get("/receiving-records")
+async def list_receiving_records(site_id: str | None = Query(default=None), ctx: dict = Depends(customer_only)):
+    query: dict = {"customer_id": ctx["user_id"]}
+    if site_id:
+        query["site_id"] = site_id
+    docs = await receiving_records.find(query).sort("created_at", -1).to_list(500)
+    return {"records": [_serialize_receiving_record(doc) for doc in docs]}
+
+
+@router.post("/receiving-records")
+async def create_receiving_record(body: CustomerReceivingRecordBody, ctx: dict = Depends(customer_only)):
+    site = await customer_sites.find_one({"_id": await _oid(body.site_id), "customer_id": ctx["user_id"]})
+    if not site:
+        raise HTTPException(422, "Saved site not found")
+    order = None
+    if body.order_id:
+        order = await orders.find_one({"_id": await _oid(body.order_id), "customer_id": ctx["user_id"]})
+        if not order:
+            raise HTTPException(422, "Customer order not found")
+        if order.get("site_id") and order.get("site_id") != body.site_id:
+            raise HTTPException(422, "Order does not belong to this saved site")
+        if order.get("grade") != body.grade:
+            raise HTTPException(422, "Receiving grade must match the linked order")
+    recorded_times = [body.arrival_time, body.unloading_start_time, body.unloading_end_time]
+    present_times = [value for value in recorded_times if value]
+    if len(present_times) > 1 and present_times != sorted(present_times):
+        raise HTTPException(422, "Receiving times must be in chronological order")
+    if body.sample_cast_date and body.sample_cast_date > datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Sample casting date cannot be in the future")
+    allowed_checks = {"challan", "tm", "seal", "time", "visual", "access"}
+    checklist = {key: bool(value) for key, value in body.checklist.items() if key in allowed_checks}
+    cube_ids = [value.strip() for value in body.cube_sample_ids if value.strip()]
+    if len(cube_ids) != len(set(value.lower() for value in cube_ids)):
+        raise HTTPException(422, "Cube sample IDs must be unique within this record")
+    now = datetime.now(timezone.utc)
+    doc = {
+        **body.model_dump(mode="json"),
+        "cube_sample_ids": cube_ids,
+        "checklist": checklist,
+        "customer_id": ctx["user_id"],
+        "site_name": site.get("name"),
+        "site_address": site.get("address"),
+        "order_number": order.get("order_number") if order else None,
+        "cube_7d_date": (body.sample_cast_date + timedelta(days=7)).isoformat() if body.sample_cast_date else None,
+        "cube_28d_date": (body.sample_cast_date + timedelta(days=28)).isoformat() if body.sample_cast_date else None,
+        "record_type": "CUSTOMER_OBSERVATION",
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await receiving_records.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    await write_audit(ctx["user_id"], "receiving_record.create", "receiving_record", str(result.inserted_id), {"site_id": body.site_id, "order_id": body.order_id})
+    return {"record": _serialize_receiving_record(doc)}
+
+
+@router.delete("/receiving-records/{record_id}")
+async def delete_receiving_record(record_id: str, ctx: dict = Depends(customer_only)):
+    result = await receiving_records.delete_one({"_id": await _oid(record_id), "customer_id": ctx["user_id"]})
+    if result.deleted_count != 1:
+        raise HTTPException(404, "Receiving record not found")
+    await write_audit(ctx["user_id"], "receiving_record.delete", "receiving_record", record_id, {})
+    return {"status": "deleted"}
 
 
 def _serialize_pour_plan(doc: dict) -> dict:

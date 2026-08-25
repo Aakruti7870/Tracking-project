@@ -78,6 +78,7 @@ rate_cards = db.rate_cards
 mix_designs = db.mix_designs
 customer_sites = db.customer_sites
 pour_plans = db.pour_plans
+receiving_records = db.receiving_records
 quotations = db.quotations
 quotation_requests = db.quotation_requests
 expenses = db.expenses
@@ -234,6 +235,8 @@ async def ensure_indexes() -> None:
     await customer_sites.create_index([("customer_id", 1), ("created_at", -1)])
     await customer_sites.create_index([("customer_id", 1), ("is_default", 1)])
     await pour_plans.create_index([("customer_id", 1), ("site_id", 1), ("pour_date", -1)])
+    await receiving_records.create_index([("customer_id", 1), ("site_id", 1), ("created_at", -1)])
+    await receiving_records.create_index([("order_id", 1), ("created_at", -1)])
     await quotations.create_index("quotation_number", unique=True)
     await quotations.create_index([("plant_id", 1), ("created_at", -1)])
     await quotations.create_index([("customer_id", 1), ("created_at", -1)])

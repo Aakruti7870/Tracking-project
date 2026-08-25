@@ -2,7 +2,7 @@
   "expo": {
     "name": "TrackMyRMC",
     "slug": "frontend",
-    "version": "2.0.14",
+    "version": "2.0.15",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trackmyrmc",
@@ -25,7 +25,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.trackmyrmc.concreteking",
-      "versionCode": 72,
+      "versionCode": 73,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
