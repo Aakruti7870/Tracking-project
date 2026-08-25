@@ -230,7 +230,7 @@ async def compare_plants(
             "rate_per_m3": card.get("rate_per_m3"),
             "distance_km": round(distance, 2) if distance is not None else None,
             "service_area_km": service_area,
-            "within_service_area": distance is not None and service_area > 0 and distance <= service_area,
+            "within_service_area": (distance <= service_area) if distance is not None and service_area > 0 else None,
             "base_amount": round(base_amount, 2),
             "transport_rate_per_km": card.get("transport_rate_per_km", 0),
             "transport_amount": round(transport, 2) if transport is not None else None,
