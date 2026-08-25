@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { CFEnvironment, CFSession } from "cashfree-pg-api-contract";
-import { CFPaymentGatewayService } from "react-native-cashfree-pg-sdk";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -17,6 +15,7 @@ import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
+import { cashfreeCheckout } from "@/src/payments/cashfree";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -67,11 +66,11 @@ export default function PlansPromotions() {
   useEffect(() => { setQuote(null); }, [tab, duration, premiumPlan, plantId]);
   useEffect(() => { refetchRef.current = refetch; }, [refetch]);
   useEffect(() => {
-    CFPaymentGatewayService.setCallback({
+    cashfreeCheckout.setCallbacks({
       onVerify: (orderID: string) => { setPaymentOrder(orderID); setPaymentStatus("PAYMENT_PENDING"); toast("Payment received. Confirming securely…", "success"); },
       onError: (_error, orderID: string) => { setPaymentOrder(orderID || null); setPaymentStatus("USER_DROPPED"); toast("Payment was not completed. You can retry safely.", "error"); },
     });
-    return () => CFPaymentGatewayService.removeCallback();
+    return () => cashfreeCheckout.removeCallbacks();
   }, [toast]);
   useEffect(() => {
     if (!token || !paymentOrder || paymentStatus === "PAID" || paymentStatus === "FAILED") return;
@@ -113,6 +112,7 @@ export default function PlansPromotions() {
 
   const activate = async (mode: "ONLINE_PAYMENT" | "OFFLINE_PAYMENT" | "AUTHORITY_FREE") => {
     if (!token || !plant) return;
+    if (mode === "ONLINE_PAYMENT" && !cashfreeCheckout.available) return toast("Secure payment is available in the Android app.", "error");
     if (mode === "AUTHORITY_FREE" && !reason.trim()) return toast("Enter a reason for free activation", "error");
     if (mode === "OFFLINE_PAYMENT" && !paymentReference.trim()) return toast("Enter the verified payment reference", "error");
     setBusy(true);
@@ -129,8 +129,7 @@ export default function PlansPromotions() {
         if (!result.payment_session_id) throw { detail: "Cashfree did not return a payment session" };
         setPaymentOrder(result.order_number);
         setPaymentStatus("PAYMENT_PENDING");
-        const environment = result.cashfree_environment === "production" ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
-        CFPaymentGatewayService.doWebPayment(new CFSession(result.payment_session_id, result.order_number, environment));
+        cashfreeCheckout.start(result.payment_session_id, result.order_number, result.cashfree_environment === "production");
       }
       else toast(`${tab === "PROMOTION" ? "Promotion" : "Premium plan"} activated`, "success");
       refetch(); setQuote(null);
