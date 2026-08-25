@@ -12,6 +12,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
+  { key: "workforce", label: "Workforce Control", icon: "people-circle-outline", route: "/workforce" },
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
   { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
   { key: "quote_requests", label: "Quotation Requests", icon: "document-text-outline", route: "/owner/quotation-requests" },
@@ -85,7 +86,7 @@ export default function OwnerMore() {
 
         <Card style={{ gap: 4 }}>
           <AppText variant="label">Application</AppText>
-          <AppText variant="caption">TrackMyRMC 2.0.16 · Android version code 73</AppText>
+          <AppText variant="caption">TrackMyRMC 2.0.16 · Android version code 74</AppText>
           <AppText variant="caption">Business data is plant-scoped and server-authorized.</AppText>
         </Card>
 

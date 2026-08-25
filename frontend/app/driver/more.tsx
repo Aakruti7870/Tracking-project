@@ -52,6 +52,14 @@ export default function DriverMore() {
             })}
           </View>
         </View>
+        <Pressable testID="driver-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
+          <View style={{ flex: 1 }}>
+            <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
+            <AppText variant="caption">Attendance, leave, visits and expense claims</AppText>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
         <Pressable testID="driver-logout" onPress={async () => { await signOut(); router.replace("/login"); }} style={[styles.logout, { borderColor: colors.error }]}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
@@ -65,5 +73,6 @@ export default function DriverMore() {
 const styles = StyleSheet.create({
   avatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   mode: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, height: 44, borderRadius: radius.md, borderWidth: 1 },
+  manage: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
   logout: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, height: 52, borderRadius: radius.md, borderWidth: 1 },
 });

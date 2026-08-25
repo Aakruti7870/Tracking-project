@@ -22,6 +22,7 @@ export function StaffMore() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const workforceEnabled = !!user && !["authority", "central_admin"].includes(user.role);
 
   const doLogout = async () => {
     await signOut();
@@ -68,6 +69,17 @@ export function StaffMore() {
             })}
           </View>
         </View>
+
+        {workforceEnabled ? (
+          <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
+            <View style={{ flex: 1 }}>
+              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
+              <AppText variant="caption">Attendance, leave, client visits and expense claims</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        ) : null}
 
         {user?.role === "authority" || user?.role === "central_admin" ? (
           <View style={{ gap: spacing.sm }}>
