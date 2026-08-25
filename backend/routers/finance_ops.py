@@ -9,6 +9,7 @@ from audit import write_audit
 from business_access import oid, require_business_role, require_visible_plant
 from business_models import (
     AttendanceActionBody,
+    CustomerQuotationDecisionBody,
     DieselTransactionBody,
     ExpenseBody,
     PayrollRecordBody,
@@ -23,6 +24,7 @@ from database import (
     next_sequence,
     payroll_records,
     purchase_receipts,
+    plants,
     quotations,
     quotation_requests,
     staff_attendance,
@@ -57,6 +59,11 @@ async def list_quotations(plant_id: str, ctx: dict = Depends(current_user)):
         Role.CENTRAL_ADMIN.value,
     )
     await require_visible_plant(ctx, plant_id)
+    today = datetime.now(timezone.utc).date().isoformat()
+    await quotations.update_many(
+        {"plant_id": plant_id, "status": "OPEN", "valid_until": {"$lt": today}},
+        {"$set": {"status": "EXPIRED", "expired_at": datetime.now(timezone.utc)}},
+    )
     docs = await quotations.find({"plant_id": plant_id}).sort("created_at", -1).to_list(1000)
     return {"quotations": [_serialize(d) for d in docs]}
 
@@ -64,8 +71,62 @@ async def list_quotations(plant_id: str, ctx: dict = Depends(current_user)):
 @router.get("/customer/quotations")
 async def customer_quotations(ctx: dict = Depends(current_user)):
     require_business_role(ctx, Role.CUSTOMER.value)
+    today = datetime.now(timezone.utc).date().isoformat()
+    await quotations.update_many(
+        {"customer_id": ctx["user_id"], "status": "OPEN", "valid_until": {"$lt": today}},
+        {"$set": {"status": "EXPIRED", "expired_at": datetime.now(timezone.utc)}},
+    )
     docs = await quotations.find({"customer_id": ctx["user_id"]}).sort("created_at", -1).to_list(500)
     return {"quotations": [_serialize(d) for d in docs]}
+
+
+@router.post("/customer/quotations/{quotation_id}/decision")
+async def customer_quotation_decision(
+    quotation_id: str,
+    body: CustomerQuotationDecisionBody,
+    ctx: dict = Depends(current_user),
+):
+    require_business_role(ctx, Role.CUSTOMER.value)
+    quote = await quotations.find_one({"_id": oid(quotation_id), "customer_id": ctx["user_id"]})
+    if not quote:
+        raise HTTPException(404, "Quotation not found")
+    if quote.get("status") != "OPEN":
+        raise HTTPException(409, "Quotation is no longer open")
+    today = datetime.now(timezone.utc).date().isoformat()
+    if str(quote.get("valid_until") or "") < today:
+        await quotations.update_one(
+            {"_id": quote["_id"], "status": "OPEN"},
+            {"$set": {"status": "EXPIRED", "expired_at": datetime.now(timezone.utc)}},
+        )
+        raise HTTPException(409, "Quotation has expired")
+
+    now = datetime.now(timezone.utc)
+    target = "ACCEPTED" if body.action == "ACCEPT" else "DECLINED"
+    updated = await quotations.find_one_and_update(
+        {"_id": quote["_id"], "customer_id": ctx["user_id"], "status": "OPEN"},
+        {"$set": {
+            "status": target,
+            "customer_response_reason": (body.reason or "").strip() or None,
+            "customer_responded_at": now,
+            "updated_at": now,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise HTTPException(409, "Quotation was already handled")
+    await write_audit(
+        ctx["user_id"], f"quotation.{target.lower()}", "quotation", quotation_id,
+        {"plant_id": quote["plant_id"], "quotation_number": quote["quotation_number"]},
+    )
+    plant = await plants.find_one({"_id": oid(quote["plant_id"])})
+    recipients = {quote.get("created_by"), (plant or {}).get("owner_id")}
+    for recipient in recipients:
+        if recipient:
+            await record_notification(
+                recipient, f"quotation_{target.lower()}", f"Quotation {target.lower()}",
+                f"{quote.get('customer_name') or 'Customer'} {target.lower()} {quote['quotation_number']}.",
+            )
+    return {"quotation": _serialize(updated)}
 
 
 @router.post("/plants/{plant_id}/quotations")

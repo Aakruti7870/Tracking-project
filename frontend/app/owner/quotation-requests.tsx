@@ -17,6 +17,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type RequestStatus = "REQUESTED" | "QUOTED" | "DECLINED";
+type OwnerQuote = { id: string; quotation_number: string; customer_name: string; grade: string; quantity_m3: number; total: number; valid_until: string; status: string; customer_response_reason?: string | null; customer_responded_at?: string; order_number?: string };
 type QuoteRequest = {
   id: string; plant_id: string; plant_name?: string; customer_name?: string; customer_mobile?: string;
   site_name: string; site_address: string; grade: string; quantity: number; pump_required?: boolean;
@@ -41,7 +42,9 @@ export default function OwnerQuotationRequests() {
   const { data, loading, refetch } = useGet<{ requests: QuoteRequest[] }>(
     plantId ? `/ops/plants/${plantId}/quotation-requests` : null,
   );
+  const quotes = useGet<{ quotations: OwnerQuote[] }>(plantId ? `/ops/plants/${plantId}/quotations` : null);
   const [filter, setFilter] = useState<"ALL" | RequestStatus>("REQUESTED");
+  const [quoteFilter, setQuoteFilter] = useState("ALL");
   const [active, setActive] = useState<QuoteRequest | null>(null);
   const [mode, setMode] = useState<"QUOTE" | "DECLINE">("QUOTE");
   const [rate, setRate] = useState("");
@@ -54,6 +57,7 @@ export default function OwnerQuotationRequests() {
   const [busy, setBusy] = useState(false);
 
   const rows = useMemo(() => (data?.requests || []).filter((v) => filter === "ALL" || v.status === filter), [data, filter]);
+  const quoteRows = useMemo(() => (quotes.data?.quotations || []).filter((v) => quoteFilter === "ALL" || v.status === quoteFilter), [quotes.data, quoteFilter]);
   const total = active ? Number(active.quantity) * Number(rate || 0) + Number(transport || 0) + Number(pumping || 0) : 0;
   const grandTotal = total * (1 + Number(gst || 0) / 100);
 
@@ -76,7 +80,7 @@ export default function OwnerQuotationRequests() {
         valid_until: validUntil, notes: notes.trim() || null,
       } : { action: "DECLINE", decline_reason: reason.trim() });
       toast(mode === "QUOTE" ? "Official quotation sent" : "Request declined", "success");
-      setActive(null); refetch();
+      setActive(null); refetch(); quotes.refetch();
     } catch (e: any) {
       toast(e.detail || "Could not update request", "error");
     } finally { setBusy(false); }
@@ -87,7 +91,7 @@ export default function OwnerQuotationRequests() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={() => { refetch(); quotes.refetch(); }} tintColor={colors.brand} />}>
         <View><AppText variant="title">Quotation Requests</AppText><AppText variant="caption">Review customer requirements and issue official plant quotations</AppText></View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
           {FILTERS.map((item) => <Chip key={item.key} label={item.label} selected={filter === item.key} onPress={() => setFilter(item.key)} />)}
@@ -104,6 +108,21 @@ export default function OwnerQuotationRequests() {
           {item.status === "REQUESTED" ? <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Decline" variant="outline" onPress={() => openResponse(item, "DECLINE")} /></View><View style={{ flex: 1 }}><Button label="Prepare Quote" onPress={() => openResponse(item, "QUOTE")} /></View></View> : null}
         </Card>)}
         {data && rows.length === 0 ? <Card style={styles.empty}><Ionicons name="document-text-outline" size={30} color={colors.onSurfaceTertiary} /><AppText variant="heading">No requests in this filter</AppText></Card> : null}
+
+        <View style={styles.between}><AppText variant="heading">Customer Decisions</AppText><Badge label={String(quotes.data?.quotations.length || 0)} color={colors.success} /></View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+          {["ALL", "OPEN", "ACCEPTED", "DECLINED", "EXPIRED", "ORDER_CREATED"].map((item) => <Chip key={item} label={item === "ORDER_CREATED" ? "Ordered" : item.charAt(0) + item.slice(1).toLowerCase()} selected={quoteFilter === item} onPress={() => setQuoteFilter(item)} />)}
+        </ScrollView>
+        {quotes.loading && !quotes.data ? <Skeleton height={120} /> : null}
+        {quoteRows.map((quote) => <Card key={quote.id} style={{ gap: spacing.sm }}>
+          <View style={styles.between}><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold }}>{quote.quotation_number}</AppText><AppText variant="caption">{quote.customer_name} · {quote.grade} · {quote.quantity_m3} m³</AppText></View><Badge label={quote.status} status={quote.status} /></View>
+          <View style={[styles.requirement, { backgroundColor: colors.surfaceTertiary }]}><AppText variant="caption">Official total</AppText><AppText style={styles.requirementText}>{rupees(quote.total)}</AppText></View>
+          <AppText variant="caption">Valid until {quote.valid_until}</AppText>
+          {quote.customer_response_reason ? <AppText variant="caption">Customer note: {quote.customer_response_reason}</AppText> : null}
+          {quote.customer_responded_at ? <AppText variant="caption">Responded {new Date(quote.customer_responded_at).toLocaleString("en-IN")}</AppText> : null}
+          {quote.status === "ORDER_CREATED" ? <AppText variant="caption" color={colors.success}>Converted to order {quote.order_number || ""}</AppText> : null}
+          {quote.status === "EXPIRED" ? <AppText variant="caption" color={colors.warning}>Expired without customer acceptance.</AppText> : null}
+        </Card>)}
       </ScrollView>
 
       <Modal visible={!!active} transparent animationType="slide" onRequestClose={() => setActive(null)}>

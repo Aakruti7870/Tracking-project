@@ -1,13 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { apiPost } from "@/src/api/client";
+import { useAuth } from "@/src/auth/AuthContext";
 import { AppText } from "@/src/components/ui/AppText";
 import { Badge } from "@/src/components/ui/Badge";
+import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { useGet } from "@/src/hooks/useApi";
+import { useToast } from "@/src/components/ui/Toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -20,16 +25,38 @@ type Quote = {
   id: string; quotation_number: string; request_id?: string; plant_id: string; customer_name: string;
   site_name: string; site_address: string; grade: string; quantity_m3: number; rate_per_m3: number;
   transport_amount?: number; pumping_amount?: number; gst_amount?: number; total: number;
-  valid_until: string; status: string; notes?: string | null;
+  valid_until: string; status: string; notes?: string | null; order_id?: string; order_number?: string;
 };
 const money = (value?: number | null) => value == null ? "—" : `₹${Math.round(value).toLocaleString("en-IN")}`;
 
 export default function CustomerQuotations() {
   const { colors } = useTheme();
+  const { token } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const requests = useGet<{ requests: QuoteRequest[] }>("/customer/quotation-requests");
   const quotes = useGet<{ quotations: Quote[] }>("/ops/customer/quotations");
   const refresh = () => { requests.refetch(); quotes.refetch(); };
+  const decide = async (quote: Quote, action: "ACCEPT" | "DECLINE") => {
+    if (!token) return;
+    setBusy(quote.id);
+    try {
+      await apiPost(`/ops/customer/quotations/${quote.id}/decision`, token, { action });
+      toast(action === "ACCEPT" ? "Quotation accepted" : "Quotation declined", "success");
+      refresh();
+    } catch (e: any) {
+      toast(e.detail || "Could not update quotation", "error");
+    } finally { setBusy(null); }
+  };
+  const createOrder = (quote: Quote) => router.push({
+    pathname: "/new-order",
+    params: {
+      quotationId: quote.id, plantId: quote.plant_id, grade: quote.grade,
+      quantity: String(quote.quantity_m3), siteName: quote.site_name, siteAddress: quote.site_address,
+    },
+  } as any);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -64,6 +91,10 @@ export default function CustomerQuotations() {
               <View style={[styles.between, { marginTop: spacing.xs }]}><AppText style={styles.name}>Total</AppText><AppText style={[styles.total, { color: colors.brand }]}>{money(q.total)}</AppText></View>
             </View>
             <AppText variant="caption">Valid until {q.valid_until}{q.notes ? ` · ${q.notes}` : ""}</AppText>
+            {q.status === "OPEN" ? <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Decline" variant="outline" onPress={() => decide(q, "DECLINE")} loading={busy === q.id} /></View><View style={{ flex: 1 }}><Button label="Accept Quote" onPress={() => decide(q, "ACCEPT")} loading={busy === q.id} /></View></View> : null}
+            {q.status === "ACCEPTED" ? <Button label="Create Order from Quote" onPress={() => createOrder(q)} icon={<Ionicons name="cart-outline" size={18} color={colors.onBrand} />} /> : null}
+            {q.status === "ORDER_CREATED" ? <AppText variant="caption" color={colors.success}>Converted to order {q.order_number || ""}.</AppText> : null}
+            {q.status === "EXPIRED" ? <AppText variant="caption" color={colors.warning}>This quotation expired and can no longer be accepted.</AppText> : null}
           </Card>
         ))}
         {quotes.data && quotes.data.quotations.length === 0 ? <Card><AppText variant="bodyMuted">No official quotation has been issued yet.</AppText></Card> : null}
@@ -84,4 +115,5 @@ const styles = StyleSheet.create({
   amount: { fontFamily: fonts.displayBold, fontSize: fontSize.lg },
   breakdown: { gap: spacing.xs, borderWidth: 1, borderRadius: radius.md, padding: spacing.md },
   total: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
+  actions: { flexDirection: "row", gap: spacing.sm },
 });

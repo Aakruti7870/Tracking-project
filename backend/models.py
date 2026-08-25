@@ -111,6 +111,7 @@ class VerifyOtpBody(BaseModel):
 
 class CreateOrderBody(BaseModel):
     plant_id: str = Field(min_length=1, max_length=128)
+    quotation_id: Optional[str] = Field(default=None, max_length=128)
     grade: str = Field(pattern=GRADE_PATTERN)
     quantity: float = Field(gt=0, le=10000)
     site_name: str = Field(min_length=1, max_length=160)

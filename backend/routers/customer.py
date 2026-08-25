@@ -4,6 +4,7 @@ import math
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field
 
 from audit import write_audit
@@ -18,6 +19,7 @@ from database import (
     plant_promotions,
     proof_of_delivery,
     quotation_requests,
+    quotations,
     rate_cards,
     vehicle_locations,
     next_sequence,
@@ -406,6 +408,21 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
     if body.grade not in plant.get("grades", []):
         raise HTTPException(422, "Selected grade not offered by this plant")
 
+    quote = None
+    if body.quotation_id:
+        quote = await quotations.find_one({
+            "_id": await _oid(body.quotation_id),
+            "customer_id": uid,
+            "plant_id": str(plant["_id"]),
+            "status": "ACCEPTED",
+        })
+        if not quote:
+            raise HTTPException(409, "Accepted quotation is not available for order creation")
+        if quote.get("order_id"):
+            raise HTTPException(409, "An order already exists for this quotation")
+        if quote.get("grade") != body.grade or float(quote.get("quantity_m3") or 0) != float(body.quantity):
+            raise HTTPException(422, "Order grade and quantity must match the accepted quotation")
+
     seq = await next_sequence("order_number")
     order_number = f"RMC-{1000 + seq}"
     now = datetime.now(timezone.utc)
@@ -417,15 +434,25 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
         "lat": body.lat, "lng": body.lng, "delivery_date": body.delivery_date,
         "delivery_time": body.delivery_time, "delivery_mode": body.delivery_mode,
         "contact_person": body.contact_person, "contact_mobile": body.contact_mobile, "notes": body.notes,
+        "quotation_id": body.quotation_id, "quotation_number": quote.get("quotation_number") if quote else None,
+        "quoted_total": quote.get("total") if quote else None,
         "status": status, "payment_status": "UNPAID", "created_at": now, "updated_at": now,
     }
-    res = await orders.insert_one(doc)
+    try:
+        res = await orders.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(409, "An order already exists for this quotation")
     oid = str(res.inserted_id)
+    if quote:
+        await quotations.update_one(
+            {"_id": quote["_id"], "status": "ACCEPTED", "order_id": {"$exists": False}},
+            {"$set": {"status": "ORDER_CREATED", "order_id": oid, "order_number": order_number, "updated_at": now}},
+        )
     await order_status_history.insert_one(
         {"order_id": oid, "from_status": None, "to_status": status, "actor_id": uid,
          "note": "Order created", "created_at": now}
     )
-    await write_audit(uid, "order.create", "order", oid, {"status": status, "delivery_mode": body.delivery_mode})
+    await write_audit(uid, "order.create", "order", oid, {"status": status, "delivery_mode": body.delivery_mode, "quotation_id": body.quotation_id})
     if status == PENDING and plant.get("owner_id"):
         await record_notification(
             plant["owner_id"], "new_order", f"New order {order_number}",
