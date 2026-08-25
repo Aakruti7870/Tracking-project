@@ -195,7 +195,7 @@ jobs:
             echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
             exit 1
           }
-          grep -E "versionCode[[:space:]=]+73" "$gradle_file" >/dev/null || {
+          grep -E "versionCode[[:space:]=]+74" "$gradle_file" >/dev/null || {
             echo "Expected Android versionCode 74 was not generated"
             exit 1
           }
