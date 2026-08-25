@@ -27,6 +27,7 @@ from routers import (
     notify,
     operator_ops,
     owner,
+    plant_plans,
     plant_discovery,
     staff,
     storage,
@@ -105,6 +106,7 @@ app.include_router(me.router)
 app.include_router(account_deletion.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
+app.include_router(plant_plans.router)
 app.include_router(driver.router)
 app.include_router(staff.router)
 app.include_router(operator_ops.router)
