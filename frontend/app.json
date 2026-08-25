@@ -2,7 +2,7 @@
   "expo": {
     "name": "TrackMyRMC",
     "slug": "frontend",
-    "version": "2.0.16",
+    "version": "2.0.17",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trackmyrmc",
@@ -14,7 +14,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Capture site photos for proof of delivery",
         "NSPhotoLibraryUsageDescription": "Attach site photos to proof of delivery",
-        "NSLocationWhenInUseUsageDescription": "Allow TrackMyRMC to use your location while an active delivery trip is running",
+        "NSLocationWhenInUseUsageDescription": "Allow TrackMyRMC to record your location for attendance, approved client visits and active delivery trips",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow TrackMyRMC to share the mixer location while an active delivery trip is running"
       }
     },
@@ -25,7 +25,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.trackmyrmc.concreteking",
-      "versionCode": 74,
+      "versionCode": 75,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
@@ -65,7 +65,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow TrackMyRMC to use your location while an active delivery trip is running.",
+          "locationWhenInUsePermission": "Allow TrackMyRMC to record your location for attendance, approved client visits and active delivery trips.",
           "locationAlwaysAndWhenInUsePermission": "Allow TrackMyRMC to share the mixer location while an active delivery trip is running.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true

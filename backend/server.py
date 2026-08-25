@@ -31,6 +31,7 @@ from routers import (
     plant_discovery,
     staff,
     storage,
+    workforce,
 )
 
 logging.basicConfig(
@@ -46,7 +47,6 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_dev else None,
     openapi_url="/openapi.json" if settings.is_dev else None,
 )
-
 
 
 @app.get("/.well-known/assetlinks.json", include_in_schema=False)
@@ -113,6 +113,7 @@ app.include_router(operator_ops.router)
 app.include_router(master_data.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
+app.include_router(workforce.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
@@ -132,6 +133,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    await workforce.ensure_indexes()
     try:
         from routers.storage import init_storage
 

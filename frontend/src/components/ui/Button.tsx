@@ -13,11 +13,13 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Variant = "primary" | "secondary" | "outline" | "ghost" | "danger";
+type Size = "md" | "sm";
 
 type Props = {
   label: string;
   onPress?: () => void;
   variant?: Variant;
+  size?: Size;
   loading?: boolean;
   disabled?: boolean;
   icon?: React.ReactNode;
@@ -30,6 +32,7 @@ export function Button({
   label,
   onPress,
   variant = "primary",
+  size = "md",
   loading,
   disabled,
   icon,
@@ -69,6 +72,7 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
+        size === "sm" ? styles.small : null,
         {
           backgroundColor: bg,
           borderColor: border,
@@ -85,7 +89,7 @@ export function Button({
       ) : (
         <View style={styles.content}>
           {icon}
-          <Text style={[styles.label, { color: fg }]}>{label}</Text>
+          <Text style={[styles.label, size === "sm" ? styles.smallLabel : null, { color: fg }]}>{label}</Text>
         </View>
       )}
     </Pressable>
@@ -100,6 +104,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.xl,
   },
+  small: {
+    height: 38,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+  },
   content: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   label: { fontFamily: fonts.semibold, fontSize: fontSize.lg },
+  smallLabel: { fontSize: fontSize.sm },
 });
