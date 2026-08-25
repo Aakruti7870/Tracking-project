@@ -13,6 +13,7 @@ from database import (
     order_status_history,
     orders,
     plants,
+    plant_promotions,
     proof_of_delivery,
     vehicle_locations,
     next_sequence,
@@ -50,9 +51,24 @@ def _plant_state(doc: dict) -> tuple[str, bool, bool]:
     return status, verified, order_enabled
 
 
-def _plant_discovery_sort_key(doc: dict) -> tuple[int, int, str]:
+def _plant_discovery_sort_key(doc: dict) -> tuple[int, int, int, str]:
     status, verified, order_enabled = _plant_state(doc)
-    return (0 if order_enabled else 1, 0 if verified else 1, str(doc.get("name") or "").lower())
+    return (0 if doc.get("promoted") else 1, 0 if order_enabled else 1, 0 if verified else 1, str(doc.get("name") or "").lower())
+
+
+async def _attach_active_promotions(rows: list[dict]) -> None:
+    """Annotate customer-facing plants without changing the source documents."""
+    if not rows:
+        return
+    ids = [str(row["_id"]) for row in rows]
+    active = await plant_promotions.find({
+        "plant_id": {"$in": ids}, "status": "ACTIVE", "ends_at": {"$gt": datetime.now(timezone.utc)},
+    }).to_list(len(ids))
+    promoted = {row["plant_id"]: row for row in active}
+    for row in rows:
+        promotion = promoted.get(str(row["_id"]))
+        row["promoted"] = bool(promotion)
+        row["promotion_ends_at"] = promotion.get("ends_at") if promotion else None
 
 
 def _serialize_order(doc: dict) -> dict:
@@ -79,6 +95,7 @@ def _serialize_plant(doc: dict) -> dict:
         "lat": doc.get("lat"), "lng": doc.get("lng"), "grades": doc.get("grades", []),
         "contact_phone": doc.get("contact_phone"), "service_area_km": doc.get("service_area_km"),
         "status": status, "verified": verified, "order_enabled": order_enabled,
+        "promoted": bool(doc.get("promoted")), "promotion_ends_at": doc.get("promotion_ends_at"),
     }
 
 
@@ -135,6 +152,7 @@ async def home(ctx: dict = Depends(customer_only)):
     my_orders = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(50)
     active = next((o for o in my_orders if o.get("status") in ACTIVE_STATUSES), None)
     visible_plants = await plants.find(_customer_visible_plant_filter()).to_list(500)
+    await _attach_active_promotions(visible_plants)
     nearby = sorted(visible_plants, key=_plant_discovery_sort_key)[:5]
     unread = await notifications.count_documents({"user_id": uid, "read": False})
     return {
@@ -154,6 +172,7 @@ async def list_orders(ctx: dict = Depends(customer_only)):
 @router.get("/plants")
 async def nearby_plants(ctx: dict = Depends(customer_only)):
     docs = await plants.find(_customer_visible_plant_filter()).to_list(500)
+    await _attach_active_promotions(docs)
     docs.sort(key=_plant_discovery_sort_key)
     return {"plants": [_serialize_plant(p) for p in docs]}
 
