@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -12,6 +12,7 @@ import { useToast } from "@/src/components/ui/Toast";
 import { ErrorView } from "@/src/components/StateViews";
 import { useGet } from "@/src/hooks/useApi";
 import { StaffCollection } from "@/src/screens/StaffCollection";
+import type { StaffItem } from "@/src/screens/StaffCollection";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -40,6 +41,7 @@ export default function AuthorityPlants() {
   const { data: unownedData, loading: unownedLoading, error: unownedError, refetch: refetchUnowned, reload: reloadUnowned } = useGet<{ plants: UnownedPlant[] }>("/plant-discovery/unowned-plants");
   const [busy, setBusy] = useState<string | null>(null);
   const [owners, setOwners] = useState<Record<string, { name: string; email: string; phone: string }>>({});
+  const [selectedPlant, setSelectedPlant] = useState<StaffItem | null>(null);
 
   const updateOwner = (id: string, field: "name" | "email" | "phone", value: string) => {
     setOwners((current) => ({
@@ -89,6 +91,7 @@ export default function AuthorityPlants() {
       });
       toast("Plant Owner account assigned", "success");
       refetchUnowned();
+      setSelectedPlant(null);
     } catch (e: any) {
       toast(e?.detail || "Owner assignment failed", "error");
     } finally {
@@ -258,9 +261,55 @@ export default function AuthorityPlants() {
           <AppText variant="caption">
             Approved Google listings enter setup mode first; ordering remains unavailable until plant operations are configured.
           </AppText>
-          <StaffCollection kind="plants" embedded />
+          <StaffCollection kind="plants" embedded onItemPress={setSelectedPlant} />
         </View>
       </ScrollView>
+
+      <Modal visible={!!selectedPlant} transparent animationType="fade" onRequestClose={() => setSelectedPlant(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setSelectedPlant(null)}>
+          <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
+              <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
+                <Ionicons name="business-outline" size={19} color={colors.onBrandSoft} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppText variant="heading">{selectedPlant?.primary}</AppText>
+                <AppText variant="caption">{selectedPlant?.secondary || "Registered plant"}</AppText>
+              </View>
+              <Pressable testID="close-owner-sheet" onPress={() => setSelectedPlant(null)} hitSlop={10}>
+                <Ionicons name="close" size={22} color={colors.onSurfaceSecondary} />
+              </Pressable>
+            </View>
+
+            {selectedPlant?.owner_assigned ? (
+              <View style={[styles.ownerStatus, { backgroundColor: colors.success + "12", borderColor: colors.success + "55" }]}>
+                <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
+                <View style={{ flex: 1 }}>
+                  <AppText style={{ fontFamily: fonts.semibold, color: colors.success }}>Plant Owner already assigned</AppText>
+                  <AppText variant="caption">Existing ownership cannot be replaced from this screen.</AppText>
+                </View>
+              </View>
+            ) : (
+              <>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Create &amp; assign Plant Owner</AppText>
+                <TextInput value={selectedPlant ? owners[selectedPlant.id]?.name || "" : ""} onChangeText={(value) => selectedPlant && updateOwner(selectedPlant.id, "name", value)} placeholder="Owner full name" placeholderTextColor={colors.onSurfaceTertiary} autoCapitalize="words" style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+                <TextInput value={selectedPlant ? owners[selectedPlant.id]?.email || "" : ""} onChangeText={(value) => selectedPlant && updateOwner(selectedPlant.id, "email", value)} placeholder="Owner email" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+                <TextInput value={selectedPlant ? owners[selectedPlant.id]?.phone || "" : ""} onChangeText={(value) => selectedPlant && updateOwner(selectedPlant.id, "phone", value)} placeholder="Owner mobile (optional when email is entered)" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="phone-pad" style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+                <AppText variant="caption">The owner will sign in using OTP after assignment.</AppText>
+                <Pressable
+                  testID="assign-owner-from-plant"
+                  disabled={busy !== null}
+                  onPress={() => selectedPlant && assignExistingOwner({ id: selectedPlant.id, name: selectedPlant.primary })}
+                  style={[styles.action, { alignSelf: "stretch", borderColor: colors.brand, backgroundColor: colors.brand }]}
+                >
+                  <Ionicons name="person-add-outline" size={17} color={colors.onBrand} />
+                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.onBrand }}>{busy === `${selectedPlant?.id}:assign` ? "Assigning…" : "Create & Assign Plant Owner"}</AppText>
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -281,4 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 5,
   },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: spacing.lg },
+  sheet: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
+  ownerStatus: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.sm },
 });
