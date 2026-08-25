@@ -39,13 +39,13 @@ export default function NewOrder() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
-  const params = useLocalSearchParams<{ plantId?: string }>();
+  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string }>();
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
   const [plantId, setPlantId] = useState<string | null>(params.plantId || null);
-  const [grade, setGrade] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState("6");
+  const [grade, setGrade] = useState<string | null>(params.grade || null);
+  const [quantity, setQuantity] = useState(params.quantity || "6");
   const [date, setDate] = useState(days[1].value);
   const [time, setTime] = useState<string | null>("10:00");
   const [siteName, setSiteName] = useState("");
@@ -168,7 +168,7 @@ export default function NewOrder() {
                 <Pressable
                   key={p.id}
                   testID={`neworder-plant-${p.id}`}
-                  onPress={() => { setPlantId(p.id); setGrade(null); }}
+                  onPress={() => { setPlantId(p.id); setGrade(params.grade && p.grades?.includes(params.grade) ? params.grade : null); }}
                   style={[styles.plantRow, { borderColor: sel ? colors.brand : colors.border, backgroundColor: sel ? colors.brandSoft : colors.surfaceSecondary }]}
                 >
                   <Ionicons name={sel ? "radio-button-on" : "radio-button-off"} size={20} color={sel ? colors.brand : colors.onSurfaceTertiary} />
