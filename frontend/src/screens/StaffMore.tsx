@@ -70,14 +70,24 @@ export function StaffMore() {
         </View>
 
         {user?.role === "authority" || user?.role === "central_admin" ? (
-          <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Ionicons name="diamond-outline" size={20} color={colors.brand} />
-            <View style={{ flex: 1 }}>
-              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText>
-              <AppText variant="caption">Premium, promoted listings and promo codes</AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+          <View style={{ gap: spacing.sm }}>
+            <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="diamond-outline" size={20} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText>
+                <AppText variant="caption">Premium, promoted listings and promo codes</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="authority-payment-control" onPress={() => router.push("/authority/payment-control" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="card-outline" size={20} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText>
+                <AppText variant="caption">Cashfree, activations, promo usage and audit</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
         ) : null}
 
         <Pressable testID="logout-button" onPress={doLogout} style={[styles.logout, { borderColor: colors.error }]}>
@@ -85,7 +95,7 @@ export function StaffMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · v2.0.7 (65)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.8 (66)</AppText>
       </ScrollView>
     </View>
   );
