@@ -95,7 +95,7 @@ export function StaffMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · v2.0.15 (73)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.16 (74)</AppText>
       </ScrollView>
     </View>
   );
