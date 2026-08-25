@@ -12,6 +12,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
+  { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
   { key: "plant", label: "Plant Profile", icon: "business-outline", route: "/business/profile" },
   { key: "kyc", label: "Plant KYC", icon: "shield-checkmark-outline", route: "/kyc" },
   { key: "staff", label: "Staff", icon: "people-outline", route: "/business/staff" },
