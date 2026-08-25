@@ -44,6 +44,7 @@ export default function OwnerQuotationRequests() {
   );
   const quotes = useGet<{ quotations: OwnerQuote[] }>(plantId ? `/ops/plants/${plantId}/quotations` : null);
   const [filter, setFilter] = useState<"ALL" | RequestStatus>("REQUESTED");
+  const [quoteFilter, setQuoteFilter] = useState("ALL");
   const [active, setActive] = useState<QuoteRequest | null>(null);
   const [mode, setMode] = useState<"QUOTE" | "DECLINE">("QUOTE");
   const [rate, setRate] = useState("");
@@ -56,6 +57,7 @@ export default function OwnerQuotationRequests() {
   const [busy, setBusy] = useState(false);
 
   const rows = useMemo(() => (data?.requests || []).filter((v) => filter === "ALL" || v.status === filter), [data, filter]);
+  const quoteRows = useMemo(() => (quotes.data?.quotations || []).filter((v) => quoteFilter === "ALL" || v.status === quoteFilter), [quotes.data, quoteFilter]);
   const total = active ? Number(active.quantity) * Number(rate || 0) + Number(transport || 0) + Number(pumping || 0) : 0;
   const grandTotal = total * (1 + Number(gst || 0) / 100);
 
@@ -108,8 +110,11 @@ export default function OwnerQuotationRequests() {
         {data && rows.length === 0 ? <Card style={styles.empty}><Ionicons name="document-text-outline" size={30} color={colors.onSurfaceTertiary} /><AppText variant="heading">No requests in this filter</AppText></Card> : null}
 
         <View style={styles.between}><AppText variant="heading">Customer Decisions</AppText><Badge label={String(quotes.data?.quotations.length || 0)} color={colors.success} /></View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+          {["ALL", "OPEN", "ACCEPTED", "DECLINED", "EXPIRED", "ORDER_CREATED"].map((item) => <Chip key={item} label={item === "ORDER_CREATED" ? "Ordered" : item.charAt(0) + item.slice(1).toLowerCase()} selected={quoteFilter === item} onPress={() => setQuoteFilter(item)} />)}
+        </ScrollView>
         {quotes.loading && !quotes.data ? <Skeleton height={120} /> : null}
-        {quotes.data?.quotations.map((quote) => <Card key={quote.id} style={{ gap: spacing.sm }}>
+        {quoteRows.map((quote) => <Card key={quote.id} style={{ gap: spacing.sm }}>
           <View style={styles.between}><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold }}>{quote.quotation_number}</AppText><AppText variant="caption">{quote.customer_name} · {quote.grade} · {quote.quantity_m3} m³</AppText></View><Badge label={quote.status} status={quote.status} /></View>
           <View style={[styles.requirement, { backgroundColor: colors.surfaceTertiary }]}><AppText variant="caption">Official total</AppText><AppText style={styles.requirementText}>{rupees(quote.total)}</AppText></View>
           <AppText variant="caption">Valid until {quote.valid_until}</AppText>
