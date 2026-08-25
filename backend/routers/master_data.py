@@ -293,6 +293,13 @@ async def create_customer_site(body: CustomerSiteBody, ctx: dict = Depends(curre
 @router.delete("/customer/sites/{site_id}")
 async def delete_customer_site(site_id: str, ctx: dict = Depends(current_user)):
     require_business_role(ctx, Role.CUSTOMER.value)
+    linked = (
+        await orders.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
+        + await quotations.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
+        + await quotation_requests.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
+    )
+    if linked:
+        raise HTTPException(409, "Site has linked orders or quotations and cannot be removed")
     result = await customer_sites.delete_one({"_id": oid(site_id), "customer_id": ctx["user_id"]})
     if result.deleted_count != 1:
         raise HTTPException(404, "Site not found")
