@@ -271,6 +271,64 @@ async def create_promo_code(body: PromoCodeBody, ctx: dict = Depends(allowed_ctx
     return {"id": str(result.inserted_id), "code": code, "active": True}
 
 
+@router.get("/payment-history")
+async def payment_history(
+    plant_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    ctx: dict = Depends(allowed_ctx),
+):
+    """Return recent plan payments, always scoped to the signed-in account."""
+    limit = max(1, min(limit, 100))
+    query: dict = {}
+    if plant_id:
+        await scoped_plant(plant_id, ctx)
+        query["plant_id"] = plant_id
+    elif ctx["role"] == Role.PLANT_OWNER.value:
+        owned = await plants.find(
+            {"owner_id": ctx["user_id"], "status": {"$ne": "deleted"}},
+            {"_id": 1},
+        ).to_list(500)
+        query["plant_id"] = {"$in": [str(row["_id"]) for row in owned]}
+    if status:
+        normalized = status.strip().upper()
+        if normalized not in {"PAYMENT_PENDING", "PAID", "FAILED", "USER_DROPPED"}:
+            raise HTTPException(422, "Invalid payment status")
+        query["status"] = normalized
+
+    rows = await plan_payment_orders.find(query).sort("created_at", -1).to_list(limit)
+    plant_ids = {row.get("plant_id") for row in rows if row.get("plant_id")}
+    plant_rows = await plants.find(
+        {"_id": {"$in": [oid(pid) for pid in plant_ids]}},
+        {"name": 1},
+    ).to_list(len(plant_ids) or 1)
+    plant_names = {str(row["_id"]): row.get("name") or "RMC Plant" for row in plant_rows}
+
+    return {
+        "payments": [
+            {
+                "order_number": row.get("order_number"),
+                "plant_id": row.get("plant_id"),
+                "plant_name": plant_names.get(row.get("plant_id"), "RMC Plant"),
+                "product": row.get("product"),
+                "plan": row.get("plan"),
+                "price": row.get("price", 0),
+                "discount": row.get("discount", 0),
+                "payable": row.get("payable", 0),
+                "status": row.get("status", "PAYMENT_PENDING"),
+                "promo_code": row.get("promo_code"),
+                "payment_reference": row.get("payment_reference"),
+                "activation_id": row.get("activation_id"),
+                "created_at": row.get("created_at"),
+                "paid_at": row.get("paid_at"),
+                "updated_at": row.get("updated_at"),
+            }
+            for row in rows
+        ],
+        "count": len(rows),
+    }
+
+
 @router.post("/cashfree/webhook")
 async def cashfree_webhook(request: Request):
     _, secret, _ = cashfree_config()
