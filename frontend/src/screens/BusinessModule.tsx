@@ -195,7 +195,16 @@ const MODULES: Record<string, ModuleDef> = {
     ],
   },
   attendance: { title: "Attendance", subtitle: "Daily staff attendance register" },
-  staff: { title: "Staff", subtitle: "Plant-scoped staff and drivers" },
+  staff: {
+    title: "Plant Staff",
+    subtitle: "Owner-managed email OTP accounts. Drivers are managed separately by Plant Admin.",
+    addLabel: "Add Plant Staff",
+    fields: [
+      { key: "name", label: "Full name", required: true },
+      { key: "email", label: "Work email", placeholder: "name@company.com", required: true },
+      { key: "role", label: "Role", placeholder: "admin / dispatcher / operator / supervisor / accountant / quality_engineer / fleet_manager / store_manager", required: true },
+    ],
+  },
   customers: { title: "Customers", subtitle: "Customers served by this plant" },
   reports: { title: "Plant Report", subtitle: "Live operational and commercial summary" },
 };
@@ -395,6 +404,9 @@ export function BusinessModule({ kind }: { kind: string }) {
       } else if (kind === "inventory") {
         payload.stock ??= 0; payload.reorder ??= 0;
         await apiPost(`/business/plants/${plantId}/materials`, token, payload);
+      } else if (kind === "staff") {
+        payload.role = String(payload.role || "").trim().toLowerCase().replace(/[ /-]+/g, "_");
+        await apiPost(`/business/plants/${plantId}/people`, token, payload);
       }
       toast("Saved", "success");
       setModal(false);
