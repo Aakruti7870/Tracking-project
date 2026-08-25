@@ -64,6 +64,10 @@ attendance = db.attendance
 driver_incidents = db.driver_incidents
 invoices = db.invoices
 payments = db.payments
+plant_plan_subscriptions = db.plant_plan_subscriptions
+plant_promotions = db.plant_promotions
+promotion_codes = db.promotion_codes
+plan_payment_orders = db.plan_payment_orders
 production_batches = db.production_batches
 materials = db.materials
 stock_movements = db.stock_movements
@@ -186,6 +190,12 @@ async def ensure_indexes() -> None:
     await invoices.create_index("order_id")
     await invoices.create_index("invoice_number", unique=True)
     await payments.create_index([("order_id", 1), ("created_at", -1)])
+    await plant_plan_subscriptions.create_index([("plant_id", 1), ("status", 1), ("ends_at", -1)])
+    await plant_promotions.create_index([("plant_id", 1), ("status", 1), ("ends_at", -1)])
+    await promotion_codes.create_index("code", unique=True)
+    await promotion_codes.create_index([("active", 1), ("starts_at", 1), ("ends_at", 1)])
+    await plan_payment_orders.create_index("order_number", unique=True)
+    await plan_payment_orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
     await production_batches.create_index([("order_id", 1), ("created_at", 1)])
     await production_batches.create_index(
         [("plant_id", 1), ("batch_reference", 1)], unique=True,

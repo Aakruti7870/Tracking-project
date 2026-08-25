@@ -42,6 +42,15 @@ def test_plant_card_contract_separates_visibility_from_order_eligibility():
     assert rows[0]["_id"] == "plant-a"
 
 
+def test_promoted_plant_is_ranked_before_regular_plants():
+    rows = [
+        {"_id": "regular", "name": "Regular", "status": "active", "verified": True},
+        {"_id": "promoted", "name": "Promoted", "status": "active", "verified": True, "promoted": True},
+    ]
+    rows.sort(key=_plant_discovery_sort_key)
+    assert rows[0]["_id"] == "promoted"
+
+
 def test_map_ready_fields_are_returned_for_visible_plants():
     row = _serialize_plant(
         {

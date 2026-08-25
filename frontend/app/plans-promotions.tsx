@@ -1,0 +1,160 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { apiPost } from "@/src/api/client";
+import { useAuth } from "@/src/auth/AuthContext";
+import { ErrorView } from "@/src/components/StateViews";
+import { AppText } from "@/src/components/ui/AppText";
+import { Badge } from "@/src/components/ui/Badge";
+import { Button } from "@/src/components/ui/Button";
+import { Card } from "@/src/components/ui/Card";
+import { Input } from "@/src/components/ui/Input";
+import { Skeleton } from "@/src/components/ui/Skeleton";
+import { useToast } from "@/src/components/ui/Toast";
+import { useGet } from "@/src/hooks/useApi";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+
+type ActivePlan = { status: string; plan: string; ends_at: string; activation_mode: string } | null;
+type Plant = { id: string; name: string; city?: string; premium: ActivePlan; promotion: ActivePlan };
+type Context = {
+  role: string;
+  plants: Plant[];
+  promotion_prices: Record<string, number>;
+  premium_plans: Record<string, { months: number; price: number }>;
+};
+type Quote = { product: string; plan: string; price: number; discount: number; payable: number; promo_code?: string };
+type Tab = "PREMIUM" | "PROMOTION" | "PROMO_CODES";
+
+const money = (value: number) => `₹${value.toLocaleString("en-IN")}`;
+const prettyPlan = (value?: string) => (value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+export default function PlansPromotions() {
+  const { colors } = useTheme();
+  const { token, user } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const { data, loading, error, refetch, reload } = useGet<Context>("/plant-plans/context");
+  const [tab, setTab] = useState<Tab>("PROMOTION");
+  const [plantId, setPlantId] = useState("");
+  const [duration, setDuration] = useState(30);
+  const [premiumPlan, setPremiumPlan] = useState("GROWTH");
+  const [promoCode, setPromoCode] = useState("");
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [freeMode, setFreeMode] = useState(false);
+  const [reason, setReason] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [codeName, setCodeName] = useState("");
+  const [codeValue, setCodeValue] = useState("25");
+  const [codeDays, setCodeDays] = useState("30");
+
+  const authority = user?.role === "authority" || user?.role === "central_admin";
+  const plant = useMemo(() => data?.plants.find((p) => p.id === plantId) || data?.plants[0], [data, plantId]);
+  useEffect(() => { if (!plantId && data?.plants[0]) setPlantId(data.plants[0].id); }, [data, plantId]);
+  useEffect(() => { setQuote(null); }, [tab, duration, premiumPlan, plantId]);
+
+  const requestQuote = async () => {
+    if (!token || !plant) return;
+    setBusy(true);
+    try {
+      const result = await apiPost<Quote>("/plant-plans/quote", token, {
+        plant_id: plant.id,
+        product: tab,
+        duration_days: tab === "PROMOTION" ? duration : undefined,
+        premium_plan: tab === "PREMIUM" ? premiumPlan : undefined,
+        promo_code: promoCode.trim() || undefined,
+      });
+      setQuote(result);
+      toast(result.discount ? `Discount applied: ${money(result.discount)}` : "Price confirmed", "success");
+    } catch (e: any) { toast(e.detail || "Could not calculate plan price", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const activate = async (mode: "ONLINE_PAYMENT" | "OFFLINE_PAYMENT" | "AUTHORITY_FREE") => {
+    if (!token || !plant) return;
+    if (mode === "AUTHORITY_FREE" && !reason.trim()) return toast("Enter a reason for free activation", "error");
+    if (mode === "OFFLINE_PAYMENT" && !paymentReference.trim()) return toast("Enter the verified payment reference", "error");
+    setBusy(true);
+    try {
+      const result = await apiPost<any>("/plant-plans/activate", token, {
+        plant_id: plant.id, product: tab,
+        duration_days: tab === "PROMOTION" ? duration : undefined,
+        premium_plan: tab === "PREMIUM" ? premiumPlan : undefined,
+        promo_code: promoCode.trim() || undefined,
+        activation_mode: mode, reason: reason.trim() || undefined,
+        payment_reference: paymentReference.trim() || undefined,
+      });
+      if (result.status === "PAYMENT_PENDING") toast(`Payment order ${result.order_number} created`, "success");
+      else toast(`${tab === "PROMOTION" ? "Promotion" : "Premium plan"} activated`, "success");
+      refetch(); setQuote(null);
+    } catch (e: any) { toast(e.detail || "Activation failed", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const createCode = async () => {
+    if (!token || !codeName.trim()) return toast("Enter a promo code", "error");
+    const ends = new Date(Date.now() + Math.max(1, Number(codeDays || 30)) * 86400000).toISOString();
+    setBusy(true);
+    try {
+      await apiPost("/plant-plans/promo-codes", token, { code: codeName.trim(), product: "PROMOTION", discount_type: "PERCENT", discount_value: Number(codeValue), max_uses: 100, ends_at: ends });
+      toast("Promo code created", "success"); setCodeName("");
+    } catch (e: any) { toast(e.detail || "Could not create promo code", "error"); }
+    finally { setBusy(false); }
+  };
+
+  if (error && !data) return <ErrorView message={error} onRetry={reload} />;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+      <View style={{ height: insets.top }} />
+      <View style={[styles.header, { backgroundColor: "#01153E" }]}>
+        <Pressable testID="plans-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#fff" /></Pressable>
+        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Plans &amp; Promotions</AppText><AppText style={styles.headerSub}>{authority ? "Authority control centre" : "Grow your RMC business"}</AppText></View>
+        <Ionicons name={authority ? "shield-checkmark-outline" : "diamond-outline"} size={26} color="#FF6A00" />
+      </View>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 80, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
+        {loading && !data ? <><Skeleton height={72} /><Skeleton height={220} /></> : !plant ? <Card><AppText>No plant is assigned to this account.</AppText></Card> : <>
+          <Card style={{ gap: spacing.sm }}>
+            <AppText variant="label">Selected plant</AppText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+              {data!.plants.map((p) => <Pressable key={p.id} onPress={() => setPlantId(p.id)} style={[styles.plantChip, { backgroundColor: p.id === plant.id ? colors.brand : colors.surfaceSecondary, borderColor: p.id === plant.id ? colors.brand : colors.border }]}><AppText style={{ color: p.id === plant.id ? colors.onBrand : colors.onSurface, fontFamily: fonts.semibold }}>{p.name}{p.city ? ` · ${p.city}` : ""}</AppText></Pressable>)}
+            </ScrollView>
+          </Card>
+
+          <View style={[styles.tabs, { borderColor: colors.border }]}>
+            {(["PREMIUM", "PROMOTION", ...(authority ? ["PROMO_CODES"] : [])] as Tab[]).map((value) => <Pressable key={value} onPress={() => setTab(value)} style={[styles.tab, tab === value && { backgroundColor: colors.brand }]}><AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: tab === value ? colors.onBrand : colors.onSurfaceSecondary }}>{value === "PROMO_CODES" ? "Promo Codes" : prettyPlan(value)}</AppText></Pressable>)}
+          </View>
+
+          <View style={styles.statusRow}>
+            <Card style={{ flex: 1, gap: 5 }}><AppText variant="label">Premium Plan</AppText><Badge label={plant.premium ? `${prettyPlan(plant.premium.plan)} · Active` : "Not active"} status={plant.premium ? "DELIVERED" : "PENDING"} />{plant.premium ? <AppText variant="caption">Ends {new Date(plant.premium.ends_at).toLocaleDateString("en-IN")}</AppText> : null}</Card>
+            <Card style={{ flex: 1, gap: 5 }}><AppText variant="label">Plant Promotion</AppText><Badge label={plant.promotion ? "Promoted" : "Not active"} status={plant.promotion ? "DELIVERED" : "PENDING"} /><AppText variant="caption">Separate from Premium</AppText></Card>
+          </View>
+
+          {tab === "PROMO_CODES" ? <Card style={{ gap: spacing.md }}><AppText variant="heading">Create Promo Code</AppText><AppText variant="caption">Authority-only. Plant Owners can apply issued codes but cannot create or activate free.</AppText><Input label="Code" value={codeName} onChangeText={setCodeName} autoCapitalize="characters" placeholder="RMCGOLD25" /><View style={styles.statusRow}><View style={{ flex: 1 }}><Input label="Discount %" value={codeValue} onChangeText={setCodeValue} keyboardType="number-pad" /></View><View style={{ flex: 1 }}><Input label="Valid days" value={codeDays} onChangeText={setCodeDays} keyboardType="number-pad" /></View></View><Button label="Create Promo Code" onPress={createCode} loading={busy} /></Card> : <>
+            <View style={{ gap: spacing.sm }}><AppText variant="heading">{tab === "PROMOTION" ? "Activate Plant Promotion" : "Choose Premium Plan"}</AppText><View style={styles.planRow}>
+              {tab === "PROMOTION" ? [7, 15, 30].map((d) => <PlanCard key={d} selected={duration === d} label={`${d} Days`} price={data!.promotion_prices[String(d)]} onPress={() => setDuration(d)} colors={colors} />) : Object.entries(data!.premium_plans).map(([key, value]) => <PlanCard key={key} selected={premiumPlan === key} label={`${prettyPlan(key)} · ${value.months}M`} price={value.price} onPress={() => setPremiumPlan(key)} colors={colors} />)}
+            </View></View>
+            <Card style={{ gap: spacing.sm }}><View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}><View style={{ flex: 1 }}><AppText variant="label">Promo code (optional)</AppText><TextInput value={promoCode} onChangeText={setPromoCode} autoCapitalize="characters" placeholder="Enter Authority-issued code" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.textInput, { borderColor: colors.border, color: colors.onSurface }]} /></View><Pressable onPress={requestQuote} style={[styles.apply, { borderColor: colors.brand }]}><AppText color={colors.brand} style={{ fontFamily: fonts.semibold }}>Apply</AppText></Pressable></View>
+              {quote ? <View style={[styles.quote, { borderTopColor: colors.divider }]}><Line label="Plan price" value={money(quote.price)} /><Line label="Promo discount" value={`−${money(quote.discount)}`} green /><Line label="Payable" value={money(quote.payable)} bold /></View> : null}
+            </Card>
+            {authority ? <Card style={{ gap: spacing.md }}><View style={styles.toggleRow}><Pressable onPress={() => setFreeMode(false)}><Ionicons name={freeMode ? "radio-button-off" : "radio-button-on"} size={22} color={colors.brand} /></Pressable><AppText style={{ flex: 1 }}>Verified offline payment</AppText><Pressable onPress={() => setFreeMode(true)}><Ionicons name={freeMode ? "radio-button-on" : "radio-button-off"} size={22} color={colors.brand} /></Pressable><AppText>Free by Authority</AppText></View>{freeMode ? <Input label="Reason (required)" value={reason} onChangeText={setReason} placeholder="Authority approval reason" /> : <Input label="Payment reference (required)" value={paymentReference} onChangeText={setPaymentReference} placeholder="UPI / bank / receipt reference" />}<Button label={freeMode ? "Activate Free as Authority" : "Activate Verified Payment"} onPress={() => activate(freeMode ? "AUTHORITY_FREE" : "OFFLINE_PAYMENT")} loading={busy} /></Card> : <Button label={`Continue to Secure Payment${quote ? ` · ${money(quote.payable)}` : ""}`} onPress={() => activate("ONLINE_PAYMENT")} loading={busy} />}
+            <View style={styles.audit}><Ionicons name="shield-checkmark-outline" size={18} color={colors.brand} /><AppText variant="caption" style={{ flex: 1 }}>Free or discounted activation records Authority, reason and expiry. Payment orders do not grant access until payment is verified.</AppText></View>
+          </>}
+        </>}
+      </ScrollView>
+    </View>
+  );
+}
+
+function PlanCard({ selected, label, price, onPress, colors }: any) { return <Pressable onPress={onPress} style={[styles.plan, { borderColor: selected ? colors.brand : colors.border, backgroundColor: selected ? colors.brandSoft : colors.surfaceSecondary }]}>{selected ? <Ionicons name="checkmark-circle" size={17} color={colors.brand} style={styles.check} /> : null}<AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface }}>{label}</AppText><AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: selected ? colors.brand : colors.onSurface }}>{money(price)}</AppText></Pressable>; }
+function Line({ label, value, bold, green }: any) { const { colors } = useTheme(); return <View style={styles.line}><AppText style={{ fontFamily: bold ? fonts.bold : fonts.regular, color: colors.onSurface }}>{label}</AppText><AppText style={{ fontFamily: bold ? fonts.bold : fonts.semibold, color: green ? colors.success : colors.onSurface }}>{value}</AppText></View>; }
+
+const styles = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md }, headerTitle: { color: "#fff", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontFamily: fonts.regular, fontSize: 12 },
+  plantChip: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, justifyContent: "center" }, tabs: { flexDirection: "row", padding: 4, borderWidth: 1, borderRadius: radius.md }, tab: { flex: 1, minHeight: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  statusRow: { flexDirection: "row", gap: spacing.sm }, planRow: { flexDirection: "row", gap: spacing.sm }, plan: { flex: 1, minHeight: 88, borderWidth: 1, borderRadius: radius.md, alignItems: "center", justifyContent: "center", gap: 5, position: "relative" }, check: { position: "absolute", right: 6, top: 6 }, textInput: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, marginTop: 6, fontFamily: fonts.medium }, apply: { height: 44, paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, justifyContent: "center" }, quote: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, gap: spacing.sm }, line: { flexDirection: "row", justifyContent: "space-between" }, toggleRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, audit: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+});

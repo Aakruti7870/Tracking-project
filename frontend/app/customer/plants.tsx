@@ -160,6 +160,9 @@ export default function CustomerPlants() {
 
     if (userLocation) {
       list.sort((a, b) => {
+        const ap = a.promoted ? 0 : 1;
+        const bp = b.promoted ? 0 : 1;
+        if (ap !== bp) return ap - bp;
         const ad = a.distance_km ?? Number.POSITIVE_INFINITY;
         const bd = b.distance_km ?? Number.POSITIVE_INFINITY;
         if (ad !== bd) return ad - bd;
@@ -168,7 +171,7 @@ export default function CustomerPlants() {
         if (ae !== be) return ae - be;
         return (a.name || "").localeCompare(b.name || "");
       });
-    }
+    } else list.sort((a, b) => (a.promoted === b.promoted ? (a.name || "").localeCompare(b.name || "") : a.promoted ? -1 : 1));
     return list;
   }, [data, userLocation]);
 
