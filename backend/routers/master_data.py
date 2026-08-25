@@ -18,6 +18,8 @@ from database import (
     mix_designs,
     orders,
     plant_business_profiles,
+    quotations,
+    quotation_requests,
     plants,
     rate_cards,
     suppliers,
