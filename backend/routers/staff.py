@@ -464,6 +464,7 @@ async def staff_collection(kind: str, ctx: dict = Depends(staff_only)):
             "meta": p.get("contact_phone"),
             "badge": "Verified" if p.get("verified") else "Pending",
             "badge_status": "DELIVERED" if p.get("verified") else "PENDING",
+            "owner_assigned": bool(p.get("owner_id")),
         } for p in docs]
         return {"title": "Plants", "empty": "No plants registered", "items": items}
 
