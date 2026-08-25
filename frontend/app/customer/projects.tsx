@@ -97,8 +97,8 @@ export default function CustomerProjects() {
                 {checklistDone ? <SummaryLine label="Checklist items completed" value={String(checklistDone)} /> : null}
               </View>
               {calculations.slice(0, 3).map((item) => <View key={item.id} style={[styles.calcRow, { borderColor: colors.border }]}><Ionicons name="calculator-outline" size={18} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.medium }}>{item.name}</AppText><AppText variant="caption">{item.grade || "Grade not selected"} · {item.quantity} m³</AppText></View></View>)}
+              <Button label="Open Pour Planner" variant="outline" onPress={() => router.push("/customer/pour-planner")} />
               <View style={styles.actions}>
-                <View style={{ flex: 1 }}><Button label="Pour Plan" variant="outline" onPress={() => router.push("/customer/pour-planner")} /></View>
                 <View style={{ flex: 1 }}><Button label="Calculate" variant="outline" onPress={() => router.push("/customer/free-tools")} /></View>
                 <View style={{ flex: 1 }}><Button label="Compare" variant="outline" onPress={() => router.push({ pathname: "/customer/compare-plants", params: { siteId: site.id } } as any)} /></View>
               </View>
