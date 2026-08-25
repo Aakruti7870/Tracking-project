@@ -15,6 +15,7 @@ const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap;
   { key: "projects", label: "Project & Site Hub", icon: "briefcase-outline", route: "/customer/projects" },
   { key: "pour_planner", label: "Concrete Pour Planner", icon: "time-outline", route: "/customer/pour-planner" },
   { key: "receiving", label: "Receiving & Quality Guide", icon: "shield-checkmark-outline", route: "/customer/receiving-guide" },
+  { key: "cube_follow_up", label: "Cube Test Follow-up", icon: "flask-outline", route: "/customer/cube-test-follow-up" },
   { key: "tools", label: "Free RMC Tools", icon: "calculator-outline", route: "/customer/free-tools" },
   { key: "compare", label: "Estimate & Compare Plants", icon: "git-compare-outline", route: "/customer/compare-plants" },
   { key: "kyc", label: "KYC Verification", icon: "id-card-outline", route: "/kyc" },
@@ -119,7 +120,7 @@ export default function CustomerMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · 2.0.15 (73)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · 2.0.16 (74)</AppText>
       </ScrollView>
     </View>
   );
