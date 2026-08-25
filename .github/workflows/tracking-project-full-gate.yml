@@ -202,7 +202,7 @@ jobs:
           test -n "$gradle_file"
           test -f android/app/google-services.json
           grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
-          grep -E "versionCode[[:space:]=]+73" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+74" "$gradle_file" >/dev/null
           grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
       - name: Compile debug APK
         working-directory: frontend/android
