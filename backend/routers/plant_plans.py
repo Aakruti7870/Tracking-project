@@ -5,10 +5,17 @@ creates a payment order; entitlements are activated only by a verified payment
 webhook or an audited Authority action.
 """
 from datetime import datetime, timedelta, timezone
+import base64
+import hashlib
+import hmac
+import json
+import os
 from secrets import token_hex
 
+import httpx
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from audit import write_audit
@@ -31,6 +38,49 @@ PREMIUM_PLANS = {
     "GROWTH": {"months": 6, "price": 129000},
     "SIGNATURE": {"months": 12, "price": 258000},
 }
+
+
+def cashfree_config() -> tuple[str, str, str]:
+    app_id = os.getenv("CASHFREE_APP_ID", "").strip()
+    secret = os.getenv("CASHFREE_SECRET_KEY", "").strip()
+    environment = os.getenv("CASHFREE_ENV", "sandbox").strip().lower()
+    if not app_id or not secret:
+        raise HTTPException(503, "Cashfree payment gateway is not configured")
+    if environment not in ("sandbox", "production"):
+        raise HTTPException(503, "CASHFREE_ENV must be sandbox or production")
+    return app_id, secret, environment
+
+
+def verify_cashfree_signature(timestamp: str, raw_body: bytes, signature: str, secret: str) -> bool:
+    if not timestamp or not signature:
+        return False
+    expected = base64.b64encode(hmac.new(secret.encode(), timestamp.encode() + raw_body, hashlib.sha256).digest()).decode()
+    return hmac.compare_digest(expected, signature)
+
+
+async def grant_paid_entitlement(order: dict, payment_reference: str) -> str:
+    """Idempotently grant exactly one entitlement for one verified payment."""
+    if order.get("status") == "PAID" and order.get("activation_id"):
+        return order["activation_id"]
+    now = now_utc()
+    if order["product"] == "PROMOTION":
+        ends = now + timedelta(days=int(order["plan"].split("_")[0]))
+        collection = plant_promotions
+    else:
+        ends = now + timedelta(days=PREMIUM_PLANS[order["plan"]]["months"] * 30)
+        collection = plant_plan_subscriptions
+    await collection.update_many({"plant_id": order["plant_id"], "status": "ACTIVE"}, {"$set": {"status": "SUPERSEDED", "updated_at": now}})
+    result = await collection.insert_one({"plant_id": order["plant_id"], "product": order["product"], "plan": order["plan"], "status": "ACTIVE", "starts_at": now, "ends_at": ends, "price": order["price"], "discount": order["discount"], "payable": order["payable"], "promo_code": order.get("promo_code"), "activation_mode": "ONLINE_PAYMENT", "payment_reference": payment_reference, "activated_by": "cashfree_webhook", "created_at": now, "updated_at": now})
+    activation_id = str(result.inserted_id)
+    updated = await plan_payment_orders.update_one({"_id": order["_id"], "status": {"$ne": "PAID"}}, {"$set": {"status": "PAID", "activation_id": activation_id, "payment_reference": payment_reference, "paid_at": now, "updated_at": now}})
+    if not updated.modified_count:
+        await collection.delete_one({"_id": result.inserted_id})
+        current = await plan_payment_orders.find_one({"_id": order["_id"]})
+        return current.get("activation_id")
+    if order.get("promo_code"):
+        await promotion_codes.update_one({"code": order["promo_code"]}, {"$inc": {"uses": 1}})
+    await write_audit("cashfree_webhook", f"plant_{order['product'].lower()}.activate", "plant", order["plant_id"], {"activation_id": activation_id, "order_number": order["order_number"], "payment_reference": payment_reference})
+    return activation_id
 
 
 def now_utc() -> datetime:
@@ -144,7 +194,7 @@ class ActivateBody(QuoteBody):
 
 
 @router.post("/activate")
-async def activate(body: ActivateBody, ctx: dict = Depends(allowed_ctx)):
+async def activate(body: ActivateBody, request: Request, ctx: dict = Depends(allowed_ctx)):
     plant = await scoped_plant(body.plant_id, ctx)
     authority = ctx["role"] in (Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value)
     if body.activation_mode in ("OFFLINE_PAYMENT", "AUTHORITY_FREE") and not authority:
@@ -162,10 +212,24 @@ async def activate(body: ActivateBody, ctx: dict = Depends(allowed_ctx)):
     # Owner self-service never grants an entitlement merely because the app
     # created an order. A payment provider webhook must activate it later.
     if body.activation_mode == "ONLINE_PAYMENT":
+        if payable <= 0:
+            raise HTTPException(422, "A zero-value plan must be activated by Authority")
+        app_id, secret, environment = cashfree_config()
         order_number = f"PLAN-{now:%Y%m%d}-{token_hex(4).upper()}"
         doc = {"order_number": order_number, "plant_id": body.plant_id, "owner_id": str(plant.get("owner_id") or ""), "product": body.product, "plan": plan, "price": price, "discount": discount, "payable": payable, "promo_code": code.get("code") if code else None, "status": "PAYMENT_PENDING", "created_by": ctx["user_id"], "created_at": now, "updated_at": now}
+        base = str(request.base_url).rstrip("/")
+        cashfree_base = "https://sandbox.cashfree.com/pg" if environment == "sandbox" else "https://api.cashfree.com/pg"
+        payload = {"order_id": order_number, "order_amount": payable, "order_currency": "INR", "customer_details": {"customer_id": ctx["user_id"][-40:], "customer_name": ctx["user"].get("name") or "Plant Owner", "customer_email": ctx["user"].get("email") or "payments@trackmyrmc.com", "customer_phone": ctx["user"].get("phone") or "9999999999"}, "order_meta": {"return_url": f"{base}/api/plant-plans/cashfree/return?order_id={{order_id}}", "notify_url": f"{base}/api/plant-plans/cashfree/webhook"}}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(f"{cashfree_base}/orders", headers={"x-client-id": app_id, "x-client-secret": secret, "x-api-version": "2025-01-01", "Content-Type": "application/json", "x-idempotency-key": token_hex(16)}, json=payload)
+            response.raise_for_status()
+            gateway = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(502, "Cashfree could not create the payment session") from exc
+        doc.update({"cashfree_order_id": gateway.get("order_id", order_number), "payment_session_id": gateway.get("payment_session_id")})
         await plan_payment_orders.insert_one(doc)
-        return {"status": "PAYMENT_PENDING", "order_number": order_number, "payable": payable, "message": "Payment order created. Entitlement activates only after verified payment."}
+        return {"status": "PAYMENT_PENDING", "order_number": order_number, "payable": payable, "payment_session_id": gateway.get("payment_session_id"), "cashfree_environment": environment, "message": "Payment session created. Entitlement activates only after verified payment."}
 
     if body.product == "PROMOTION":
         days = int(plan.split("_")[0])
@@ -205,3 +269,38 @@ async def create_promo_code(body: PromoCodeBody, ctx: dict = Depends(allowed_ctx
     result = await promotion_codes.insert_one({**body.model_dump(), "code": code, "active": True, "uses": 0, "starts_at": now, "created_by": ctx["user_id"], "created_at": now, "updated_at": now})
     await write_audit(ctx["user_id"], "promo_code.create", "promotion_code", str(result.inserted_id), {"code": code, "product": body.product})
     return {"id": str(result.inserted_id), "code": code, "active": True}
+
+
+@router.post("/cashfree/webhook")
+async def cashfree_webhook(request: Request):
+    _, secret, _ = cashfree_config()
+    raw = await request.body()
+    if not verify_cashfree_signature(request.headers.get("x-webhook-timestamp", ""), raw, request.headers.get("x-webhook-signature", ""), secret):
+        raise HTTPException(401, "Invalid Cashfree webhook signature")
+    try:
+        payload = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid webhook payload") from exc
+    data = payload.get("data") or {}
+    order_data = data.get("order") or {}
+    payment = data.get("payment") or {}
+    order_number = order_data.get("order_id")
+    if not order_number:
+        raise HTTPException(400, "Cashfree order id is missing")
+    order = await plan_payment_orders.find_one({"order_number": order_number})
+    if not order:
+        return {"status": "IGNORED"}
+    payment_status = payment.get("payment_status")
+    if payment_status == "SUCCESS":
+        activation_id = await grant_paid_entitlement(order, str(payment.get("cf_payment_id") or order_number))
+        return {"status": "PAID", "activation_id": activation_id}
+    mapped = "FAILED" if payment_status == "FAILED" else "USER_DROPPED" if payment_status == "USER_DROPPED" else "PAYMENT_PENDING"
+    await plan_payment_orders.update_one({"_id": order["_id"], "status": {"$ne": "PAID"}}, {"$set": {"status": mapped, "updated_at": now_utc()}})
+    return {"status": mapped}
+
+
+@router.get("/cashfree/return", response_class=HTMLResponse)
+async def cashfree_return(order_id: str):
+    order = await plan_payment_orders.find_one({"order_number": order_id})
+    status = (order or {}).get("status", "PAYMENT_PENDING")
+    return HTMLResponse(f"""<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>TrackMyRMC Payment</title></head><body style=\"font-family:system-ui;background:#01153e;color:white;display:grid;place-items:center;min-height:100vh;text-align:center\"><main><h1>Payment {status.replace('_', ' ').title()}</h1><p>Return to TrackMyRMC and refresh Plans &amp; Promotions.</p><a style=\"color:#ff8a00\" href=\"trackmyrmc://plans-promotions?order_id={order_id}\">Open TrackMyRMC</a></main></body></html>""")
