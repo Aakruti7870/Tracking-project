@@ -20,7 +20,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type ActivePlan = { status: string; plan: string; ends_at: string; activation_mode: string } | null;
-type Plant = { id: string; name: string; city?: string; premium: ActivePlan; promotion: ActivePlan };
+type Plant = { id: string; name: string; address?: string; city?: string; taluka?: string; district?: string; state?: string; premium: ActivePlan; promotion: ActivePlan };
 type Context = {
   role: string;
   plants: Plant[];
@@ -45,6 +45,10 @@ export default function PlansPromotions() {
   const { data, loading, error, refetch, reload } = useGet<Context>("/plant-plans/context");
   const [tab, setTab] = useState<Tab>("PROMOTION");
   const [plantId, setPlantId] = useState("");
+  const [plantSearch, setPlantSearch] = useState("");
+  const [stateFilter, setStateFilter] = useState("ALL");
+  const [districtFilter, setDistrictFilter] = useState("ALL");
+  const [talukaFilter, setTalukaFilter] = useState("ALL");
   const [duration, setDuration] = useState(30);
   const [premiumPlan, setPremiumPlan] = useState("GROWTH");
   const [promoCode, setPromoCode] = useState("");
@@ -61,6 +65,25 @@ export default function PlansPromotions() {
   const refetchRef = useRef(refetch);
 
   const authority = user?.role === "authority" || user?.role === "central_admin";
+  const location = (value?: string) => value?.trim() || "Not specified";
+  const stateOptions = useMemo(() => Array.from(new Set((data?.plants || []).map((p) => location(p.state)))).sort(), [data]);
+  const districtOptions = useMemo(() => Array.from(new Set((data?.plants || [])
+    .filter((p) => stateFilter === "ALL" || location(p.state) === stateFilter)
+    .map((p) => location(p.district)))).sort(), [data, stateFilter]);
+  const talukaOptions = useMemo(() => Array.from(new Set((data?.plants || [])
+    .filter((p) => stateFilter === "ALL" || location(p.state) === stateFilter)
+    .filter((p) => districtFilter === "ALL" || location(p.district) === districtFilter)
+    .map((p) => location(p.taluka || p.city)))).sort(), [data, districtFilter, stateFilter]);
+  const filteredPlants = useMemo(() => {
+    const query = plantSearch.trim().toLowerCase();
+    return (data?.plants || []).filter((p) => {
+      if (stateFilter !== "ALL" && location(p.state) !== stateFilter) return false;
+      if (districtFilter !== "ALL" && location(p.district) !== districtFilter) return false;
+      if (talukaFilter !== "ALL" && location(p.taluka || p.city) !== talukaFilter) return false;
+      if (!query) return true;
+      return [p.name, p.address, p.city, p.taluka, p.district, p.state].some((value) => value?.toLowerCase().includes(query));
+    });
+  }, [data, districtFilter, plantSearch, stateFilter, talukaFilter]);
   const plant = useMemo(() => data?.plants.find((p) => p.id === plantId) || data?.plants[0], [data, plantId]);
   useEffect(() => { if (!plantId && data?.plants[0]) setPlantId(data.plants[0].id); }, [data, plantId]);
   useEffect(() => { setQuote(null); }, [tab, duration, premiumPlan, plantId]);
@@ -159,12 +182,23 @@ export default function PlansPromotions() {
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 80, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
         {loading && !data ? <><Skeleton height={72} /><Skeleton height={220} /></> : !plant ? <Card><AppText>No plant is assigned to this account.</AppText></Card> : <>
-          <Card style={{ gap: spacing.sm }}>
-            <AppText variant="label">Selected plant</AppText>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-              {data!.plants.map((p) => <Pressable key={p.id} onPress={() => setPlantId(p.id)} style={[styles.plantChip, { backgroundColor: p.id === plant.id ? colors.brand : colors.surfaceSecondary, borderColor: p.id === plant.id ? colors.brand : colors.border }]}><AppText style={{ color: p.id === plant.id ? colors.onBrand : colors.onSurface, fontFamily: fonts.semibold }}>{p.name}{p.city ? ` · ${p.city}` : ""}</AppText></Pressable>)}
-            </ScrollView>
-          </Card>
+          <PlantSearchCard
+            plants={filteredPlants}
+            selected={plant}
+            search={plantSearch}
+            onSearch={setPlantSearch}
+            stateFilter={stateFilter}
+            districtFilter={districtFilter}
+            talukaFilter={talukaFilter}
+            stateOptions={stateOptions}
+            districtOptions={districtOptions}
+            talukaOptions={talukaOptions}
+            onState={(value) => { setStateFilter(value); setDistrictFilter("ALL"); setTalukaFilter("ALL"); }}
+            onDistrict={(value) => { setDistrictFilter(value); setTalukaFilter("ALL"); }}
+            onTaluka={setTalukaFilter}
+            onSelect={setPlantId}
+            onClear={() => { setPlantSearch(""); setStateFilter("ALL"); setDistrictFilter("ALL"); setTalukaFilter("ALL"); }}
+          />
 
           <View style={[styles.tabs, { borderColor: colors.border }]}>
             {(["PREMIUM", "PROMOTION", ...(authority ? ["PROMO_CODES"] : [])] as Tab[]).map((value) => <Pressable key={value} onPress={() => setTab(value)} style={[styles.tab, tab === value && { backgroundColor: colors.brand }]}><AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: tab === value ? colors.onBrand : colors.onSurfaceSecondary }}>{value === "PROMO_CODES" ? "Promo Codes" : prettyPlan(value)}</AppText></Pressable>)}
@@ -192,11 +226,125 @@ export default function PlansPromotions() {
   );
 }
 
+
+function PlantSearchCard({
+  plants, selected, search, onSearch, stateFilter, districtFilter, talukaFilter,
+  stateOptions, districtOptions, talukaOptions, onState, onDistrict, onTaluka, onSelect, onClear,
+}: {
+  plants: Plant[]; selected: Plant; search: string; onSearch(value: string): void;
+  stateFilter: string; districtFilter: string; talukaFilter: string;
+  stateOptions: string[]; districtOptions: string[]; talukaOptions: string[];
+  onState(value: string): void; onDistrict(value: string): void; onTaluka(value: string): void;
+  onSelect(id: string): void; onClear(): void;
+}) {
+  const { colors } = useTheme();
+  const [openFilter, setOpenFilter] = useState<"STATE" | "DISTRICT" | "TALUKA" | null>(null);
+  const activeFilters = [stateFilter, districtFilter, talukaFilter].filter((value) => value !== "ALL").length + (search.trim() ? 1 : 0);
+
+  const filter = (label: string, value: string, key: "STATE" | "DISTRICT" | "TALUKA", options: string[], onChange: (value: string) => void) => (
+    <View style={{ flex: 1, gap: spacing.xs }}>
+      <AppText variant="caption">{label}</AppText>
+      <Pressable
+        testID={`plant-filter-${key.toLowerCase()}`}
+        onPress={() => setOpenFilter(openFilter === key ? null : key)}
+        style={[styles.filterSelect, { backgroundColor: colors.surfaceTertiary, borderColor: value === "ALL" ? colors.border : colors.brand }]}
+      >
+        <AppText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.medium, fontSize: 12, color: colors.onSurface }}>
+          {value === "ALL" ? `All ${label}s` : value}
+        </AppText>
+        <Ionicons name={openFilter === key ? "chevron-up" : "chevron-down"} size={15} color={colors.onSurfaceTertiary} />
+      </Pressable>
+      {openFilter === key ? (
+        <View style={[styles.optionMenu, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Pressable onPress={() => { onChange("ALL"); setOpenFilter(null); }} style={styles.option}>
+            <AppText style={{ fontFamily: value === "ALL" ? fonts.semibold : fonts.regular }}>All {label}s</AppText>
+          </Pressable>
+          {options.map((option) => (
+            <Pressable key={option} onPress={() => { onChange(option); setOpenFilter(null); }} style={styles.option}>
+              <AppText numberOfLines={1} style={{ fontFamily: value === option ? fonts.semibold : fonts.regular, color: value === option ? colors.brand : colors.onSurface }}>{option}</AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <Card style={{ gap: spacing.md }}>
+      <View style={styles.line}>
+        <View style={{ flex: 1 }}>
+          <AppText variant="heading">Find & Select Plant</AppText>
+          <AppText variant="caption">Filter by location or search plant name and address</AppText>
+        </View>
+        {activeFilters ? <Pressable onPress={onClear}><AppText style={{ color: colors.brand, fontFamily: fonts.semibold }}>Clear</AppText></Pressable> : null}
+      </View>
+
+      <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}>
+        <Ionicons name="search-outline" size={19} color={colors.onSurfaceTertiary} />
+        <TextInput
+          testID="plant-search-input"
+          value={search}
+          onChangeText={onSearch}
+          placeholder="Search plant name, city or address"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          style={{ flex: 1, color: colors.onSurface, fontFamily: fonts.medium, fontSize: fontSize.base }}
+        />
+        {search ? <Pressable onPress={() => onSearch("")}><Ionicons name="close-circle" size={19} color={colors.onSurfaceTertiary} /></Pressable> : null}
+      </View>
+
+      <View style={styles.locationFilters}>
+        {filter("State", stateFilter, "STATE", stateOptions, onState)}
+        {filter("District", districtFilter, "DISTRICT", districtOptions, onDistrict)}
+        {filter("Taluka", talukaFilter, "TALUKA", talukaOptions, onTaluka)}
+      </View>
+
+      <View style={styles.line}>
+        <AppText variant="label">{plants.length} plant{plants.length === 1 ? "" : "s"} found</AppText>
+        <AppText variant="caption">Selected: {selected.name}</AppText>
+      </View>
+
+      <View style={{ gap: spacing.sm }}>
+        {plants.slice(0, 8).map((p) => {
+          const isSelected = p.id === selected.id;
+          const place = [p.taluka || p.city, p.district, p.state].filter(Boolean).join(", ") || "Location not specified";
+          return (
+            <Pressable
+              key={p.id}
+              testID={`select-plant-${p.id}`}
+              onPress={() => onSelect(p.id)}
+              style={[styles.plantResult, {
+                backgroundColor: isSelected ? colors.brandSoft : colors.surfaceSecondary,
+                borderColor: isSelected ? colors.brand : colors.border,
+              }]}
+            >
+              <View style={[styles.plantIcon, { backgroundColor: isSelected ? colors.brand : colors.surfaceTertiary }]}>
+                <Ionicons name="business" size={18} color={isSelected ? colors.onBrand : colors.onSurfaceSecondary} />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <AppText numberOfLines={1} style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>{p.name}</AppText>
+                <AppText variant="caption" numberOfLines={1}>{place}</AppText>
+              </View>
+              <Ionicons name={isSelected ? "checkmark-circle" : "chevron-forward"} size={20} color={isSelected ? colors.brand : colors.onSurfaceTertiary} />
+            </Pressable>
+          );
+        })}
+        {!plants.length ? (
+          <View style={{ alignItems: "center", gap: spacing.sm, paddingVertical: spacing.lg }}>
+            <Ionicons name="search-outline" size={28} color={colors.onSurfaceTertiary} />
+            <AppText variant="heading">No plants found</AppText>
+            <AppText variant="caption" center>Clear filters or search with a different plant name.</AppText>
+          </View>
+        ) : plants.length > 8 ? <AppText variant="caption" center>Refine the filters to narrow {plants.length} matching plants.</AppText> : null}
+      </View>
+    </Card>
+  );
+}
+
 function PlanCard({ selected, label, price, onPress, colors }: any) { return <Pressable onPress={onPress} style={[styles.plan, { borderColor: selected ? colors.brand : colors.border, backgroundColor: selected ? colors.brandSoft : colors.surfaceSecondary }]}>{selected ? <Ionicons name="checkmark-circle" size={17} color={colors.brand} style={styles.check} /> : null}<AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface }}>{label}</AppText><AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: selected ? colors.brand : colors.onSurface }}>{money(price)}</AppText></Pressable>; }
 function Line({ label, value, bold, green }: any) { const { colors } = useTheme(); return <View style={styles.line}><AppText style={{ fontFamily: bold ? fonts.bold : fonts.regular, color: colors.onSurface }}>{label}</AppText><AppText style={{ fontFamily: bold ? fonts.bold : fonts.semibold, color: green ? colors.success : colors.onSurface }}>{value}</AppText></View>; }
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md }, headerTitle: { color: "#fff", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontFamily: fonts.regular, fontSize: 12 },
-  plantChip: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, justifyContent: "center" }, tabs: { flexDirection: "row", padding: 4, borderWidth: 1, borderRadius: radius.md }, tab: { flex: 1, minHeight: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  searchBox: { height: 48, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md }, locationFilters: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, zIndex: 5 }, filterSelect: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 3, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.sm }, optionMenu: { position: "absolute", top: 66, left: 0, right: 0, zIndex: 20, maxHeight: 220, borderWidth: 1, borderRadius: radius.md, padding: spacing.xs }, option: { minHeight: 38, justifyContent: "center", paddingHorizontal: spacing.sm }, plantResult: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm }, plantIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center" }, tabs: { flexDirection: "row", padding: 4, borderWidth: 1, borderRadius: radius.md }, tab: { flex: 1, minHeight: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   statusRow: { flexDirection: "row", gap: spacing.sm }, planRow: { flexDirection: "row", gap: spacing.sm }, plan: { flex: 1, minHeight: 88, borderWidth: 1, borderRadius: radius.md, alignItems: "center", justifyContent: "center", gap: 5, position: "relative" }, check: { position: "absolute", right: 6, top: 6 }, textInput: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, marginTop: 6, fontFamily: fonts.medium }, apply: { height: 44, paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, justifyContent: "center" }, quote: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, gap: spacing.sm }, line: { flexDirection: "row", justifyContent: "space-between" }, toggleRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, audit: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
 });
