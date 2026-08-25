@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from audit import write_audit
 from database import (
+    audit_logs,
     plan_payment_orders,
     plant_plan_subscriptions,
     plant_promotions,
@@ -269,6 +270,119 @@ async def create_promo_code(body: PromoCodeBody, ctx: dict = Depends(allowed_ctx
     result = await promotion_codes.insert_one({**body.model_dump(), "code": code, "active": True, "uses": 0, "starts_at": now, "created_by": ctx["user_id"], "created_at": now, "updated_at": now})
     await write_audit(ctx["user_id"], "promo_code.create", "promotion_code", str(result.inserted_id), {"code": code, "product": body.product})
     return {"id": str(result.inserted_id), "code": code, "active": True}
+
+
+@router.get("/authority-control")
+async def authority_payment_control(ctx: dict = Depends(allowed_ctx)):
+    """Read-only financial control centre for Authority and Central Admin."""
+    if ctx["role"] not in (Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value):
+        raise HTTPException(403, "Authority access required")
+
+    plant_rows = await plants.find(
+        {"status": {"$ne": "deleted"}},
+        {"name": 1, "city": 1, "district": 1, "state": 1},
+    ).to_list(500)
+    plant_map = {
+        str(row["_id"]): {
+            "name": row.get("name") or "RMC Plant",
+            "city": row.get("city"),
+            "district": row.get("district"),
+            "state": row.get("state"),
+        }
+        for row in plant_rows
+    }
+
+    online = await plan_payment_orders.find({}).sort("created_at", -1).to_list(500)
+    premium = await plant_plan_subscriptions.find({}).sort("created_at", -1).to_list(500)
+    promotions = await plant_promotions.find({}).sort("created_at", -1).to_list(500)
+    promo_rows = await promotion_codes.find({}).sort("created_at", -1).to_list(500)
+    audit_rows = await audit_logs.find({
+        "action": {"$in": [
+            "plant_premium.activate",
+            "plant_promotion.activate",
+            "promo_code.create",
+        ]}
+    }).sort("created_at", -1).to_list(500)
+
+    def plant_info(plant_id: str | None) -> dict:
+        return plant_map.get(plant_id or "", {"name": "RMC Plant", "city": None, "district": None, "state": None})
+
+    def activation_row(row: dict, product: str) -> dict:
+        info = plant_info(row.get("plant_id"))
+        return {
+            "id": str(row["_id"]),
+            "plant_id": row.get("plant_id"),
+            "plant_name": info["name"],
+            "product": product,
+            "plan": row.get("plan"),
+            "status": row.get("status"),
+            "activation_mode": row.get("activation_mode"),
+            "price": row.get("price", 0),
+            "discount": row.get("discount", 0),
+            "payable": row.get("payable", 0),
+            "promo_code": row.get("promo_code"),
+            "payment_reference": row.get("payment_reference"),
+            "reason": row.get("reason"),
+            "activated_by": row.get("activated_by"),
+            "starts_at": row.get("starts_at"),
+            "ends_at": row.get("ends_at"),
+            "created_at": row.get("created_at"),
+        }
+
+    return {
+        "online_payments": [
+            {
+                "order_number": row.get("order_number"),
+                "plant_id": row.get("plant_id"),
+                "plant_name": plant_info(row.get("plant_id"))["name"],
+                "product": row.get("product"),
+                "plan": row.get("plan"),
+                "status": row.get("status", "PAYMENT_PENDING"),
+                "payable": row.get("payable", 0),
+                "discount": row.get("discount", 0),
+                "promo_code": row.get("promo_code"),
+                "payment_reference": row.get("payment_reference"),
+                "created_at": row.get("created_at"),
+                "paid_at": row.get("paid_at"),
+                "updated_at": row.get("updated_at"),
+            }
+            for row in online
+        ],
+        "activations": [
+            *[activation_row(row, "PREMIUM") for row in premium],
+            *[activation_row(row, "PROMOTION") for row in promotions],
+        ],
+        "promo_codes": [
+            {
+                "id": str(row["_id"]),
+                "code": row.get("code"),
+                "product": row.get("product"),
+                "discount_type": row.get("discount_type"),
+                "discount_value": row.get("discount_value"),
+                "uses": row.get("uses", 0),
+                "max_uses": row.get("max_uses"),
+                "active": row.get("active", False),
+                "starts_at": row.get("starts_at"),
+                "ends_at": row.get("ends_at"),
+                "created_by": row.get("created_by"),
+                "created_at": row.get("created_at"),
+            }
+            for row in promo_rows
+        ],
+        "audit": [
+            {
+                "id": str(row["_id"]),
+                "actor_id": row.get("actor_id"),
+                "action": row.get("action"),
+                "entity_type": row.get("entity_type"),
+                "entity_id": row.get("entity_id"),
+                "plant_name": plant_info(row.get("entity_id"))["name"] if row.get("entity_type") == "plant" else None,
+                "meta": row.get("meta", {}),
+                "created_at": row.get("created_at"),
+            }
+            for row in audit_rows
+        ],
+    }
 
 
 @router.get("/payment-history")
