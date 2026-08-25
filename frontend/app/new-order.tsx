@@ -39,7 +39,7 @@ export default function NewOrder() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
-  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string }>();
+  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteName?: string; siteAddress?: string }>();
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
@@ -48,8 +48,8 @@ export default function NewOrder() {
   const [quantity, setQuantity] = useState(params.quantity || "6");
   const [date, setDate] = useState(days[1].value);
   const [time, setTime] = useState<string | null>("10:00");
-  const [siteName, setSiteName] = useState("");
-  const [address, setAddress] = useState("");
+  const [siteName, setSiteName] = useState(params.siteName || "");
+  const [address, setAddress] = useState(params.siteAddress || "");
   const [contact, setContact] = useState(user?.name || "");
   const [mobile, setMobile] = useState(user?.phone || "");
   const [notes, setNotes] = useState("");
@@ -108,6 +108,7 @@ export default function NewOrder() {
     try {
       const res: any = await apiPost("/customer/orders", token!, {
         plant_id: plantId,
+        quotation_id: params.quotationId || null,
         grade,
         quantity: Number(quantity),
         site_name: siteName.trim(),
@@ -152,6 +153,13 @@ export default function NewOrder() {
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.lg }}
         showsVerticalScrollIndicator={false}
       >
+        {params.quotationId ? (
+          <View style={[styles.warn, { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}>
+            <Ionicons name="document-text-outline" size={18} color={colors.brand} />
+            <AppText variant="caption" style={{ flex: 1 }}>Creating this order from an accepted official quotation. Plant, grade and quantity must remain unchanged.</AppText>
+          </View>
+        ) : null}
+
         {!kycOk ? (
           <Pressable onPress={() => router.push("/kyc")} style={[styles.warn, { backgroundColor: colors.warning + "1A", borderColor: colors.warning + "55" }]}>
             <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
@@ -168,7 +176,7 @@ export default function NewOrder() {
                 <Pressable
                   key={p.id}
                   testID={`neworder-plant-${p.id}`}
-                  onPress={() => { setPlantId(p.id); setGrade(params.grade && p.grades?.includes(params.grade) ? params.grade : null); }}
+                  onPress={() => { if (params.quotationId) return; setPlantId(p.id); setGrade(params.grade && p.grades?.includes(params.grade) ? params.grade : null); }}
                   style={[styles.plantRow, { borderColor: sel ? colors.brand : colors.border, backgroundColor: sel ? colors.brandSoft : colors.surfaceSecondary }]}
                 >
                   <Ionicons name={sel ? "radio-button-on" : "radio-button-off"} size={20} color={sel ? colors.brand : colors.onSurfaceTertiary} />
@@ -190,7 +198,7 @@ export default function NewOrder() {
               {grades.map((g) => {
                 const sel = g === grade;
                 return (
-                  <Pressable key={g} testID={`grade-${g}`} onPress={() => setGrade(g)} style={[styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
+                  <Pressable key={g} testID={`grade-${g}`} onPress={() => { if (!params.quotationId) setGrade(g); }} style={[styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
                     <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{g}</AppText>
                   </Pressable>
                 );
@@ -202,11 +210,11 @@ export default function NewOrder() {
         {/* Quantity */}
         <Section title="Quantity (m³)">
           <View style={styles.stepper}>
-            <Stepper icon="remove" onPress={() => setQuantity((q) => String(Math.max(1, Number(q) - 1)))} colors={colors} />
+            <Stepper icon="remove" onPress={() => { if (!params.quotationId) setQuantity((q) => String(Math.max(1, Number(q) - 1))); }} colors={colors} />
             <View style={{ flex: 1 }}>
-              <Input testID="neworder-quantity" value={quantity} onChangeText={(t) => setQuantity(t.replace(/[^0-9.]/g, ""))} keyboardType="numeric" center />
+              <Input testID="neworder-quantity" value={quantity} onChangeText={(t) => { if (!params.quotationId) setQuantity(t.replace(/[^0-9.]/g, "")); }} keyboardType="numeric" center />
             </View>
-            <Stepper icon="add" onPress={() => setQuantity((q) => String(Number(q || "0") + 1))} colors={colors} />
+            <Stepper icon="add" onPress={() => { if (!params.quotationId) setQuantity((q) => String(Number(q || "0") + 1)); }} colors={colors} />
           </View>
         </Section>
 
