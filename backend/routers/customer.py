@@ -1,5 +1,5 @@
 """Customer role endpoints (server-side authorized to the customer role)."""
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 import math
 
 from bson import ObjectId
@@ -19,12 +19,14 @@ from database import (
     plants,
     plant_promotions,
     proof_of_delivery,
+    pour_plans,
     quotation_requests,
     quotations,
     rate_cards,
     vehicle_locations,
     next_sequence,
 )
+from business_models import CustomerPourPlanBody
 from models import CreateOrderBody
 from notifications import record_notification
 from order_service import CANCELLED, DRAFT, PENDING, transition_order
@@ -322,6 +324,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
     order_docs = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
     request_docs = await quotation_requests.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
     quote_docs = await quotations.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
+    plan_docs = await pour_plans.find({"customer_id": uid}).sort("pour_date", -1).to_list(2000)
     rows = []
     terminal = {"DELIVERED", "REJECTED", "CANCELLED"}
     for site in site_docs:
@@ -332,6 +335,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
         site_orders = [doc for doc in order_docs if belongs(doc)]
         site_requests = [doc for doc in request_docs if belongs(doc)]
         site_quotes = [doc for doc in quote_docs if belongs(doc)]
+        site_plans = [doc for doc in plan_docs if doc.get("site_id") == sid]
         active_orders = [doc for doc in site_orders if doc.get("status") not in terminal and doc.get("status") != "DRAFT"]
         delivered = [doc for doc in site_orders if doc.get("status") == "DELIVERED"]
         upcoming = sorted(
@@ -353,6 +357,7 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             "delivered_orders": len(delivered),
             "ordered_m3": round(sum(float(doc.get("quantity") or 0) for doc in site_orders), 2),
             "delivered_m3": round(sum(float(doc.get("delivered_quantity") or doc.get("quantity") or 0) for doc in delivered), 2),
+            "pour_plans": len(site_plans),
             "quotation_requests": len(site_requests),
             "official_quotations": len(site_quotes),
             "open_quotations": sum(1 for doc in site_quotes if doc.get("status") in ("OPEN", "ACCEPTED")),
@@ -372,6 +377,74 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             } if latest else None,
         })
     return {"sites": rows, "count": len(rows)}
+
+
+def _serialize_pour_plan(doc: dict) -> dict:
+    row = {**doc, "id": str(doc["_id"])}
+    row.pop("_id", None)
+    for key, value in list(row.items()):
+        if isinstance(value, ObjectId):
+            row[key] = str(value)
+        elif hasattr(value, "isoformat"):
+            row[key] = value.isoformat()
+    return row
+
+
+@router.get("/pour-plans")
+async def list_pour_plans(site_id: str | None = Query(default=None), ctx: dict = Depends(customer_only)):
+    query: dict = {"customer_id": ctx["user_id"]}
+    if site_id:
+        query["site_id"] = site_id
+    docs = await pour_plans.find(query).sort([("pour_date", -1), ("created_at", -1)]).to_list(500)
+    return {"plans": [_serialize_pour_plan(doc) for doc in docs]}
+
+
+@router.post("/pour-plans")
+async def create_pour_plan(body: CustomerPourPlanBody, ctx: dict = Depends(customer_only)):
+    site = await customer_sites.find_one({"_id": await _oid(body.site_id), "customer_id": ctx["user_id"]})
+    if not site:
+        raise HTTPException(422, "Saved site not found")
+    total = float(body.total_quantity_m3)
+    capacity = float(body.mixer_capacity_m3)
+    loads_count = math.ceil(total / capacity)
+    if loads_count > 500:
+        raise HTTPException(422, "Pour plan exceeds the maximum of 500 mixer loads")
+    if body.pour_date < datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Pour date cannot be in the past")
+    start_at = datetime.combine(body.pour_date, time.fromisoformat(body.start_time))
+    quantities = [round(min(capacity, total - (index * capacity)), 2) for index in range(loads_count)]
+    loads = [{
+        "load_number": index + 1,
+        "quantity_m3": quantity,
+        "suggested_arrival": (start_at + timedelta(minutes=index * body.unload_minutes)).strftime("%H:%M"),
+    } for index, quantity in enumerate(quantities)]
+    estimated_end = start_at + timedelta(minutes=loads_count * body.unload_minutes)
+    now = datetime.now(timezone.utc)
+    doc = {
+        **body.model_dump(mode="json"),
+        "customer_id": ctx["user_id"],
+        "site_name": site.get("name"),
+        "site_address": site.get("address"),
+        "loads_count": loads_count,
+        "loads": loads,
+        "estimated_end_time": estimated_end.strftime("%H:%M"),
+        "status": "PLANNED",
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await pour_plans.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    await write_audit(ctx["user_id"], "pour_plan.create", "pour_plan", str(result.inserted_id), {"site_id": body.site_id, "loads": loads_count})
+    return {"plan": _serialize_pour_plan(doc)}
+
+
+@router.delete("/pour-plans/{plan_id}")
+async def delete_pour_plan(plan_id: str, ctx: dict = Depends(customer_only)):
+    result = await pour_plans.delete_one({"_id": await _oid(plan_id), "customer_id": ctx["user_id"]})
+    if result.deleted_count != 1:
+        raise HTTPException(404, "Pour plan not found")
+    await write_audit(ctx["user_id"], "pour_plan.delete", "pour_plan", plan_id, {})
+    return {"status": "deleted"}
 
 
 @router.get("/kyc")
