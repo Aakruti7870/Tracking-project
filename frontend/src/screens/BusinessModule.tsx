@@ -209,6 +209,17 @@ const MODULES: Record<string, ModuleDef> = {
   reports: { title: "Plant Report", subtitle: "Live operational and commercial summary" },
 };
 
+const STAFF_ROLE_OPTIONS = [
+  { value: "admin", label: "Plant Admin" },
+  { value: "dispatcher", label: "Dispatcher" },
+  { value: "operator", label: "Plant Operator / Batcher" },
+  { value: "supervisor", label: "Supervisor" },
+  { value: "accountant", label: "Accountant" },
+  { value: "quality_engineer", label: "Quality Engineer" },
+  { value: "fleet_manager", label: "Fleet Manager" },
+  { value: "store_manager", label: "Store Manager" },
+];
+
 const numericFields = new Set([
   "rate_per_m3", "gst_rate", "transport_rate_per_km", "pumping_rate_per_m3", "version",
   "cement_kg", "fly_ash_kg", "c_sand_kg", "sand_kg", "aggregate_10mm_kg", "aggregate_20mm_kg",
@@ -276,7 +287,7 @@ function unpackRows(kind: string, data: any): Row[] {
 
 export function BusinessModule({ kind }: { kind: string }) {
   const def = MODULES[kind] || MODULES.reports;
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -580,14 +591,38 @@ export function BusinessModule({ kind }: { kind: string }) {
                 <Pressable onPress={() => setModal(false)}><Ionicons name="close" size={24} color={colors.onSurface} /></Pressable>
               </View>
               {(def.fields || []).map((f) => (
-                <Input
-                  key={f.key}
-                  label={f.label}
-                  placeholder={f.placeholder}
-                  value={form[f.key] || ""}
-                  keyboardType={f.numeric ? "numeric" : "default"}
-                  onChangeText={(value) => setForm((old) => ({ ...old, [f.key]: f.numeric ? value.replace(/[^0-9.-]/g, "") : value }))}
-                />
+                kind === "staff" && f.key === "role" ? (
+                  <View key={f.key} style={{ gap: spacing.sm }}>
+                    <AppText variant="label">Role</AppText>
+                    <View style={styles.grid}>
+                      {STAFF_ROLE_OPTIONS.filter((option) => user?.role === "plant_owner" || option.value !== "admin").map((option) => {
+                        const selected = form.role === option.value;
+                        return (
+                          <Pressable
+                            key={option.value}
+                            testID={`staff-role-${option.value}`}
+                            onPress={() => setForm((current) => ({ ...current, role: option.value }))}
+                            style={[styles.roleOption, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}
+                          >
+                            <Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={17} color={selected ? colors.onBrand : colors.onSurfaceSecondary} />
+                            <AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: selected ? colors.onBrand : colors.onSurface }}>{option.label}</AppText>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <AppText variant="caption">Drivers use a separate mobile OTP and KYC onboarding flow.</AppText>
+                  </View>
+                ) : (
+                  <Input
+                    key={f.key}
+                    label={f.label}
+                    placeholder={f.placeholder}
+                    value={form[f.key] || ""}
+                    keyboardType={f.numeric ? "numeric" : f.key === "email" ? "email-address" : "default"}
+                    autoCapitalize={f.key === "email" ? "none" : undefined}
+                    onChangeText={(value) => setForm((old) => ({ ...old, [f.key]: f.numeric ? value.replace(/[^0-9.-]/g, "") : value }))}
+                  />
+                )
               ))}
               <Button label="Save" onPress={submit} loading={saving} />
               <Button label="Cancel" variant="outline" onPress={() => setModal(false)} />
@@ -616,6 +651,7 @@ const styles = StyleSheet.create({
   chip: { height: 36, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, justifyContent: "center" },
   search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, height: 44, paddingHorizontal: spacing.md, borderWidth: 1, borderRadius: radius.md },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  roleOption: { width: "48%", minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, borderWidth: 1, borderRadius: radius.md },
   stat: { width: "48%", gap: 4 },
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: { maxHeight: "88%", borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderWidth: 1, padding: spacing.lg },
