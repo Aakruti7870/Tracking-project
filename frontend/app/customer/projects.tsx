@@ -100,7 +100,7 @@ export default function CustomerProjects() {
               </View>
               {calculations.slice(0, 3).map((item) => <View key={item.id} style={[styles.calcRow, { borderColor: colors.border }]}><Ionicons name="calculator-outline" size={18} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.medium }}>{item.name}</AppText><AppText variant="caption">{item.grade || "Grade not selected"} · {item.quantity} m³</AppText></View></View>)}
               <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Pour Planner" variant="outline" onPress={() => router.push("/customer/pour-planner")} /></View><View style={{ flex: 1 }}><Button label="Receiving Guide" variant="outline" onPress={() => router.push("/customer/receiving-guide")} /></View></View>
-              <View style={styles.actions}><View style={{ flex: 1 }}><Button label="Cube Follow-up" variant="outline" onPress={() => router.push("/customer/cube-test-follow-up")} /></View><View style={{ flex: 1 }}><Button label="Calculate" variant="outline" onPress={() => router.push("/customer/free-tools")} /></View></View>
+              <Button label="Cube Test Follow-up" variant="outline" onPress={() => router.push("/customer/cube-test-follow-up")} />
               <View style={styles.actions}>
                 <View style={{ flex: 1 }}><Button label="Calculate" variant="outline" onPress={() => router.push("/customer/free-tools")} /></View>
                 <View style={{ flex: 1 }}><Button label="Compare" variant="outline" onPress={() => router.push({ pathname: "/customer/compare-plants", params: { siteId: site.id } } as any)} /></View>
