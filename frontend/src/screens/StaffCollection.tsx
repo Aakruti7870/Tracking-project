@@ -39,6 +39,7 @@ export type StaffItem = {
   badge_status?: string | null;
   actions?: StaffAction[];
   nav?: string | null;
+  owner_assigned?: boolean;
 };
 
 type CreateDef = { label: string; path: string; form: "material" | "vehicle" };
@@ -88,7 +89,7 @@ function ItemRow({ item, onAction, onPress }: { item: StaffItem; onAction: (i: S
   );
 }
 
-export function StaffCollection({ kind, embedded = false, limit }: { kind: string; embedded?: boolean; limit?: number }) {
+export function StaffCollection({ kind, embedded = false, limit, onItemPress }: { kind: string; embedded?: boolean; limit?: number; onItemPress?: (item: StaffItem) => void }) {
   const { colors } = useTheme();
   const { token } = useAuth();
   const router = useRouter();
@@ -191,7 +192,11 @@ export function StaffCollection({ kind, embedded = false, limit }: { kind: strin
         <Card padded={false}>
           {items.map((it, i) => (
             <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-              <ItemRow item={it} onAction={onAction} onPress={it.nav ? () => router.push(it.nav as any) : undefined} />
+              <ItemRow
+                item={it}
+                onAction={onAction}
+                onPress={onItemPress ? () => onItemPress(it) : it.nav ? () => router.push(it.nav as any) : undefined}
+              />
             </View>
           ))}
         </Card>
