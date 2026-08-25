@@ -39,7 +39,7 @@ export default function NewOrder() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
-  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteName?: string; siteAddress?: string }>();
+  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteId?: string; siteName?: string; siteAddress?: string }>();
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
@@ -109,6 +109,7 @@ export default function NewOrder() {
       const res: any = await apiPost("/customer/orders", token!, {
         plant_id: plantId,
         quotation_id: params.quotationId || null,
+        site_id: params.siteId || null,
         grade,
         quantity: Number(quantity),
         site_name: siteName.trim(),
