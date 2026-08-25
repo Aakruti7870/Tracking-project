@@ -39,15 +39,15 @@ export default function NewOrder() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
-  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteId?: string; siteName?: string; siteAddress?: string }>();
+  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteId?: string; siteName?: string; siteAddress?: string; deliveryDate?: string; deliveryTime?: string }>();
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
   const [plantId, setPlantId] = useState<string | null>(params.plantId || null);
   const [grade, setGrade] = useState<string | null>(params.grade || null);
   const [quantity, setQuantity] = useState(params.quantity || "6");
-  const [date, setDate] = useState(days[1].value);
-  const [time, setTime] = useState<string | null>("10:00");
+  const [date, setDate] = useState(params.deliveryDate || days[1].value);
+  const [time, setTime] = useState<string | null>(params.deliveryTime || "10:00");
   const [siteName, setSiteName] = useState(params.siteName || "");
   const [address, setAddress] = useState(params.siteAddress || "");
   const [contact, setContact] = useState(user?.name || "");
