@@ -14,6 +14,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "projects", label: "Project & Site Hub", icon: "briefcase-outline", route: "/customer/projects" },
   { key: "pour_planner", label: "Concrete Pour Planner", icon: "time-outline", route: "/customer/pour-planner" },
+  { key: "receiving", label: "Receiving & Quality Guide", icon: "shield-checkmark-outline", route: "/customer/receiving-guide" },
   { key: "tools", label: "Free RMC Tools", icon: "calculator-outline", route: "/customer/free-tools" },
   { key: "compare", label: "Estimate & Compare Plants", icon: "git-compare-outline", route: "/customer/compare-plants" },
   { key: "kyc", label: "KYC Verification", icon: "id-card-outline", route: "/kyc" },
