@@ -13,6 +13,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
+  { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
   { key: "plant", label: "Plant Profile", icon: "business-outline", route: "/business/profile" },
   { key: "kyc", label: "Plant KYC", icon: "shield-checkmark-outline", route: "/kyc" },
   { key: "staff", label: "Staff", icon: "people-outline", route: "/business/staff" },
