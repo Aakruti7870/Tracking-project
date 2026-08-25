@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -88,7 +88,7 @@ export default function FreeRmcTools() {
     setSaveName("");
     toast("Calculation saved on this device", "success");
   };
-  const useInOrder = (item?: Saved) => {
+  const openOrder = (item?: Saved) => {
     const q = item?.quantity ?? quantity;
     const grade = item?.grade ?? selectedGrade;
     if (!q) return toast("Calculate a valid quantity first", "error");
@@ -130,7 +130,7 @@ export default function FreeRmcTools() {
             <AppText variant="caption">Estimated order quantity</AppText><AppText style={[styles.result, { color: colors.brand }]}>{quantity.toFixed(2)} m³</AppText>
             <AppText variant="caption">Base volume {round(base).toFixed(2)} m³ + {wastage}% allowance. Confirm allowance with your engineer and plant.</AppText>
             <Input label="Site / calculation name" value={saveName} onChangeText={setSaveName} placeholder="e.g. A Wing slab" />
-            <View style={styles.row}><View style={{ flex: 1 }}><Button label="Save" variant="outline" onPress={save} /></View><View style={{ flex: 1 }}><Button label="Use in Order" onPress={() => useInOrder()} /></View></View>
+            <View style={styles.row}><View style={{ flex: 1 }}><Button label="Save" variant="outline" onPress={save} /></View><View style={{ flex: 1 }}><Button label="Use in Order" onPress={() => openOrder()} /></View></View>
           </Card>
         </> : tool === "GRADES" ? <>
           <Card style={{ gap: spacing.sm }}>
@@ -161,7 +161,7 @@ export default function FreeRmcTools() {
         </> : saved.length ? saved.map((item) => <Card key={item.id} style={{ gap: spacing.md }}>
           <View style={styles.between}><View><AppText variant="heading">{item.name}</AppText><AppText variant="caption">{item.shape.toLowerCase()} · {new Date(item.created_at).toLocaleDateString("en-IN")}</AppText></View><AppText style={[styles.savedQty, { color: colors.brand }]}>{item.quantity.toFixed(2)} m³</AppText></View>
           <View style={styles.row}>{item.grade ? <Badge label={item.grade} color={colors.brand} /> : null}<Badge label={`${item.wastage}% allowance`} /></View>
-          <View style={styles.row}><View style={{ flex: 1 }}><Button label="Delete" variant="outline" onPress={() => persist(saved.filter((v) => v.id !== item.id))} /></View><View style={{ flex: 1 }}><Button label="Use in Order" onPress={() => useInOrder(item)} /></View></View>
+          <View style={styles.row}><View style={{ flex: 1 }}><Button label="Delete" variant="outline" onPress={() => persist(saved.filter((v) => v.id !== item.id))} /></View><View style={{ flex: 1 }}><Button label="Use in Order" onPress={() => openOrder(item)} /></View></View>
         </Card>) : <Card style={{ alignItems: "center", gap: spacing.sm, paddingVertical: spacing["2xl"] }}><Ionicons name="bookmark-outline" size={32} color={colors.onSurfaceTertiary} /><AppText variant="heading">No saved calculations</AppText><AppText variant="caption">Your saved quantities will appear here on this device.</AppText></Card>}
       </ScrollView>
     </View>
