@@ -95,6 +95,17 @@ class QuotationBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=5000)
 
 
+class QuotationRequestResponseBody(BaseModel):
+    action: Literal["SEND", "DECLINE"]
+    rate_per_m3: Optional[float] = Field(default=None, gt=0, le=1_000_000)
+    gst_rate: float = Field(default=18.0, ge=0, le=100)
+    transport_amount: float = Field(default=0, ge=0, le=100_000_000)
+    pumping_amount: float = Field(default=0, ge=0, le=100_000_000)
+    valid_until: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=5000)
+    decline_reason: Optional[str] = Field(default=None, max_length=1000)
+
+
 class ExpenseBody(BaseModel):
     category: Literal[
         "diesel", "salary", "maintenance", "electricity", "rent", "material",

@@ -1,10 +1,11 @@
 """Commercial, finance, workforce and procurement APIs."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from pymongo import UpdateOne
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pymongo import ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
+from audit import write_audit
 from business_access import oid, require_business_role, require_visible_plant
 from business_models import (
     AttendanceActionBody,
@@ -13,6 +14,7 @@ from business_models import (
     PayrollRecordBody,
     PurchaseReceiptBody,
     QuotationBody,
+    QuotationRequestResponseBody,
 )
 from database import (
     diesel_transactions,
@@ -22,12 +24,14 @@ from database import (
     payroll_records,
     purchase_receipts,
     quotations,
+    quotation_requests,
     staff_attendance,
     stock_movements,
     suppliers,
     users,
     vehicles,
 )
+from notifications import record_notification
 from roles import Role
 from security import current_user
 
@@ -102,6 +106,141 @@ async def create_quotation(
     result = await quotations.insert_one(doc)
     doc["_id"] = result.inserted_id
     return {"quotation": _serialize(doc)}
+
+
+@router.get("/plants/{plant_id}/quotation-requests")
+async def list_quotation_requests(
+    plant_id: str,
+    status: str | None = Query(default=None, pattern=r"^(REQUESTED|QUOTED|DECLINED)$"),
+    ctx: dict = Depends(current_user),
+):
+    require_business_role(
+        ctx,
+        Role.PLANT_OWNER.value,
+        Role.ADMIN.value,
+        Role.ACCOUNTANT.value,
+        Role.CENTRAL_ADMIN.value,
+    )
+    await require_visible_plant(ctx, plant_id)
+    query: dict = {"plant_id": plant_id}
+    if status:
+        query["status"] = status
+    docs = await quotation_requests.find(query).sort("created_at", -1).to_list(1000)
+    return {"requests": [_serialize(d) for d in docs]}
+
+
+@router.post("/plants/{plant_id}/quotation-requests/{request_id}/respond")
+async def respond_to_quotation_request(
+    plant_id: str,
+    request_id: str,
+    body: QuotationRequestResponseBody,
+    ctx: dict = Depends(current_user),
+):
+    require_business_role(
+        ctx,
+        Role.PLANT_OWNER.value,
+        Role.ADMIN.value,
+        Role.ACCOUNTANT.value,
+        Role.CENTRAL_ADMIN.value,
+    )
+    await require_visible_plant(ctx, plant_id)
+    request = await quotation_requests.find_one(
+        {"_id": oid(request_id), "plant_id": plant_id, "status": "REQUESTED"}
+    )
+    if not request:
+        raise HTTPException(409, "Quotation request is no longer pending")
+
+    now = datetime.now(timezone.utc)
+    if body.action == "DECLINE":
+        reason = (body.decline_reason or "").strip()
+        if not reason:
+            raise HTTPException(422, "Decline reason is required")
+        updated = await quotation_requests.find_one_and_update(
+            {"_id": request["_id"], "plant_id": plant_id, "status": "REQUESTED"},
+            {"$set": {
+                "status": "DECLINED",
+                "decline_reason": reason,
+                "responded_at": now,
+                "responded_by": ctx["user_id"],
+                "updated_at": now,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not updated:
+            raise HTTPException(409, "Quotation request was already handled")
+        await write_audit(ctx["user_id"], "quotation_request.decline", "quotation_request", request_id, {"plant_id": plant_id})
+        await record_notification(
+            request["customer_id"], "quotation_declined", "Quotation request update",
+            f"{request.get('plant_name') or 'The plant'} could not quote this request. Reason: {reason}",
+        )
+        return {"request": _serialize(updated)}
+
+    if body.rate_per_m3 is None or body.valid_until is None:
+        raise HTTPException(422, "Rate and validity date are required")
+    if body.valid_until < now.date():
+        raise HTTPException(422, "Validity date cannot be in the past")
+
+    claimed = await quotation_requests.find_one_and_update(
+        {"_id": request["_id"], "plant_id": plant_id, "status": "REQUESTED"},
+        {"$set": {"status": "PROCESSING", "updated_at": now, "responded_by": ctx["user_id"]}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        raise HTTPException(409, "Quotation request was already handled")
+
+    seq = await next_sequence(f"quotation:{plant_id}")
+    subtotal = (
+        float(request["quantity"]) * body.rate_per_m3
+        + body.transport_amount
+        + body.pumping_amount
+    )
+    gst_amount = round(subtotal * body.gst_rate / 100, 2)
+    quote = {
+        "quotation_number": f"QT-{seq:06d}",
+        "request_id": request_id,
+        "plant_id": plant_id,
+        "customer_id": request["customer_id"],
+        "customer_name": request.get("customer_name") or "Customer",
+        "customer_mobile": request.get("customer_mobile"),
+        "site_name": request["site_name"],
+        "site_address": request["site_address"],
+        "grade": request["grade"],
+        "quantity_m3": request["quantity"],
+        "rate_per_m3": body.rate_per_m3,
+        "gst_rate": body.gst_rate,
+        "transport_amount": body.transport_amount,
+        "pumping_amount": body.pumping_amount,
+        "subtotal": round(subtotal, 2),
+        "gst_amount": gst_amount,
+        "total": round(subtotal + gst_amount, 2),
+        "valid_until": body.valid_until.isoformat(),
+        "notes": body.notes,
+        "status": "OPEN",
+        "created_at": now,
+        "created_by": ctx["user_id"],
+    }
+    result = await quotations.insert_one(quote)
+    quote["_id"] = result.inserted_id
+    await quotation_requests.update_one(
+        {"_id": request["_id"], "status": "PROCESSING"},
+        {"$set": {
+            "status": "QUOTED",
+            "quotation_id": str(result.inserted_id),
+            "quotation_number": quote["quotation_number"],
+            "quoted_total": quote["total"],
+            "responded_at": now,
+            "updated_at": now,
+        }},
+    )
+    await write_audit(
+        ctx["user_id"], "quotation_request.quote", "quotation_request", request_id,
+        {"plant_id": plant_id, "quotation_id": str(result.inserted_id), "total": quote["total"]},
+    )
+    await record_notification(
+        request["customer_id"], "quotation_received", "Official quotation received",
+        f"{request.get('plant_name') or 'The plant'} sent {quote['quotation_number']} for ₹{quote['total']:,.2f}.",
+    )
+    return {"quotation": _serialize(quote), "request_status": "QUOTED"}
 
 
 @router.get("/plants/{plant_id}/expenses")

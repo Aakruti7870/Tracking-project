@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 
-export function useGet<T>(path: string) {
+export function useGet<T>(path: string | null) {
   const { token } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -11,7 +11,7 @@ export function useGet<T>(path: string) {
 
   const load = useCallback(
     async (showSpinner = true) => {
-      if (!token) return;
+      if (!token || !path) { setLoading(false); return; }
       if (showSpinner) setLoading(true);
       setError(null);
       try {
