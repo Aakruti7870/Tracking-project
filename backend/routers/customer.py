@@ -285,6 +285,24 @@ async def request_quotation(body: QuotationRequestBody, ctx: dict = Depends(cust
     return {"id": request_id, "status": "REQUESTED"}
 
 
+@router.get("/quotation-requests")
+async def list_my_quotation_requests(ctx: dict = Depends(customer_only)):
+    docs = await quotation_requests.find(
+        {"customer_id": ctx["user_id"]}
+    ).sort("created_at", -1).to_list(500)
+    rows = []
+    for doc in docs:
+        row = {**doc, "id": str(doc["_id"])}
+        row.pop("_id", None)
+        for key, value in list(row.items()):
+            if isinstance(value, ObjectId):
+                row[key] = str(value)
+            elif hasattr(value, "isoformat"):
+                row[key] = value.isoformat()
+        rows.append(row)
+    return {"requests": rows}
+
+
 @router.get("/kyc")
 async def get_kyc(ctx: dict = Depends(customer_only)):
     uid = ctx["user_id"]
