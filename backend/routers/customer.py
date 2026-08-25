@@ -362,6 +362,8 @@ async def project_sites(ctx: dict = Depends(customer_only)):
             "delivered_m3": round(sum(float(doc.get("delivered_quantity") or doc.get("quantity") or 0) for doc in delivered), 2),
             "pour_plans": len(site_plans),
             "receiving_records": len(site_receiving),
+            "pending_cube_tests": sum(_serialize_receiving_record(doc)["pending_cube_tests"] for doc in site_receiving),
+            "overdue_cube_tests": sum(_serialize_receiving_record(doc)["overdue_cube_tests"] for doc in site_receiving),
             "quotation_requests": len(site_requests),
             "official_quotations": len(site_quotes),
             "open_quotations": sum(1 for doc in site_quotes if doc.get("status") in ("OPEN", "ACCEPTED")),
