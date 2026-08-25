@@ -111,6 +111,7 @@ export default function ComparePlants() {
     try {
       await apiPost("/customer/quotation-requests", token, {
         plant_id: item.plant_id,
+        site_id: siteId,
         site_name: site?.name || "Delivery site",
         site_address: site?.address || "Address to be confirmed with customer",
         grade,
