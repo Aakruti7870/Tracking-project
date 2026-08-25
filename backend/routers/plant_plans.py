@@ -155,7 +155,7 @@ async def context(ctx: dict = Depends(allowed_ctx)):
         pid = str(plant["_id"])
         premium = await plant_plan_subscriptions.find_one({"plant_id": pid, "status": "ACTIVE", "ends_at": {"$gt": now}}, sort=[("ends_at", -1)])
         promotion = await plant_promotions.find_one({"plant_id": pid, "status": "ACTIVE", "ends_at": {"$gt": now}}, sort=[("ends_at", -1)])
-        result.append({"id": pid, "name": plant.get("name"), "city": plant.get("city"), "premium": serialize_active(premium), "promotion": serialize_active(promotion)})
+        result.append({"id": pid, "name": plant.get("name"), "address": plant.get("address"), "city": plant.get("city"), "taluka": plant.get("taluka"), "district": plant.get("district"), "state": plant.get("state"), "premium": serialize_active(premium), "promotion": serialize_active(promotion)})
     return {"role": ctx["role"], "plants": result, "promotion_prices": PROMOTION_PRICES, "premium_plans": PREMIUM_PLANS}
 
 
