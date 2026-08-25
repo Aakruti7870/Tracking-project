@@ -106,6 +106,18 @@ class QuotationRequestResponseBody(BaseModel):
     decline_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+class CustomerPourPlanBody(BaseModel):
+    site_id: str = Field(min_length=1, max_length=128)
+    grade: str = Field(pattern=GRADE_PATTERN)
+    total_quantity_m3: float = Field(gt=0, le=10_000)
+    mixer_capacity_m3: float = Field(gt=0, le=20)
+    pour_date: date
+    start_time: str = Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    unload_minutes: int = Field(ge=5, le=180)
+    discharge_mode: Literal["PUMP", "DIRECT"]
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
 class CustomerQuotationDecisionBody(BaseModel):
     action: Literal["ACCEPT", "DECLINE"]
     reason: Optional[str] = Field(default=None, max_length=1000)
