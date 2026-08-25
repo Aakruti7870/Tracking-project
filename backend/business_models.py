@@ -106,6 +106,11 @@ class QuotationRequestResponseBody(BaseModel):
     decline_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+class CustomerQuotationDecisionBody(BaseModel):
+    action: Literal["ACCEPT", "DECLINE"]
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
 class ExpenseBody(BaseModel):
     category: Literal[
         "diesel", "salary", "maintenance", "electricity", "rent", "material",
