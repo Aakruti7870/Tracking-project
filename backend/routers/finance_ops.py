@@ -263,6 +263,7 @@ async def respond_to_quotation_request(
         "customer_id": request["customer_id"],
         "customer_name": request.get("customer_name") or "Customer",
         "customer_mobile": request.get("customer_mobile"),
+        "site_id": request.get("site_id"),
         "site_name": request["site_name"],
         "site_address": request["site_address"],
         "grade": request["grade"],

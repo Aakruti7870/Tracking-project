@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiGet, apiPost } from "@/src/api/client";
@@ -38,13 +38,14 @@ export default function ComparePlants() {
   const { colors } = useTheme();
   const { token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ siteId?: string; grade?: string; quantity?: string }>();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { data: siteData } = useGet<{ sites: Site[] }>("/master/customer/sites");
   const [saved, setSaved] = useState<Saved[]>([]);
-  const [grade, setGrade] = useState("M25");
-  const [quantity, setQuantity] = useState("6");
-  const [siteId, setSiteId] = useState<string | null>(null);
+  const [grade, setGrade] = useState(params.grade && GRADES.includes(params.grade) ? params.grade : "M25");
+  const [quantity, setQuantity] = useState(params.quantity || "6");
+  const [siteId, setSiteId] = useState<string | null>(params.siteId || null);
   const [pump, setPump] = useState(false);
   const [results, setResults] = useState<Estimate[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -111,6 +112,7 @@ export default function ComparePlants() {
     try {
       await apiPost("/customer/quotation-requests", token, {
         plant_id: item.plant_id,
+        site_id: siteId,
         site_name: site?.name || "Delivery site",
         site_address: site?.address || "Address to be confirmed with customer",
         grade,

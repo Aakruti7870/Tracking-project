@@ -143,6 +143,7 @@ async def ensure_indexes() -> None:
     await plant_listing_requests.create_index([("status", 1), ("updated_at", -1)])
     await plant_listing_requests.create_index([("requested_by", 1), ("updated_at", -1)])
     await orders.create_index([("customer_id", 1), ("created_at", -1)])
+    await orders.create_index([("customer_id", 1), ("site_id", 1), ("created_at", -1)])
     await orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
     await orders.create_index("order_number", unique=True)
     await orders.create_index(
@@ -234,7 +235,9 @@ async def ensure_indexes() -> None:
     await quotations.create_index("quotation_number", unique=True)
     await quotations.create_index([("plant_id", 1), ("created_at", -1)])
     await quotations.create_index([("customer_id", 1), ("created_at", -1)])
+    await quotations.create_index([("customer_id", 1), ("site_id", 1), ("created_at", -1)])
     await quotation_requests.create_index([("customer_id", 1), ("created_at", -1)])
+    await quotation_requests.create_index([("customer_id", 1), ("site_id", 1), ("created_at", -1)])
     await quotation_requests.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
 
     await expenses.create_index([("plant_id", 1), ("expense_date", -1)])

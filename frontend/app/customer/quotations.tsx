@@ -23,7 +23,7 @@ type QuoteRequest = {
 };
 type Quote = {
   id: string; quotation_number: string; request_id?: string; plant_id: string; customer_name: string;
-  site_name: string; site_address: string; grade: string; quantity_m3: number; rate_per_m3: number;
+  site_id?: string | null; site_name: string; site_address: string; grade: string; quantity_m3: number; rate_per_m3: number;
   transport_amount?: number; pumping_amount?: number; gst_amount?: number; total: number;
   valid_until: string; status: string; notes?: string | null; order_id?: string; order_number?: string;
 };
@@ -53,7 +53,7 @@ export default function CustomerQuotations() {
   const createOrder = (quote: Quote) => router.push({
     pathname: "/new-order",
     params: {
-      quotationId: quote.id, plantId: quote.plant_id, grade: quote.grade,
+      quotationId: quote.id, siteId: quote.site_id || "", plantId: quote.plant_id, grade: quote.grade,
       quantity: String(quote.quantity_m3), siteName: quote.site_name, siteAddress: quote.site_address,
     },
   } as any);
