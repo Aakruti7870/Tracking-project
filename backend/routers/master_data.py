@@ -21,6 +21,7 @@ from database import (
     quotations,
     quotation_requests,
     plants,
+    pour_plans,
     rate_cards,
     suppliers,
     users,
@@ -299,6 +300,7 @@ async def delete_customer_site(site_id: str, ctx: dict = Depends(current_user)):
         await orders.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
         + await quotations.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
         + await quotation_requests.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
+        + await pour_plans.count_documents({"customer_id": ctx["user_id"], "site_id": site_id})
     )
     if linked:
         raise HTTPException(409, "Site has linked orders or quotations and cannot be removed")
