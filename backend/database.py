@@ -145,6 +145,11 @@ async def ensure_indexes() -> None:
     await orders.create_index([("customer_id", 1), ("created_at", -1)])
     await orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
     await orders.create_index("order_number", unique=True)
+    await orders.create_index(
+        "quotation_id", unique=True,
+        partialFilterExpression={"quotation_id": {"$type": "string"}},
+        name="unique_order_per_quotation",
+    )
     await order_status_history.create_index([("order_id", 1), ("created_at", 1)])
 
     await kyc_profiles.create_index([("user_id", 1), ("purpose", 1)], unique=True)
