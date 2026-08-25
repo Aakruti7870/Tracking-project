@@ -23,6 +23,8 @@ export type PlantData = {
   verified: boolean;
   order_enabled?: boolean;
   distance_km?: number | null;
+  promoted?: boolean;
+  promotion_ends_at?: string | null;
 };
 
 function readableStatus(value?: string) {
@@ -45,7 +47,13 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
   };
 
   return (
-    <Card style={{ gap: spacing.md }}>
+    <Card style={{ gap: spacing.md, ...(plant.promoted ? styles.promotedCard : {}) }}>
+      {plant.promoted ? (
+        <View style={styles.promotedBadge}>
+          <Ionicons name="sparkles" size={14} color="#7A4A00" />
+          <AppText style={styles.promotedText}>PROMOTED</AppText>
+        </View>
+      ) : null}
       <View style={styles.row}>
         <View style={{ flex: 1, gap: 4 }}>
           <View style={styles.nameRow}>
@@ -158,4 +166,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginLeft: "auto",
   },
+  promotedCard: {
+    borderWidth: 1.5,
+    borderColor: "#D9A514",
+    shadowColor: "#D9A514",
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
+  },
+  promotedBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#FFF1B8", borderColor: "#E2B93B", borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  promotedText: { fontFamily: fonts.bold, fontSize: 10, color: "#7A4A00", letterSpacing: 0.6 },
 });
