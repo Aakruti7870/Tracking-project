@@ -409,12 +409,14 @@ async def create_pour_plan(body: CustomerPourPlanBody, ctx: dict = Depends(custo
     loads_count = math.ceil(total / capacity)
     if loads_count > 500:
         raise HTTPException(422, "Pour plan exceeds the maximum of 500 mixer loads")
-    start_at = datetime.combine(body.pour_date, time.fromisoformat(body.start_time), tzinfo=timezone.utc)
+    if body.pour_date < datetime.now(timezone.utc).date():
+        raise HTTPException(422, "Pour date cannot be in the past")
+    start_at = datetime.combine(body.pour_date, time.fromisoformat(body.start_time))
     quantities = [round(min(capacity, total - (index * capacity)), 2) for index in range(loads_count)]
     loads = [{
         "load_number": index + 1,
         "quantity_m3": quantity,
-        "suggested_arrival": (start_at + timedelta(minutes=index * body.unload_minutes)).isoformat(),
+        "suggested_arrival": (start_at + timedelta(minutes=index * body.unload_minutes)).strftime("%H:%M"),
     } for index, quantity in enumerate(quantities)]
     estimated_end = start_at + timedelta(minutes=loads_count * body.unload_minutes)
     now = datetime.now(timezone.utc)
@@ -425,7 +427,7 @@ async def create_pour_plan(body: CustomerPourPlanBody, ctx: dict = Depends(custo
         "site_address": site.get("address"),
         "loads_count": loads_count,
         "loads": loads,
-        "estimated_end": estimated_end,
+        "estimated_end_time": estimated_end.strftime("%H:%M"),
         "status": "PLANNED",
         "created_at": now,
         "updated_at": now,
