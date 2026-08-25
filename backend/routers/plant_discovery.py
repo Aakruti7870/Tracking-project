@@ -212,6 +212,61 @@ async def approve_listing(
     return {"status": "APPROVED", "plant_id": plant_id, "owner_id": owner["id"] if owner else None}
 
 
+@router.get("/unowned-plants")
+async def list_unowned_plants(ctx: dict = Depends(reviewer_only)):
+    docs = await plants.find({
+        "$or": [{"owner_id": None}, {"owner_id": {"$exists": False}}],
+        "status": {"$ne": "deleted"},
+    }).sort("name", 1).to_list(500)
+    return {
+        "plants": [
+            {
+                "id": str(doc["_id"]),
+                "name": doc.get("name"),
+                "city": doc.get("city"),
+                "address": doc.get("address"),
+                "status": doc.get("status"),
+            }
+            for doc in docs
+        ]
+    }
+
+
+@router.post("/plants/{plant_id}/assign-owner")
+async def assign_first_owner(
+    plant_id: str,
+    body: OwnerAssignmentBody,
+    ctx: dict = Depends(reviewer_only),
+):
+    plant = await plants.find_one({"_id": _oid(plant_id)})
+    if not plant:
+        raise HTTPException(404, "Plant not found")
+    if plant.get("owner_id"):
+        raise HTTPException(409, "Plant already has an owner; use the controlled owner-replacement flow")
+
+    owner = await _provision_plant_owner(body)
+    now = datetime.now(timezone.utc)
+    updated = await plants.update_one(
+        {
+            "_id": plant["_id"],
+            "$or": [{"owner_id": None}, {"owner_id": {"$exists": False}}],
+        },
+        {"$set": {"owner_id": owner["id"], "updated_at": now}},
+    )
+    if not updated.modified_count:
+        raise HTTPException(409, "Plant ownership changed concurrently; reload and retry")
+
+    await write_audit(
+        ctx["user_id"], "plant_owner.assign", "plant", plant_id,
+        {"owner_id": owner["id"], "account_created": owner["created"]},
+    )
+    await record_notification(
+        owner["id"], "plant_owner", "Plant Owner access enabled",
+        f"You can now sign in with OTP and manage {plant.get('name') or 'your RMC plant'}.",
+    )
+    return {"status": "ASSIGNED", "plant_id": plant_id, "owner_id": owner["id"]}
+
+
 @router.post("/requests/{request_id}/reject")
 async def reject_listing(
     request_id: str,

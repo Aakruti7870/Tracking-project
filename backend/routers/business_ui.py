@@ -8,21 +8,40 @@ placeholders.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
 from business_access import oid, require_business_role, require_visible_plant
 from database import materials, orders, users, vehicles, stock_movements
-from models import MaterialBody, StockAdjustBody, VehicleBody, VehicleStatusBody
+from models import MaterialBody, StockAdjustBody, User, VehicleBody, VehicleStatusBody
 from roles import Role
-from security import current_user
+from security import current_user, identifier_key, normalize_identifier
 
 router = APIRouter(prefix="/api/business", tags=["business-management"])
 
 OWNER_ADMIN = (Role.PLANT_OWNER.value, Role.ADMIN.value, Role.CENTRAL_ADMIN.value)
 STORE_MANAGERS = (*OWNER_ADMIN, Role.STORE_MANAGER.value)
 FLEET_MANAGERS = (*OWNER_ADMIN, Role.FLEET_MANAGER.value)
+
+OWNER_STAFF_ROLES = {
+    Role.ADMIN.value,
+    Role.DISPATCHER.value,
+    Role.OPERATOR.value,
+    Role.SUPERVISOR.value,
+    Role.ACCOUNTANT.value,
+    Role.QUALITY_ENGINEER.value,
+    Role.FLEET_MANAGER.value,
+    Role.STORE_MANAGER.value,
+}
+ADMIN_STAFF_ROLES = OWNER_STAFF_ROLES - {Role.ADMIN.value}
+
+
+class CreatePlantStaffBody(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=3, max_length=254)
+    role: str = Field(min_length=2, max_length=64)
 
 
 @router.get("/plants/{plant_id}/customers")
@@ -154,6 +173,46 @@ async def set_vehicle_status(
     )
     await write_audit(ctx["user_id"], "vehicle.status", "vehicle", vehicle_id, {"status": body.status})
     return {"status": body.status}
+
+
+@router.post("/plants/{plant_id}/people")
+async def create_plant_staff(
+    plant_id: str,
+    body: CreatePlantStaffBody,
+    ctx: dict = Depends(current_user),
+):
+    require_business_role(ctx, Role.PLANT_OWNER.value, Role.ADMIN.value)
+    await require_visible_plant(ctx, plant_id)
+    allowed = OWNER_STAFF_ROLES if ctx["role"] == Role.PLANT_OWNER.value else ADMIN_STAFF_ROLES
+    if body.role not in allowed:
+        raise HTTPException(403, "This role cannot be created from Plant Staff Management")
+
+    channel, email = normalize_identifier(body.email)
+    if channel != "email":
+        raise HTTPException(422, "Plant staff must use a valid email address")
+    key = identifier_key(email)
+    if await users.find_one({"identifier_keys": key}):
+        raise HTTPException(409, "An account already exists for this email")
+
+    now = datetime.now(timezone.utc)
+    account = User(
+        name=body.name.strip(),
+        email=email,
+        identifier_keys=[key],
+        roles=[body.role],
+        primary_role=body.role,
+        plant_id=plant_id,
+        created_at=now,
+    )
+    try:
+        result = await users.insert_one(account.to_mongo())
+    except DuplicateKeyError:
+        raise HTTPException(409, "An account already exists for this email")
+    await write_audit(
+        ctx["user_id"], "staff.create", "user", str(result.inserted_id),
+        {"plant_id": plant_id, "role": body.role},
+    )
+    return {"id": str(result.inserted_id), "status": "active", "role": body.role}
 
 
 @router.post("/plants/{plant_id}/people/{user_id}/suspend")

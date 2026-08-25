@@ -15,6 +15,8 @@ import { StaffCollection } from "@/src/screens/StaffCollection";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
+type UnownedPlant = { id: string; name: string; city?: string | null; address?: string | null; status?: string | null };
+
 type ListingRequest = {
   id: string;
   google_place_id: string;
@@ -35,6 +37,7 @@ export default function AuthorityPlants() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<{ requests: ListingRequest[] }>("/plant-discovery/requests");
+  const { data: unownedData, loading: unownedLoading, error: unownedError, refetch: refetchUnowned, reload: reloadUnowned } = useGet<{ plants: UnownedPlant[] }>("/plant-discovery/unowned-plants");
   const [busy, setBusy] = useState<string | null>(null);
   const [owners, setOwners] = useState<Record<string, { name: string; email: string; phone: string }>>({});
 
@@ -70,7 +73,31 @@ export default function AuthorityPlants() {
     }
   };
 
+  const assignExistingOwner = async (plant: UnownedPlant) => {
+    if (!token) return;
+    const owner = owners[plant.id] || { name: "", email: "", phone: "" };
+    if (!owner.name.trim() || (!owner.email.trim() && !owner.phone.trim())) {
+      toast("Enter the owner name and email or mobile number", "error");
+      return;
+    }
+    setBusy(`${plant.id}:assign`);
+    try {
+      await apiPost(`/plant-discovery/plants/${plant.id}/assign-owner`, token, {
+        name: owner.name.trim(),
+        email: owner.email.trim() || undefined,
+        phone: owner.phone.trim() || undefined,
+      });
+      toast("Plant Owner account assigned", "success");
+      refetchUnowned();
+    } catch (e: any) {
+      toast(e?.detail || "Owner assignment failed", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const requests = data?.requests || [];
+  const unownedPlants = unownedData?.plants || [];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -78,7 +105,7 @@ export default function AuthorityPlants() {
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={() => { refetch(); }} tintColor={colors.brand} />}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={() => { refetch(); refetchUnowned(); }} tintColor={colors.brand} />}
       >
         <View style={{ gap: 3 }}>
           <AppText variant="title">Plant Directory Review</AppText>
@@ -185,6 +212,45 @@ export default function AuthorityPlants() {
               </Card>
             ))
           )}
+        </View>
+
+        <View style={{ gap: spacing.sm }}>
+          <View style={styles.sectionTitle}>
+            <AppText variant="heading">Assign owner to existing plant</AppText>
+            <View style={[styles.count, { backgroundColor: colors.brandSoft }]}>
+              <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onBrandSoft }}>{unownedPlants.length}</AppText>
+            </View>
+          </View>
+          <AppText variant="caption">Only registered plants without an owner appear here.</AppText>
+          {unownedError && !unownedData ? (
+            <ErrorView message={unownedError} onRetry={reloadUnowned} />
+          ) : unownedLoading && !unownedData ? (
+            <Skeleton height={180} style={{ borderRadius: radius.lg }} />
+          ) : unownedPlants.length === 0 ? (
+            <Card style={{ alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xl }}>
+              <Ionicons name="checkmark-done-circle-outline" size={30} color={colors.success} />
+              <AppText variant="bodyMuted">Every registered plant has an assigned owner.</AppText>
+            </Card>
+          ) : unownedPlants.map((plant) => (
+            <Card key={plant.id} style={{ gap: spacing.md }}>
+              <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
+                <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
+                  <Ionicons name="business-outline" size={19} color={colors.onBrandSoft} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }}>{plant.name}</AppText>
+                  <AppText variant="caption">{plant.address || plant.city || "Registered plant"}</AppText>
+                </View>
+              </View>
+              <TextInput value={owners[plant.id]?.name || ""} onChangeText={(value) => updateOwner(plant.id, "name", value)} placeholder="Owner full name" placeholderTextColor={colors.onSurfaceTertiary} autoCapitalize="words" style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+              <TextInput value={owners[plant.id]?.email || ""} onChangeText={(value) => updateOwner(plant.id, "email", value)} placeholder="Owner email" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+              <TextInput value={owners[plant.id]?.phone || ""} onChangeText={(value) => updateOwner(plant.id, "phone", value)} placeholder="Owner mobile (optional)" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="phone-pad" style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} />
+              <Pressable testID={`assign-existing-owner-${plant.id}`} disabled={busy !== null} onPress={() => assignExistingOwner(plant)} style={[styles.action, { alignSelf: "stretch", borderColor: colors.brand, backgroundColor: colors.brand }]}>
+                <Ionicons name="person-add-outline" size={17} color={colors.onBrand} />
+                <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.onBrand }}>{busy === `${plant.id}:assign` ? "Assigning…" : "Create & Assign Plant Owner"}</AppText>
+              </Pressable>
+            </Card>
+          ))}
         </View>
 
         <View style={{ gap: spacing.sm }}>
