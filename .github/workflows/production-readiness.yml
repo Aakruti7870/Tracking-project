@@ -195,8 +195,8 @@ jobs:
             echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
             exit 1
           }
-          grep -E "versionCode[[:space:]=]+68" "$gradle_file" >/dev/null || {
-            echo "Expected Android versionCode 68 was not generated"
+          grep -E "versionCode[[:space:]=]+69" "$gradle_file" >/dev/null || {
+            echo "Expected Android versionCode 69 was not generated"
             exit 1
           }
       - name: Compile standalone release APK
@@ -222,7 +222,7 @@ jobs:
         if: env.EXPO_PUBLIC_BACKEND_URL != 'https://api.example.invalid'
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-2.0.10-vc68-standalone-preview-apk
+          name: trackmyrmc-2.0.11-vc69-standalone-preview-apk
           path: frontend/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
