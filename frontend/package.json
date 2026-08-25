@@ -74,6 +74,15 @@
     "**/@istanbuljs/load-nyc-config/js-yaml": "3.15.0",
     "shell-quote": "1.9.0"
   },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-cashfree-pg-sdk"
+        ]
+      }
+    }
+  },
   "private": true,
   "packageManager": "npm@10.8.2"
 }
