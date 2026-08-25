@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from audit import write_audit
 from database import (
     challans,
+    customer_sites,
     kyc_profiles,
     notifications,
     order_loads,
@@ -250,6 +251,7 @@ async def compare_plants(
 
 class QuotationRequestBody(BaseModel):
     plant_id: str
+    site_id: str | None = Field(default=None, max_length=128)
     grade: str = Field(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$")
     quantity: float = Field(gt=0, le=100000)
     site_name: str = Field(min_length=1, max_length=180)
@@ -260,6 +262,10 @@ class QuotationRequestBody(BaseModel):
 
 @router.post("/quotation-requests")
 async def request_quotation(body: QuotationRequestBody, ctx: dict = Depends(customer_only)):
+    if body.site_id:
+        site = await customer_sites.find_one({"_id": await _oid(body.site_id), "customer_id": ctx["user_id"]})
+        if not site:
+            raise HTTPException(422, "Saved site not found")
     plant = await plants.find_one({"_id": await _oid(body.plant_id), "status": "active", "verified": True})
     if not plant:
         raise HTTPException(404, "Plant not available")
@@ -303,6 +309,69 @@ async def list_my_quotation_requests(ctx: dict = Depends(customer_only)):
                 row[key] = value.isoformat()
         rows.append(row)
     return {"requests": rows}
+
+
+def _site_key(name: str | None, address: str | None) -> str:
+    return " ".join(f"{name or ''} {address or ''}".lower().split())
+
+
+@router.get("/project-sites")
+async def project_sites(ctx: dict = Depends(customer_only)):
+    uid = ctx["user_id"]
+    site_docs = await customer_sites.find({"customer_id": uid}).sort([("is_default", -1), ("created_at", -1)]).to_list(500)
+    order_docs = await orders.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
+    request_docs = await quotation_requests.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
+    quote_docs = await quotations.find({"customer_id": uid}).sort("created_at", -1).to_list(2000)
+    rows = []
+    terminal = {"DELIVERED", "REJECTED", "CANCELLED"}
+    for site in site_docs:
+        sid = str(site["_id"])
+        key = _site_key(site.get("name"), site.get("address"))
+        def belongs(doc: dict) -> bool:
+            return doc.get("site_id") == sid or (not doc.get("site_id") and _site_key(doc.get("site_name"), doc.get("site_address")) == key)
+        site_orders = [doc for doc in order_docs if belongs(doc)]
+        site_requests = [doc for doc in request_docs if belongs(doc)]
+        site_quotes = [doc for doc in quote_docs if belongs(doc)]
+        active_orders = [doc for doc in site_orders if doc.get("status") not in terminal and doc.get("status") != "DRAFT"]
+        delivered = [doc for doc in site_orders if doc.get("status") == "DELIVERED"]
+        upcoming = sorted(
+            [doc for doc in active_orders if doc.get("delivery_date")],
+            key=lambda doc: str(doc.get("delivery_date")),
+        )
+        latest = site_orders[0] if site_orders else None
+        rows.append({
+            "id": sid,
+            "name": site.get("name"),
+            "address": site.get("address"),
+            "lat": site.get("lat"),
+            "lng": site.get("lng"),
+            "contact_person": site.get("contact_person"),
+            "contact_mobile": site.get("contact_mobile"),
+            "is_default": bool(site.get("is_default")),
+            "orders_count": len(site_orders),
+            "active_orders": len(active_orders),
+            "delivered_orders": len(delivered),
+            "ordered_m3": round(sum(float(doc.get("quantity") or 0) for doc in site_orders), 2),
+            "delivered_m3": round(sum(float(doc.get("delivered_quantity") or doc.get("quantity") or 0) for doc in delivered), 2),
+            "quotation_requests": len(site_requests),
+            "official_quotations": len(site_quotes),
+            "open_quotations": sum(1 for doc in site_quotes if doc.get("status") in ("OPEN", "ACCEPTED")),
+            "upcoming_delivery": {
+                "order_id": str(upcoming[0]["_id"]),
+                "order_number": upcoming[0].get("order_number"),
+                "delivery_date": upcoming[0].get("delivery_date"),
+                "delivery_time": upcoming[0].get("delivery_time"),
+                "grade": upcoming[0].get("grade"),
+                "quantity": upcoming[0].get("quantity"),
+                "status": upcoming[0].get("status"),
+            } if upcoming else None,
+            "latest_order": {
+                "id": str(latest["_id"]),
+                "order_number": latest.get("order_number"),
+                "status": latest.get("status"),
+            } if latest else None,
+        })
+    return {"sites": rows, "count": len(rows)}
 
 
 @router.get("/kyc")
@@ -402,6 +471,11 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
         kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
         if (kyc or {}).get("status") != "VERIFIED":
             raise HTTPException(403, "KYC_REQUIRED")
+    site = None
+    if body.site_id:
+        site = await customer_sites.find_one({"_id": await _oid(body.site_id), "customer_id": uid})
+        if not site:
+            raise HTTPException(422, "Saved site not found")
     plant = await plants.find_one({"_id": await _oid(body.plant_id)})
     if not plant or plant.get("status") != "active" or not plant.get("verified"):
         raise HTTPException(404, "Plant not available")
@@ -430,7 +504,7 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
     doc = {
         "order_number": order_number, "customer_id": uid, "customer_name": ctx["user"].get("name"),
         "plant_id": str(plant["_id"]), "plant_name": plant.get("name"), "grade": body.grade,
-        "quantity": body.quantity, "site_name": body.site_name, "site_address": body.site_address,
+        "quantity": body.quantity, "site_id": body.site_id, "site_name": body.site_name, "site_address": body.site_address,
         "lat": body.lat, "lng": body.lng, "delivery_date": body.delivery_date,
         "delivery_time": body.delivery_time, "delivery_mode": body.delivery_mode,
         "contact_person": body.contact_person, "contact_mobile": body.contact_mobile, "notes": body.notes,
