@@ -86,7 +86,7 @@ export default function OwnerMore() {
 
         <Card style={{ gap: 4 }}>
           <AppText variant="label">Application</AppText>
-          <AppText variant="caption">TrackMyRMC 2.0.16 · Android version code 74</AppText>
+          <AppText variant="caption">TrackMyRMC 2.0.17 · Android version code 75</AppText>
           <AppText variant="caption">Business data is plant-scoped and server-authorized.</AppText>
         </Card>
 
