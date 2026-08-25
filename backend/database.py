@@ -78,6 +78,7 @@ rate_cards = db.rate_cards
 mix_designs = db.mix_designs
 customer_sites = db.customer_sites
 quotations = db.quotations
+quotation_requests = db.quotation_requests
 expenses = db.expenses
 diesel_transactions = db.diesel_transactions
 staff_attendance = db.staff_attendance
@@ -228,6 +229,8 @@ async def ensure_indexes() -> None:
     await quotations.create_index("quotation_number", unique=True)
     await quotations.create_index([("plant_id", 1), ("created_at", -1)])
     await quotations.create_index([("customer_id", 1), ("created_at", -1)])
+    await quotation_requests.create_index([("customer_id", 1), ("created_at", -1)])
+    await quotation_requests.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
 
     await expenses.create_index([("plant_id", 1), ("expense_date", -1)])
     await expenses.create_index([("plant_id", 1), ("category", 1), ("expense_date", -1)])
