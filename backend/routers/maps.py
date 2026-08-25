@@ -12,9 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from audit import write_audit
 from database import plant_listing_requests, plants
-from security import current_user
+from roles import Role
+from security import current_user, require_role
 
 router = APIRouter(prefix="/api/maps", tags=["maps"])
+authority_only = require_role(Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value)
 
 
 def _key() -> str | None:
@@ -66,13 +68,17 @@ def _place_summary(place: dict) -> dict | None:
         return None
 
     city = _address_component(place, "locality", "postal_town", "sublocality_level_1")
+    taluka = _address_component(place, "administrative_area_level_3", "sublocality_level_1")
     district = _address_component(place, "administrative_area_level_2")
+    state = _address_component(place, "administrative_area_level_1")
     return {
         "place_id": place_id,
         "name": name,
         "address": place.get("formattedAddress"),
         "city": city,
+        "taluka": taluka,
         "district": district,
+        "state": state,
         "lat": lat,
         "lng": lng,
         "contact_phone": place.get("nationalPhoneNumber"),
@@ -236,6 +242,71 @@ async def discover_rmc_plants(
             }
         )
     return {"configured": True, "places": out}
+
+
+@router.get("/authority/rmc-plants")
+async def authority_discover_rmc_plants(
+    state: str = Query(min_length=2, max_length=80),
+    district: str = Query(min_length=2, max_length=80),
+    taluka: str = Query(min_length=2, max_length=80),
+    page_token: str | None = Query(default=None, max_length=2048),
+    ctx: dict = Depends(authority_only),
+):
+    """Authority-initiated location search; results remain unregistered until review."""
+    key = _key()
+    if not key:
+        return {"configured": False, "places": [], "next_page_token": None}
+    query = f"ready mix concrete RMC plant in {taluka}, {district}, {state}, India"
+    body = {
+        "textQuery": query,
+        "pageSize": 20,
+        "languageCode": "en",
+        "regionCode": "IN",
+    }
+    if page_token:
+        body["pageToken"] = page_token
+    async with httpx.AsyncClient(timeout=15) as http:
+        response = await http.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": key,
+                "X-Goog-FieldMask": (
+                    "places.id,places.displayName,places.formattedAddress,places.location,"
+                    "places.googleMapsUri,places.businessStatus,places.addressComponents,nextPageToken"
+                ),
+            },
+            json=body,
+        )
+    if response.status_code >= 400:
+        raise HTTPException(502, "Google RMC discovery failed")
+    payload = response.json()
+    summaries = [s for place in (payload.get("places") or []) if (s := _place_summary(place))]
+    ids = [row["place_id"] for row in summaries]
+    registered = {}
+    requests = {}
+    if ids:
+        registered_rows = await plants.find({"google_place_id": {"$in": ids}}).to_list(100)
+        registered = {row.get("google_place_id"): row for row in registered_rows}
+        request_rows = await plant_listing_requests.find({"google_place_id": {"$in": ids}}).to_list(100)
+        requests = {row.get("google_place_id"): row for row in request_rows}
+    places_out = []
+    for row in summaries:
+        place_id = row["place_id"]
+        plant = registered.get(place_id)
+        request = requests.get(place_id)
+        places_out.append({
+            **row,
+            "registered": bool(plant),
+            "plant_id": str(plant["_id"]) if plant else None,
+            "request_status": request.get("status") if request else None,
+        })
+    return {
+        "configured": True,
+        "places": places_out,
+        "next_page_token": payload.get("nextPageToken"),
+        "query": query,
+    }
 
 
 @router.post("/rmc-plants/{place_id}/request-listing")
