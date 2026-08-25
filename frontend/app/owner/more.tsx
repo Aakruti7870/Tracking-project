@@ -13,6 +13,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
+  { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
   { key: "plant", label: "Plant Profile", icon: "business-outline", route: "/business/profile" },
   { key: "kyc", label: "Plant KYC", icon: "shield-checkmark-outline", route: "/kyc" },
   { key: "staff", label: "Staff", icon: "people-outline", route: "/business/staff" },
@@ -83,7 +84,7 @@ export default function OwnerMore() {
 
         <Card style={{ gap: 4 }}>
           <AppText variant="label">Application</AppText>
-          <AppText variant="caption">TrackMyRMC 2.0.4 · Android version code 62</AppText>
+          <AppText variant="caption">TrackMyRMC 2.0.5 · Android version code 63</AppText>
           <AppText variant="caption">Business data is plant-scoped and server-authorized.</AppText>
         </Card>
 
