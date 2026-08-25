@@ -123,6 +123,16 @@ class CustomerReceivingRecordBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
+class CustomerCubeTestResultBody(BaseModel):
+    sample_id: str = Field(min_length=1, max_length=160)
+    age_days: Literal[7, 28]
+    tested_on: date
+    result_mpa: float = Field(gt=0, le=250)
+    lab_name: Optional[str] = Field(default=None, max_length=240)
+    report_reference: Optional[str] = Field(default=None, max_length=500)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
 class CustomerPourPlanBody(BaseModel):
     site_id: str = Field(min_length=1, max_length=128)
     grade: str = Field(pattern=GRADE_PATTERN)
