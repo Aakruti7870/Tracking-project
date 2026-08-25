@@ -304,3 +304,12 @@ async def cashfree_return(order_id: str):
     order = await plan_payment_orders.find_one({"order_number": order_id})
     status = (order or {}).get("status", "PAYMENT_PENDING")
     return HTMLResponse(f"""<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>TrackMyRMC Payment</title></head><body style=\"font-family:system-ui;background:#01153e;color:white;display:grid;place-items:center;min-height:100vh;text-align:center\"><main><h1>Payment {status.replace('_', ' ').title()}</h1><p>Return to TrackMyRMC and refresh Plans &amp; Promotions.</p><a style=\"color:#ff8a00\" href=\"trackmyrmc://plans-promotions?order_id={order_id}\">Open TrackMyRMC</a></main></body></html>""")
+
+
+@router.get("/orders/{order_number}")
+async def payment_order_status(order_number: str, ctx: dict = Depends(allowed_ctx)):
+    order = await plan_payment_orders.find_one({"order_number": order_number})
+    if not order:
+        raise HTTPException(404, "Payment order not found")
+    await scoped_plant(order["plant_id"], ctx)
+    return {"order_number": order_number, "status": order.get("status"), "product": order.get("product"), "plan": order.get("plan"), "payable": order.get("payable"), "activation_id": order.get("activation_id")}

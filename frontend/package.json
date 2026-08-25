@@ -43,6 +43,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-cashfree-pg-sdk": "2.4.0",
     "react-native-dotenv": "3.4.11",
     "react-native-gesture-handler": "2.28.0",
     "react-native-keyboard-controller": "1.18.5",
@@ -72,6 +73,15 @@
     "**/@expo/xcpretty/js-yaml": "4.3.0",
     "**/@istanbuljs/load-nyc-config/js-yaml": "3.15.0",
     "shell-quote": "1.9.0"
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-cashfree-pg-sdk"
+        ]
+      }
+    }
   },
   "private": true,
   "packageManager": "npm@10.8.2"

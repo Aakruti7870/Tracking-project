@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { apiPost } from "@/src/api/client";
+import { apiGet, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { ErrorView } from "@/src/components/StateViews";
 import { AppText } from "@/src/components/ui/AppText";
@@ -15,6 +15,7 @@ import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
+import { cashfreeCheckout } from "@/src/payments/cashfree";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -27,6 +28,9 @@ type Context = {
   premium_plans: Record<string, { months: number; price: number }>;
 };
 type Quote = { product: string; plan: string; price: number; discount: number; payable: number; promo_code?: string };
+type PaymentStatus = "PAYMENT_PENDING" | "PAID" | "FAILED" | "USER_DROPPED";
+type PaymentOrder = { order_number: string; status: PaymentStatus; product: string; plan: string; payable: number; activation_id?: string };
+type CheckoutResult = { status: PaymentStatus; order_number: string; payable: number; payment_session_id?: string; cashfree_environment?: string };
 type Tab = "PREMIUM" | "PROMOTION" | "PROMO_CODES";
 
 const money = (value: number) => `₹${value.toLocaleString("en-IN")}`;
@@ -52,11 +56,42 @@ export default function PlansPromotions() {
   const [codeName, setCodeName] = useState("");
   const [codeValue, setCodeValue] = useState("25");
   const [codeDays, setCodeDays] = useState("30");
+  const [paymentOrder, setPaymentOrder] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
+  const refetchRef = useRef(refetch);
 
   const authority = user?.role === "authority" || user?.role === "central_admin";
   const plant = useMemo(() => data?.plants.find((p) => p.id === plantId) || data?.plants[0], [data, plantId]);
   useEffect(() => { if (!plantId && data?.plants[0]) setPlantId(data.plants[0].id); }, [data, plantId]);
   useEffect(() => { setQuote(null); }, [tab, duration, premiumPlan, plantId]);
+  useEffect(() => { refetchRef.current = refetch; }, [refetch]);
+  useEffect(() => {
+    cashfreeCheckout.setCallbacks({
+      onVerify: (orderID: string) => { setPaymentOrder(orderID); setPaymentStatus("PAYMENT_PENDING"); toast("Payment received. Confirming securely…", "success"); },
+      onError: (_error, orderID: string) => { setPaymentOrder(orderID || null); setPaymentStatus("USER_DROPPED"); toast("Payment was not completed. You can retry safely.", "error"); },
+    });
+    return () => cashfreeCheckout.removeCallbacks();
+  }, [toast]);
+  useEffect(() => {
+    if (!token || !paymentOrder || paymentStatus === "PAID" || paymentStatus === "FAILED") return;
+    let cancelled = false;
+    let attempts = 0;
+    const check = async () => {
+      try {
+        const order = await apiGet<PaymentOrder>(`/plant-plans/orders/${encodeURIComponent(paymentOrder)}`, token);
+        if (cancelled) return;
+        setPaymentStatus(order.status);
+        if (order.status === "PAID") {
+          toast("Payment verified. Your plan is active.", "success");
+          refetchRef.current();
+        } else if (order.status === "FAILED") toast("Payment failed. No plan was activated.", "error");
+      } catch { /* Keep the order pending and let the next safe poll retry. */ }
+      attempts += 1;
+      if (!cancelled && attempts < 15) timer = setTimeout(check, 2000);
+    };
+    let timer = setTimeout(check, 700);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [paymentOrder, paymentStatus, toast, token]);
 
   const requestQuote = async () => {
     if (!token || !plant) return;
@@ -77,11 +112,12 @@ export default function PlansPromotions() {
 
   const activate = async (mode: "ONLINE_PAYMENT" | "OFFLINE_PAYMENT" | "AUTHORITY_FREE") => {
     if (!token || !plant) return;
+    if (mode === "ONLINE_PAYMENT" && !cashfreeCheckout.available) return toast("Secure payment is available in the Android app.", "error");
     if (mode === "AUTHORITY_FREE" && !reason.trim()) return toast("Enter a reason for free activation", "error");
     if (mode === "OFFLINE_PAYMENT" && !paymentReference.trim()) return toast("Enter the verified payment reference", "error");
     setBusy(true);
     try {
-      const result = await apiPost<any>("/plant-plans/activate", token, {
+      const result = await apiPost<CheckoutResult>("/plant-plans/activate", token, {
         plant_id: plant.id, product: tab,
         duration_days: tab === "PROMOTION" ? duration : undefined,
         premium_plan: tab === "PREMIUM" ? premiumPlan : undefined,
@@ -89,7 +125,12 @@ export default function PlansPromotions() {
         activation_mode: mode, reason: reason.trim() || undefined,
         payment_reference: paymentReference.trim() || undefined,
       });
-      if (result.status === "PAYMENT_PENDING") toast(`Payment order ${result.order_number} created`, "success");
+      if (result.status === "PAYMENT_PENDING") {
+        if (!result.payment_session_id) throw { detail: "Cashfree did not return a payment session" };
+        setPaymentOrder(result.order_number);
+        setPaymentStatus("PAYMENT_PENDING");
+        cashfreeCheckout.start(result.payment_session_id, result.order_number, result.cashfree_environment === "production");
+      }
       else toast(`${tab === "PROMOTION" ? "Promotion" : "Premium plan"} activated`, "success");
       refetch(); setQuote(null);
     } catch (e: any) { toast(e.detail || "Activation failed", "error"); }
@@ -141,7 +182,8 @@ export default function PlansPromotions() {
             <Card style={{ gap: spacing.sm }}><View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}><View style={{ flex: 1 }}><AppText variant="label">Promo code (optional)</AppText><TextInput value={promoCode} onChangeText={setPromoCode} autoCapitalize="characters" placeholder="Enter Authority-issued code" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.textInput, { borderColor: colors.border, color: colors.onSurface }]} /></View><Pressable onPress={requestQuote} style={[styles.apply, { borderColor: colors.brand }]}><AppText color={colors.brand} style={{ fontFamily: fonts.semibold }}>Apply</AppText></Pressable></View>
               {quote ? <View style={[styles.quote, { borderTopColor: colors.divider }]}><Line label="Plan price" value={money(quote.price)} /><Line label="Promo discount" value={`−${money(quote.discount)}`} green /><Line label="Payable" value={money(quote.payable)} bold /></View> : null}
             </Card>
-            {authority ? <Card style={{ gap: spacing.md }}><View style={styles.toggleRow}><Pressable onPress={() => setFreeMode(false)}><Ionicons name={freeMode ? "radio-button-off" : "radio-button-on"} size={22} color={colors.brand} /></Pressable><AppText style={{ flex: 1 }}>Verified offline payment</AppText><Pressable onPress={() => setFreeMode(true)}><Ionicons name={freeMode ? "radio-button-on" : "radio-button-off"} size={22} color={colors.brand} /></Pressable><AppText>Free by Authority</AppText></View>{freeMode ? <Input label="Reason (required)" value={reason} onChangeText={setReason} placeholder="Authority approval reason" /> : <Input label="Payment reference (required)" value={paymentReference} onChangeText={setPaymentReference} placeholder="UPI / bank / receipt reference" />}<Button label={freeMode ? "Activate Free as Authority" : "Activate Verified Payment"} onPress={() => activate(freeMode ? "AUTHORITY_FREE" : "OFFLINE_PAYMENT")} loading={busy} /></Card> : <Button label={`Continue to Secure Payment${quote ? ` · ${money(quote.payable)}` : ""}`} onPress={() => activate("ONLINE_PAYMENT")} loading={busy} />}
+            {authority ? <Card style={{ gap: spacing.md }}><View style={styles.toggleRow}><Pressable onPress={() => setFreeMode(false)}><Ionicons name={freeMode ? "radio-button-off" : "radio-button-on"} size={22} color={colors.brand} /></Pressable><AppText style={{ flex: 1 }}>Verified offline payment</AppText><Pressable onPress={() => setFreeMode(true)}><Ionicons name={freeMode ? "radio-button-on" : "radio-button-off"} size={22} color={colors.brand} /></Pressable><AppText>Free by Authority</AppText></View>{freeMode ? <Input label="Reason (required)" value={reason} onChangeText={setReason} placeholder="Authority approval reason" /> : <Input label="Payment reference (required)" value={paymentReference} onChangeText={setPaymentReference} placeholder="UPI / bank / receipt reference" />}<Button label={freeMode ? "Activate Free as Authority" : "Activate Verified Payment"} onPress={() => activate(freeMode ? "AUTHORITY_FREE" : "OFFLINE_PAYMENT")} loading={busy} /></Card> : <Button label={`Continue to Secure Payment${quote ? ` · ${money(quote.payable)}` : ""}`} onPress={() => activate("ONLINE_PAYMENT")} loading={busy} disabled={paymentStatus === "PAYMENT_PENDING"} />}
+            {paymentOrder ? <Card style={{ gap: spacing.sm }}><View style={styles.line}><AppText variant="label">Payment order</AppText><Badge label={prettyPlan(paymentStatus || "PAYMENT_PENDING")} status={paymentStatus === "PAID" ? "DELIVERED" : paymentStatus === "FAILED" || paymentStatus === "USER_DROPPED" ? "CANCELLED" : "PENDING"} /></View><AppText>{paymentOrder}</AppText><AppText variant="caption">{paymentStatus === "PAID" ? "Cashfree verified the payment and access is active." : paymentStatus === "FAILED" || paymentStatus === "USER_DROPPED" ? "No access was activated. You can safely retry payment." : "Waiting for Cashfree's signed webhook. Access remains locked until verification."}</AppText></Card> : null}
             <View style={styles.audit}><Ionicons name="shield-checkmark-outline" size={18} color={colors.brand} /><AppText variant="caption" style={{ flex: 1 }}>Free or discounted activation records Authority, reason and expiry. Payment orders do not grant access until payment is verified.</AppText></View>
           </>}
         </>}
