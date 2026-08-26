@@ -20,6 +20,7 @@ from routers import (
     customer,
     driver,
     finance_ops,
+    hr_master,
     loads,
     maps,
     master_data,
@@ -119,6 +120,7 @@ app.include_router(master_data.router)
 app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
+app.include_router(hr_master.router)
 app.include_router(workforce.router)
 # These three exact mutation routes must win before the original PR32 routes.
 app.include_router(payroll_concurrency_hotfix.router)
@@ -142,6 +144,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    await hr_master.ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_reports.ensure_indexes()
     try:
