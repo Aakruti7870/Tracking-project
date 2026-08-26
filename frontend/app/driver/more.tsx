@@ -60,11 +60,19 @@ export default function DriverMore() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
         </Pressable>
+        <Pressable testID="driver-workforce-rules" onPress={() => router.push("/workforce-rules" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Ionicons name="calendar-outline" size={22} color={colors.brand} />
+          <View style={{ flex: 1 }}>
+            <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Attendance Rules</AppText>
+            <AppText variant="caption">Roster, week offs and attendance corrections</AppText>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
         <Pressable testID="driver-logout" onPress={async () => { await signOut(); router.replace("/login"); }} style={[styles.logout, { borderColor: colors.error }]}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
-        <AppText variant="caption" center>TrackMyRMC · v2.0.18 (76)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.19 (77)</AppText>
       </ScrollView>
     </View>
   );
