@@ -32,6 +32,7 @@ from routers import (
     staff,
     storage,
     workforce,
+    workforce_reports,
 )
 
 logging.basicConfig(
@@ -114,6 +115,7 @@ app.include_router(master_data.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
 app.include_router(workforce.router)
+app.include_router(workforce_reports.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
@@ -134,6 +136,7 @@ app.add_middleware(
 async def on_startup():
     await ensure_indexes()
     await workforce.ensure_indexes()
+    await workforce_reports.ensure_indexes()
     try:
         from routers.storage import init_storage
 
