@@ -276,7 +276,7 @@ export default function Login() {
                   style={[
                     styles.phoneInputWrap,
                     {
-                      borderColor: error ? colors.danger : colors.border,
+                      borderColor: error ? colors.error : colors.border,
                       backgroundColor: colors.surfaceSecondary,
                     },
                   ]}
@@ -299,7 +299,7 @@ export default function Login() {
                     style={[styles.phoneInput, { color: colors.onSurface }]}
                   />
                 </View>
-                {error ? <AppText variant="caption" color={colors.danger}>{error}</AppText> : null}
+                {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
                 <Button
                   testID="login-send-otp-button"
                   label="Send OTP"
@@ -377,7 +377,7 @@ export default function Login() {
                 </View>
                 <AppText style={styles.googleButtonText}>Continue with Google</AppText>
               </Pressable>
-              {error ? <AppText variant="caption" color={colors.danger}>{error}</AppText> : null}
+              {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
             </View>
           )}
 
