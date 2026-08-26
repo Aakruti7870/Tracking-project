@@ -109,9 +109,13 @@ def _staff_session_payload(user: dict) -> dict:
     }
 
 
-@pytest.fixture(autouse=True)
-def legacy_staff_session_adapter(request, monkeypatch):
+@pytest.fixture(scope="module", autouse=True)
+def legacy_staff_session_adapter(request):
     """Adapt legacy staff email-OTP setup without touching production auth.
+
+    The adapter must be module-scoped because the legacy bearer-token fixtures
+    it supports are also module-scoped.  A function-scoped autouse fixture is
+    initialized too late and therefore cannot intercept those login helpers.
 
     Customer/Driver mobile OTP calls and all requests from dedicated auth test
     modules pass through unchanged.  For the explicitly listed legacy modules,
@@ -119,6 +123,7 @@ def legacy_staff_session_adapter(request, monkeypatch):
     """
     test_path = Path(str(request.fspath)).name
     if test_path not in LEGACY_STAFF_SESSION_MODULES:
+        yield
         return
 
     original_post = requests.Session.post
@@ -147,4 +152,9 @@ def legacy_staff_session_adapter(request, monkeypatch):
 
         return original_post(session, url, *args, **kwargs)
 
-    monkeypatch.setattr(requests.Session, "post", patched_post)
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(requests.Session, "post", patched_post)
+    try:
+        yield
+    finally:
+        patcher.undo()
