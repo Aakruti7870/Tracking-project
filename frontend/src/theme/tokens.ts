@@ -1,18 +1,25 @@
-// TrackMyRMC design tokens — charcoal/graphite base + electric lime accent.
-// Derived from design_guidelines.json. Light + Dark, identical IA.
+// TrackMyRMC Choice B — Emerald Aurora Glass design tokens.
+// Light + Dark keep identical information architecture and semantic color roles.
 
 export const palette = {
-  lime: "#CCFF00",
+  emerald: "#0F8A6A",
+  emeraldBright: "#19B98A",
+  emeraldDeep: "#075E4A",
+  emeraldSoft: "#DDF7EE",
+  emeraldSoftDark: "#123F34",
+  saffron: "#F59E0B",
+  saffronSoft: "#FFF0D5",
+  lime: "#CCFF00", // retained for backward compatibility with legacy imports
   limeDark: "#B2D700",
   limeSoft: "#E6FF80",
   limeTintDark: "#1A2000",
   limeTintDarker: "#334000",
-  success: "#00E676",
-  successDark: "#00A152",
-  warning: "#FFC107",
-  error: "#FF3B30",
+  success: "#0FA66E",
+  successDark: "#0B7E56",
+  warning: "#F59E0B",
+  error: "#E5484D",
   white: "#FFFFFF",
-  black: "#121212",
+  black: "#0B1512",
 };
 
 export type ThemeColors = {
@@ -39,49 +46,65 @@ export type ThemeColors = {
 };
 
 export const darkColors: ThemeColors = {
-  surface: "#121212",
-  onSurface: "#FFFFFF",
-  surfaceSecondary: "#1C1C1E",
-  onSurfaceSecondary: "#E0E0E0",
-  surfaceTertiary: "#2C2C2E",
-  onSurfaceTertiary: "#B0B0B0",
-  surfaceInverse: "#FFFFFF",
-  onSurfaceInverse: "#121212",
-  brand: palette.lime,
-  onBrand: "#121212",
-  brandSoft: palette.limeTintDarker,
-  onBrandSoft: palette.limeSoft,
+  surface: "#07120F",
+  onSurface: "#F5FFF9",
+  surfaceSecondary: "#0D1D18",
+  onSurfaceSecondary: "#D7E8E1",
+  surfaceTertiary: "#163029",
+  onSurfaceTertiary: "#9EB7AE",
+  surfaceInverse: "#F5FFF9",
+  onSurfaceInverse: "#07120F",
+  brand: palette.emeraldBright,
+  onBrand: "#04130F",
+  brandSoft: palette.emeraldSoftDark,
+  onBrandSoft: "#C7F5E6",
   success: palette.success,
   warning: palette.warning,
   error: palette.error,
-  border: "#2C2C2E",
-  borderStrong: "#4A4A4C",
-  divider: "#1C1C1E",
-  glassTint: "rgba(255,255,255,0.12)",
+  border: "#1D3A31",
+  borderStrong: "#31584C",
+  divider: "#142921",
+  glassTint: "rgba(236,255,248,0.10)",
   isDark: true,
 };
 
 export const lightColors: ThemeColors = {
-  surface: "#F5F5F5",
-  onSurface: "#121212",
+  surface: "#F2FBF7",
+  onSurface: "#0A211A",
   surfaceSecondary: "#FFFFFF",
-  onSurfaceSecondary: "#333333",
-  surfaceTertiary: "#EBEBEB",
-  onSurfaceTertiary: "#555555",
-  surfaceInverse: "#121212",
-  onSurfaceInverse: "#FFFFFF",
-  brand: "#B2D700",
-  onBrand: "#121212",
-  brandSoft: palette.limeSoft,
-  onBrandSoft: palette.limeTintDarker,
+  onSurfaceSecondary: "#18372E",
+  surfaceTertiary: "#E4F3ED",
+  onSurfaceTertiary: "#55736A",
+  surfaceInverse: "#0A211A",
+  onSurfaceInverse: "#F7FFFB",
+  brand: palette.emerald,
+  onBrand: "#FFFFFF",
+  brandSoft: palette.emeraldSoft,
+  onBrandSoft: palette.emeraldDeep,
   success: palette.successDark,
-  warning: "#C79100",
+  warning: "#B96C00",
   error: palette.error,
-  border: "#E0E0E0",
-  borderStrong: "#C4C4C4",
-  divider: "#EEEEEE",
-  glassTint: "rgba(255,255,255,0.6)",
+  border: "#CFE4DC",
+  borderStrong: "#A9C9BE",
+  divider: "#DCECE6",
+  glassTint: "rgba(255,255,255,0.68)",
   isDark: false,
+};
+
+export const glass = {
+  lightSurface: "rgba(255,255,255,0.72)",
+  darkSurface: "rgba(10,31,25,0.78)",
+  lightBorder: "rgba(7,94,74,0.14)",
+  darkBorder: "rgba(127,255,211,0.16)",
+  lightHighlight: "rgba(255,255,255,0.82)",
+  darkHighlight: "rgba(255,255,255,0.08)",
+  overlay: "rgba(0,18,13,0.38)",
+};
+
+export const aurora = {
+  emerald: "rgba(25,185,138,0.18)",
+  teal: "rgba(15,138,106,0.14)",
+  saffron: "rgba(245,158,11,0.10)",
 };
 
 export const spacing = {
