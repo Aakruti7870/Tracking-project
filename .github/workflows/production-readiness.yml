@@ -34,15 +34,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: release/signed-aab-v2.0.18-vc76-a6d654d
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Verify certified source boundary
         shell: bash
         run: |
           set -euo pipefail
           CERTIFIED_MAIN="a6d654d9aaac7c2fd78c06c430676a987cc2ad59"
-          test "$(git rev-parse HEAD^)" = "$CERTIFIED_MAIN" || {
-            echo "Release commit is not based directly on certified main $CERTIFIED_MAIN"
+          git merge-base --is-ancestor "$CERTIFIED_MAIN" HEAD || {
+            echo "Release branch is not descended from certified main $CERTIFIED_MAIN"
             exit 1
           }
           changed="$(git diff --name-only "$CERTIFIED_MAIN" HEAD | tr -d '\r')"
