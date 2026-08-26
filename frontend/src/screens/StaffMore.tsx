@@ -82,14 +82,24 @@ export function StaffMore() {
         ) : null}
 
         {user?.role === "accountant" ? (
-          <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
-            <View style={{ flex: 1 }}>
-              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText>
-              <AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+          <View style={{ gap: spacing.sm }}>
+            <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText>
+                <AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="accountant-employee-master" onPress={() => router.push("/employee-master" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="id-card-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Employee Master &amp; Salary</AppText>
+                <AppText variant="caption">Employment profile and salary structure reference</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
         ) : null}
 
         {user?.role === "authority" || user?.role === "central_admin" ? (
