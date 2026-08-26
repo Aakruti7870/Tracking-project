@@ -71,14 +71,24 @@ export function StaffMore() {
         </View>
 
         {workforceEnabled ? (
-          <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
-            <View style={{ flex: 1 }}>
-              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
-              <AppText variant="caption">Attendance, leave, client visits and expense claims</AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+          <View style={{ gap: spacing.sm }}>
+            <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
+                <AppText variant="caption">Attendance, leave, client visits and expense claims</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="staff-workforce-rules" onPress={() => router.push("/workforce-rules" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="calendar-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Attendance Rules</AppText>
+                <AppText variant="caption">Roster, week offs, geofence status and attendance corrections</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
         ) : null}
 
         {user?.role === "accountant" ? (
@@ -118,7 +128,7 @@ export function StaffMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · v2.0.18 (76)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.19 (77)</AppText>
       </ScrollView>
     </View>
   );
