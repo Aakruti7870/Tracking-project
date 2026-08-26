@@ -20,6 +20,7 @@ from routers import (
     customer,
     driver,
     finance_ops,
+    hr_master,
     loads,
     maps,
     master_data,
@@ -120,6 +121,7 @@ app.include_router(master_data.router)
 app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
+app.include_router(hr_master.router)
 # Geofence-aware attendance must win before the original workforce punch routes.
 app.include_router(workforce_roster.attendance_router)
 app.include_router(workforce.router)
@@ -146,6 +148,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    await hr_master.ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_roster.ensure_indexes()
     await workforce_reports.ensure_indexes()

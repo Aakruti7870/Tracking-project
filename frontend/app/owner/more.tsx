@@ -15,6 +15,7 @@ const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap;
   { key: "workforce", label: "Workforce Control", icon: "people-circle-outline", route: "/workforce" },
   { key: "shift_roster", label: "Shifts, Roster & Attendance", icon: "calendar-outline", route: "/shift-roster" },
   { key: "workforce_reports", label: "Workforce Reports & Payroll", icon: "stats-chart-outline", route: "/workforce-reports" },
+  { key: "employee_master", label: "Employee Master & Salary", icon: "id-card-outline", route: "/employee-master" },
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
   { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
   { key: "quote_requests", label: "Quotation Requests", icon: "document-text-outline", route: "/owner/quotation-requests" },
