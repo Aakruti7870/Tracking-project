@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from routers.payroll_concurrency_hotfix import (
     _cas_filter,
+    _finance_payment_matches,
     _owner_mutation_filter,
     _payment_reservation_filter,
 )
@@ -83,3 +84,66 @@ def test_compare_and_set_filters_protect_owner_approval_and_payment_reservation(
         "updated_at": stamp,
         "payment_lock": {"$exists": False},
     }
+
+
+def test_finance_payment_fingerprint_accepts_exact_retry():
+    lock = {
+        "payment_reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "paid_on": "2026-08-26",
+    }
+    finance_doc = {
+        "source": "PAYROLL",
+        "amount": 28500.0,
+        "reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "expense_date": "2026-08-26",
+    }
+
+    assert _finance_payment_matches(finance_doc, 28500.0, lock) is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reference", "UTR-DIFFERENT"),
+        ("payment_method", "upi"),
+        ("expense_date", "2026-08-27"),
+        ("amount", 28501.0),
+        ("source", "MANUAL"),
+    ],
+)
+def test_finance_payment_fingerprint_rejects_mismatched_orphaned_expense(field, value):
+    lock = {
+        "payment_reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "paid_on": "2026-08-26",
+    }
+    finance_doc = {
+        "source": "PAYROLL",
+        "amount": 28500.0,
+        "reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "expense_date": "2026-08-26",
+    }
+    finance_doc[field] = value
+
+    assert _finance_payment_matches(finance_doc, 28500.0, lock) is False
+
+
+def test_finance_payment_fingerprint_rejects_missing_lock_or_document():
+    lock = {
+        "payment_reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "paid_on": "2026-08-26",
+    }
+    finance_doc = {
+        "source": "PAYROLL",
+        "amount": 28500.0,
+        "reference": "UTR-12345",
+        "payment_method": "bank_transfer",
+        "expense_date": "2026-08-26",
+    }
+
+    assert _finance_payment_matches(None, 28500.0, lock) is False
+    assert _finance_payment_matches(finance_doc, 28500.0, None) is False
