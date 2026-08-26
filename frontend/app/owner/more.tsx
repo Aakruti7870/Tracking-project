@@ -13,6 +13,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "workforce", label: "Workforce Control", icon: "people-circle-outline", route: "/workforce" },
+  { key: "shift_roster", label: "Shifts, Roster & Attendance", icon: "calendar-outline", route: "/shift-roster" },
   { key: "workforce_reports", label: "Workforce Reports & Payroll", icon: "stats-chart-outline", route: "/workforce-reports" },
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
   { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
