@@ -27,6 +27,7 @@ from routers import (
     notify,
     operator_ops,
     owner,
+    payroll_guard,
     plant_plans,
     plant_discovery,
     staff,
@@ -112,6 +113,9 @@ app.include_router(driver.router)
 app.include_router(staff.router)
 app.include_router(operator_ops.router)
 app.include_router(master_data.router)
+# The compatibility guard must be registered before finance_ops so the old
+# direct payroll mutation route fails closed under the new approval lifecycle.
+app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
 app.include_router(workforce.router)
