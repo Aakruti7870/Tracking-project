@@ -20,6 +20,7 @@ from routers import (
     customer,
     driver,
     finance_ops,
+    hr_master,
     loads,
     maps,
     master_data,
@@ -120,6 +121,7 @@ app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
 app.include_router(workforce.router)
 app.include_router(workforce_reports.router)
+app.include_router(hr_master.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
@@ -141,6 +143,7 @@ async def on_startup():
     await ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_reports.ensure_indexes()
+    await hr_master.ensure_indexes()
     try:
         from routers.storage import init_storage
 
