@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import { useRouter } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 
 import { startGoogleStaffLogin } from "@/src/api/client";
