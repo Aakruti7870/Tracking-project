@@ -1,7 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 import { storage } from "@/src/utils/storage";
-import { apiGet, apiPost, requestOtp, verifyOtp } from "@/src/api/client";
+import {
+  apiGet,
+  apiPost,
+  exchangeGoogleStaffCode,
+  requestOtp,
+  verifyOtp,
+} from "@/src/api/client";
 import { stopTripLocationTracking } from "@/src/location/tripTracking";
 import { unregisterPushDevice } from "@/src/notifications/pushClient";
 
@@ -26,6 +32,7 @@ type AuthContextValue = {
   user: Me | null;
   requestOtp: typeof requestOtp;
   verify: (identifier: string, code: string) => Promise<Me>;
+  verifyGoogle: (code: string) => Promise<Me>;
   refreshMe: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -54,14 +61,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  const acceptSession = async (accessToken: string): Promise<Me> => {
+    const stored = await storage.secureSet(TOKEN_KEY, accessToken);
+    if (!stored) throw new Error("Unable to securely store login session");
+    try {
+      const me = await apiGet<Me>("/me", accessToken);
+      setToken(accessToken);
+      setUser(me);
+      return me;
+    } catch (error) {
+      await storage.secureRemove(TOKEN_KEY);
+      setToken(null);
+      setUser(null);
+      throw error;
+    }
+  };
+
   const verify = async (identifier: string, code: string): Promise<Me> => {
     const res = await verifyOtp(identifier, code);
-    const stored = await storage.secureSet(TOKEN_KEY, res.access_token);
-    if (!stored) throw new Error("Unable to securely store login session");
-    setToken(res.access_token);
-    const me = await apiGet<Me>("/me", res.access_token);
-    setUser(me);
-    return me;
+    return acceptSession(res.access_token);
+  };
+
+  const verifyGoogle = async (code: string): Promise<Me> => {
+    const res = await exchangeGoogleStaffCode(code);
+    return acceptSession(res.access_token);
   };
 
   const refreshMe = async () => {
@@ -75,8 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    // Stop tracking and unregister this native push token before revoking the
-    // session so a signed-out phone no longer receives account notifications.
     await stopTripLocationTracking();
     if (token) {
       try {
@@ -97,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ hydrating, token, user, requestOtp, verify, refreshMe, signOut }}
+      value={{ hydrating, token, user, requestOtp, verify, verifyGoogle, refreshMe, signOut }}
     >
       {children}
     </AuthContext.Provider>
