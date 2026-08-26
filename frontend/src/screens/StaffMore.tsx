@@ -74,6 +74,11 @@ export function StaffMore() {
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Roster</AppText><AppText variant="caption">Upcoming shifts, week-offs and geofence attendance rules</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
+          <Pressable testID="staff-my-payslip" onPress={() => router.push("/my-payslip" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Ionicons name="document-text-outline" size={22} color={colors.brand} />
+            <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Payslip</AppText><AppText variant="caption">View and share closed-month payroll payslips</AppText></View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
         </View> : null}
 
         {user?.role === "accountant" ? (
@@ -86,6 +91,11 @@ export function StaffMore() {
             <Pressable testID="accountant-employee-master" onPress={() => router.push("/employee-master" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="id-card-outline" size={22} color={colors.brand} />
               <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Employee Master &amp; Salary</AppText><AppText variant="caption">Read employment details and salary structures</AppText></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="accountant-payroll-closure" onPress={() => router.push("/payroll-closure" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="document-attach-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payroll Closure &amp; Export</AppText><AppText variant="caption">Read closed periods, payslips and payroll CSV exports</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
