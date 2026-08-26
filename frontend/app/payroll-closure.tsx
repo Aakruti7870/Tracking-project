@@ -157,7 +157,7 @@ export default function PayrollClosureScreen() {
 
         <Card style={{ gap: spacing.md }}>
           <Input label="Payroll month (YYYY-MM)" value={month} onChangeText={setMonth} placeholder="2026-08" />
-          <Button disabled={loading || busy || month.length !== 7} onPress={load}>Load Month</Button>
+          <Button label="Load Month" disabled={loading || busy || month.length !== 7} onPress={load} />
           {periods.length > 1 ? <View style={styles.wrap}>{periods.map((p) => <Pressable key={p.plant_id} onPress={() => choosePlant(p.plant_id)} style={[styles.chip, { borderColor: p.plant_id === period?.plant_id ? colors.brand : colors.border }]}><AppText style={{ fontFamily: fonts.semibold }}>{p.plant_name}</AppText></Pressable>)}</View> : null}
         </Card>
 
@@ -172,12 +172,12 @@ export default function PayrollClosureScreen() {
               <View><AppText variant="caption">Payslips</AppText><AppText variant="heading">{period.payslip_count}</AppText></View>
             </View>
             <AppText variant="caption">{period.readiness.ready ? "Ready to close: every active employee payroll is paid and no payment lock is active." : `Not ready: ${period.readiness.missing_user_ids.length} missing, ${period.readiness.unpaid.length} unpaid, ${period.readiness.payment_locked_user_ids.length} payment lock(s).`}</AppText>
-            {isOwner && period.status !== "CLOSED" ? <Button disabled={busy || !period.readiness.ready} onPress={() => run(() => apiPost(`/payroll-periods/plants/${period.plant_id}/${month}/close`, token!, {}), "Payroll month closed and payslips issued")}>Close Payroll Month</Button> : null}
+            {isOwner && period.status !== "CLOSED" ? <Button label="Close Payroll Month" disabled={busy || !period.readiness.ready} onPress={() => run(() => apiPost(`/payroll-periods/plants/${period.plant_id}/${month}/close`, token!, {}), "Payroll month closed and payslips issued")} /> : null}
             {isOwner && period.status === "CLOSED" ? <>
               <Input label="Reopen reason" value={reopenReason} onChangeText={setReopenReason} placeholder="Mandatory audited reason" />
-              <Button variant="secondary" disabled={busy || reopenReason.trim().length < 5} onPress={() => run(() => apiPost(`/payroll-periods/plants/${period.plant_id}/${month}/reopen`, token!, { reason: reopenReason.trim() }), "Payroll month reopened")}>Reopen Period</Button>
+              <Button label="Reopen Period" variant="secondary" disabled={busy || reopenReason.trim().length < 5} onPress={() => run(() => apiPost(`/payroll-periods/plants/${period.plant_id}/${month}/reopen`, token!, { reason: reopenReason.trim() }), "Payroll month reopened")} />
             </> : null}
-            {payslips.length ? <Button variant="secondary" disabled={busy} onPress={exportCsv}>Share / Save Payroll CSV</Button> : null}
+            {payslips.length ? <Button label="Share / Save Payroll CSV" variant="secondary" disabled={busy} onPress={exportCsv} /> : null}
           </Card>
 
           <Card style={{ gap: spacing.md }}>
