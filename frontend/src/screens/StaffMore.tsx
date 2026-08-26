@@ -56,12 +56,7 @@ export function StaffMore() {
             {MODES.map((m) => {
               const selected = mode === m.key;
               return (
-                <Pressable
-                  key={m.key}
-                  testID={`theme-mode-${m.key}`}
-                  onPress={() => setMode(m.key)}
-                  style={[styles.mode, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}
-                >
+                <Pressable key={m.key} testID={`theme-mode-${m.key}`} onPress={() => setMode(m.key)} style={[styles.mode, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}>
                   <Ionicons name={m.icon} size={18} color={selected ? colors.onBrand : colors.onSurfaceSecondary} />
                   <AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: selected ? colors.onBrand : colors.onSurfaceSecondary }}>{m.label}</AppText>
                 </Pressable>
@@ -73,41 +68,36 @@ export function StaffMore() {
         {workforceEnabled ? (
           <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
-            <View style={{ flex: 1 }}>
-              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
-              <AppText variant="caption">Attendance, leave, client visits and expense claims</AppText>
-            </View>
+            <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText><AppText variant="caption">Attendance, leave, client visits and expense claims</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
         ) : null}
 
         {user?.role === "accountant" ? (
-          <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
-            <View style={{ flex: 1 }}>
-              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText>
-              <AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+          <View style={{ gap: spacing.sm }}>
+            <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText><AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="accountant-employee-master" onPress={() => router.push("/employee-master" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <Ionicons name="id-card-outline" size={22} color={colors.brand} />
+              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Employee Master &amp; Salary</AppText><AppText variant="caption">Read employment details and salary structures</AppText></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
         ) : null}
 
         {user?.role === "authority" || user?.role === "central_admin" ? (
           <View style={{ gap: spacing.sm }}>
             <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="diamond-outline" size={20} color={colors.brand} />
-              <View style={{ flex: 1 }}>
-                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText>
-                <AppText variant="caption">Premium, promoted listings and promo codes</AppText>
-              </View>
+              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText><AppText variant="caption">Premium, promoted listings and promo codes</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
             <Pressable testID="authority-payment-control" onPress={() => router.push("/authority/payment-control" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="card-outline" size={20} color={colors.brand} />
-              <View style={{ flex: 1 }}>
-                <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText>
-                <AppText variant="caption">Cashfree, activations, promo usage and audit</AppText>
-              </View>
+              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText><AppText variant="caption">Cashfree, activations, promo usage and audit</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
