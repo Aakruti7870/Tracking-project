@@ -5,7 +5,7 @@ Covers:
 - Passwordless OTP request/verify (dev_otp)
 - Resend throttle, max attempts, wrong OTP
 - RBAC (customer-only endpoints)
-- Channel-per-role policy (admin email-only; customer email rejected)
+- Channel-per-role policy (customer/driver mobile OTP; staff Google-only)
 - Customer home / orders / plants / kyc
 - KYC start on already-VERIFIED customer -> 409
 - Logout revokes session (subsequent /me -> 401)
@@ -14,8 +14,12 @@ Covers:
 import os
 import time
 import uuid
+
 import pytest
 import requests
+from pymongo import MongoClient
+
+from security import issue_jwt, new_session_id, utcnow
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://tracking-verify.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
@@ -23,7 +27,6 @@ API = f"{BASE_URL}/api"
 CUSTOMER_MOBILE = "+919000000001"
 DRIVER_MOBILE = "+919000000002"
 ADMIN_EMAIL = "admin@trackmyrmc.test"
-OWNER_EMAIL = "owner@trackmyrmc.test"
 
 
 @pytest.fixture(scope="module")
@@ -34,8 +37,7 @@ def api_client():
 
 
 def _request_otp(client, identifier):
-    r = client.post(f"{API}/auth/request-otp", json={"identifier": identifier})
-    return r
+    return client.post(f"{API}/auth/request-otp", json={"identifier": identifier})
 
 
 def _verify(client, identifier, code):
@@ -43,10 +45,10 @@ def _verify(client, identifier, code):
 
 
 def _login(client, identifier):
-    """Full OTP dance; returns access_token payload dict."""
+    """Full mobile OTP dance; returns access_token payload dict."""
     r = _request_otp(client, identifier)
     if r.status_code == 429:
-        time.sleep(31)
+        time.sleep(2)
         r = _request_otp(client, identifier)
     assert r.status_code == 200, f"request-otp failed: {r.status_code} {r.text}"
     code = r.json().get("dev_otp")
@@ -54,6 +56,37 @@ def _login(client, identifier):
     rv = _verify(client, identifier, code)
     assert rv.status_code == 200, f"verify failed: {rv.status_code} {rv.text}"
     return rv.json()
+
+
+def _staff_test_token(role: str) -> str:
+    """Create a CI-only authenticated session to test RBAC independently of OAuth.
+
+    Google itself is not contacted by this integration suite. The production
+    authentication route is covered separately; this helper only preserves the
+    existing customer-endpoint RBAC assertion with a real persisted session.
+    """
+    mongo_url = os.environ["MONGO_URL"]
+    db_name = os.environ["DB_NAME"]
+    client = MongoClient(mongo_url)
+    try:
+        db = client[db_name]
+        user = db.users.find_one({"primary_role": role, "status": {"$ne": "deleted"}})
+        assert user, f"seeded {role} user not found"
+        sid = new_session_id()
+        token, expires = issue_jwt(str(user["_id"]), sid, role)
+        db.sessions.insert_one(
+            {
+                "_id": sid,
+                "user_id": str(user["_id"]),
+                "role": role,
+                "revoked": False,
+                "created_at": utcnow(),
+                "expires_at": expires,
+            }
+        )
+        return token
+    finally:
+        client.close()
 
 
 class TestHealth:
@@ -70,7 +103,7 @@ class TestAuth:
     def test_request_otp_returns_dev_otp(self, api_client):
         r = _request_otp(api_client, CUSTOMER_MOBILE)
         if r.status_code == 429:
-            time.sleep(31)
+            time.sleep(2)
             r = _request_otp(api_client, CUSTOMER_MOBILE)
         assert r.status_code == 200, r.text
         j = r.json()
@@ -116,12 +149,20 @@ class TestAuth:
         rv = _verify(api_client, email, code)
         assert rv.status_code == 403
 
-    def test_admin_email_ok_mobile_wrong_channel(self, api_client):
-        data = _login(api_client, ADMIN_EMAIL)
-        assert data["role"] == "admin"
+    def test_admin_email_otp_requires_google(self, api_client):
+        r = _request_otp(api_client, ADMIN_EMAIL)
+        if r.status_code == 429:
+            time.sleep(2)
+            r = _request_otp(api_client, ADMIN_EMAIL)
+        assert r.status_code == 200, r.text
+        code = r.json().get("dev_otp")
+        assert code
+        rv = _verify(api_client, ADMIN_EMAIL, code)
+        assert rv.status_code == 403
+        assert "sign in with Google" in rv.text
 
     def test_admin_mobile_should_fail_channel(self, api_client):
-        pytest.skip("Admin identifier is email-only; no admin mobile exists to test.")
+        pytest.skip("Admin is Google-only and no Admin mobile identifier is provisioned.")
 
 
 @pytest.fixture(scope="module")
@@ -132,10 +173,8 @@ def customer_token(api_client):
 
 
 @pytest.fixture(scope="module")
-def admin_token(api_client):
-    time.sleep(1)
-    data = _login(api_client, ADMIN_EMAIL)
-    return data["access_token"]
+def admin_token():
+    return _staff_test_token("admin")
 
 
 def _auth(token):
