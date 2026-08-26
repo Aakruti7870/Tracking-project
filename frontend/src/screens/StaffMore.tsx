@@ -81,6 +81,17 @@ export function StaffMore() {
           </Pressable>
         ) : null}
 
+        {user?.role === "accountant" ? (
+          <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
+            <View style={{ flex: 1 }}>
+              <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText>
+              <AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        ) : null}
+
         {user?.role === "authority" || user?.role === "central_admin" ? (
           <View style={{ gap: spacing.sm }}>
             <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
@@ -107,7 +118,7 @@ export function StaffMore() {
           <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
         </Pressable>
 
-        <AppText variant="caption" center>TrackMyRMC · v2.0.17 (75)</AppText>
+        <AppText variant="caption" center>TrackMyRMC · v2.0.18 (76)</AppText>
       </ScrollView>
     </View>
   );

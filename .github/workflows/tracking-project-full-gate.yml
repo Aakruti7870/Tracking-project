@@ -65,12 +65,13 @@ jobs:
           import database
           import push_notifications
           import server
-          from routers import account_deletion, business_ui, finance_ops, loads, master_data, operator_ops
+          from routers import account_deletion, business_ui, finance_ops, loads, master_data, operator_ops, payroll_guard, workforce_reports
           assert server.app is not None
           assert business_models.PlantBusinessProfileBody
           assert push_notifications.push.name == "firebase_fcm_v1"
           assert account_deletion.router and business_ui.router and finance_ops.router
           assert loads.router and master_data.router and operator_ops.router
+          assert payroll_guard.router and workforce_reports.router
           print("full schema/router import OK")
           PY
       - name: Start API
@@ -132,13 +133,13 @@ jobs:
           const firebase = require('./google-services.json');
           if (cfg.android.package !== 'com.trackmyrmc.concreteking') throw new Error('Android package mismatch');
           if (cfg.ios.bundleIdentifier !== 'com.trackmyrmc.concreteking') throw new Error('iOS bundle identifier mismatch');
-          if (cfg.android.versionCode !== 75) throw new Error('versionCode mismatch');
-          if (cfg.version !== '2.0.17') throw new Error('version mismatch');
+          if (!Number.isInteger(cfg.android.versionCode) || cfg.android.versionCode < 1) throw new Error('Invalid Android versionCode');
+          if (!/^\d+\.\d+\.\d+$/.test(cfg.version || '')) throw new Error('Invalid app version');
           if (cfg.android.googleServicesFile !== './google-services.json') throw new Error('Firebase config path mismatch');
           const pkg = firebase.client?.[0]?.client_info?.android_client_info?.package_name;
           if (pkg !== cfg.android.package) throw new Error('Firebase Android package mismatch');
           if (firebase.project_info?.project_id !== 'track-my-rmc') throw new Error('Firebase project mismatch');
-          console.log('mobile identity + Firebase client OK');
+          console.log(`mobile identity + Firebase client OK (${cfg.version}, vc${cfg.android.versionCode})`);
           NODE
       - name: TypeScript
         working-directory: frontend
@@ -199,10 +200,12 @@ jobs:
         run: |
           set -euo pipefail
           gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
+          version_code=$(node -p "require('./app.json').expo.android.versionCode")
           test -n "$gradle_file"
+          test -n "$version_code"
           test -f android/app/google-services.json
           grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
-          grep -E "versionCode[[:space:]=]+75" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+${version_code}" "$gradle_file" >/dev/null
           grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
       - name: Compile debug APK
         working-directory: frontend/android
@@ -213,7 +216,7 @@ jobs:
         if: env.EXPO_PUBLIC_BACKEND_URL != 'https://api.example.invalid'
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-2.0.17-vc75-debug-apk
+          name: trackmyrmc-debug-apk
           path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
