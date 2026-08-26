@@ -45,6 +45,35 @@ class GoogleExchangeBody(BaseModel):
     code: str = Field(min_length=20, max_length=512)
 
 
+def _login_identifier_keys(channel: str, value: str) -> list[str]:
+    """Return canonical plus legacy login hashes without widening phone identity.
+
+    The redesigned India mobile field always submits +91 followed by ten digits.
+    Older builds could persist the same number as 10 digits or 91+10 digits.
+    Looking up all three representations prevents a legacy Driver/Customer from
+    being mistaken for a new Customer. New registrations remain canonical +91.
+    """
+    values = [value]
+    if channel == "sms":
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if len(digits) == 12 and digits.startswith("91"):
+            values.extend([digits, digits[2:]])
+        elif len(digits) == 10:
+            values.extend([f"+91{digits}", f"91{digits}"])
+
+    keys: list[str] = []
+    for candidate in values:
+        key = identifier_key(candidate)
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+async def _find_login_user(channel: str, value: str) -> dict | None:
+    keys = _login_identifier_keys(channel, value)
+    return await users.find_one({"identifier_keys": {"$in": keys}})
+
+
 def _assert_account_available(user: dict) -> None:
     status_val = user.get("status", "active")
     if status_val == "suspended":
@@ -202,9 +231,9 @@ async def verify_otp(body: VerifyOtpBody):
     if not consumed:
         raise HTTPException(400, "Invalid or expired code")
 
-    # Unknown mobile identifiers self-register as customers. Staff identities
-    # must be provisioned in advance and authenticate with Google instead.
-    user = await users.find_one({"identifier_keys": key})
+    # Resolve canonical +91 and legacy Indian phone representations before any
+    # self-registration. Staff identities must be provisioned in advance.
+    user = await _find_login_user(channel, value)
     if not user:
         if channel != "sms":
             raise HTTPException(403, "No account found for this email. Contact your plant/admin.")
@@ -224,7 +253,9 @@ async def verify_otp(body: VerifyOtpBody):
                 str(user["_id"]), "user.self_register", "user", str(user["_id"])
             )
         except DuplicateKeyError:
-            user = await users.find_one({"identifier_keys": key})
+            # A concurrent request or an existing legacy representation won the
+            # race; resolve all accepted aliases again rather than duplicate it.
+            user = await _find_login_user(channel, value)
             if not user:
                 raise HTTPException(409, "Account registration conflict; retry login")
 
