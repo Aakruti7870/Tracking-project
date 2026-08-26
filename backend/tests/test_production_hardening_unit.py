@@ -171,6 +171,10 @@ def _run_config_import(extra_env: dict[str, str]):
             "OTP_PEPPER": "",
             "DEBUG_OTP": "false",
             "CORS_ORIGINS": "https://app.trackmyrmc.com",
+            "GOOGLE_OAUTH_CLIENT_ID": "unit-google-client.apps.googleusercontent.com",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "unit-google-client-secret",
+            "GOOGLE_OAUTH_REDIRECT_URI": "https://app.trackmyrmc.com/api/auth/google/callback",
+            "GOOGLE_OAUTH_APP_REDIRECT_URI": "trackmyrmc://auth/google",
         }
     )
     env.update(extra_env)
@@ -189,6 +193,18 @@ def test_production_config_rejects_missing_secrets():
     result = _run_config_import({})
     assert result.returncode != 0
     assert "Production security configuration" in (result.stdout + result.stderr)
+
+
+def test_production_config_rejects_missing_google_oauth():
+    result = _run_config_import(
+        {
+            "JWT_SECRET": "unit-production-secret-long-enough",
+            "OTP_PEPPER": "unit-production-pepper-long-enough",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "",
+        }
+    )
+    assert result.returncode != 0
+    assert "GOOGLE_OAUTH_CLIENT_SECRET" in (result.stdout + result.stderr)
 
 
 def test_production_config_rejects_debug_otp():
