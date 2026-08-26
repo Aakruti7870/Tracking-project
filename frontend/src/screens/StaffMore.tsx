@@ -44,9 +44,7 @@ export function StaffMore() {
           <View style={{ flex: 1, gap: 4 }}>
             <AppText variant="heading" numberOfLines={1}>{user?.name}</AppText>
             <AppText variant="caption">{user?.email || user?.phone}</AppText>
-            <View style={{ flexDirection: "row", gap: spacing.xs }}>
-              <Badge label={user?.role_label || "Staff"} color={colors.brand} />
-            </View>
+            <View style={{ flexDirection: "row", gap: spacing.xs }}><Badge label={user?.role_label || "Staff"} color={colors.brand} /></View>
           </View>
         </Card>
 
@@ -65,13 +63,18 @@ export function StaffMore() {
           </View>
         </View>
 
-        {workforceEnabled ? (
+        {workforceEnabled ? <View style={{ gap: spacing.sm }}>
           <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText><AppText variant="caption">Attendance, leave, client visits and expense claims</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
-        ) : null}
+          <Pressable testID="staff-shift-roster" onPress={() => router.push("/shift-roster" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Ionicons name="calendar-outline" size={22} color={colors.brand} />
+            <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Roster</AppText><AppText variant="caption">Upcoming shifts, week-offs and geofence attendance rules</AppText></View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View> : null}
 
         {user?.role === "accountant" ? (
           <View style={{ gap: spacing.sm }}>
@@ -91,23 +94,15 @@ export function StaffMore() {
         {user?.role === "authority" || user?.role === "central_admin" ? (
           <View style={{ gap: spacing.sm }}>
             <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-              <Ionicons name="diamond-outline" size={20} color={colors.brand} />
-              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText><AppText variant="caption">Premium, promoted listings and promo codes</AppText></View>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+              <Ionicons name="diamond-outline" size={20} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText><AppText variant="caption">Premium, promoted listings and promo codes</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
             <Pressable testID="authority-payment-control" onPress={() => router.push("/authority/payment-control" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-              <Ionicons name="card-outline" size={20} color={colors.brand} />
-              <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText><AppText variant="caption">Cashfree, activations, promo usage and audit</AppText></View>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+              <Ionicons name="card-outline" size={20} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText><AppText variant="caption">Cashfree, activations, promo usage and audit</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
         ) : null}
 
-        <Pressable testID="logout-button" onPress={doLogout} style={[styles.logout, { borderColor: colors.error }]}>
-          <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
-        </Pressable>
-
+        <Pressable testID="logout-button" onPress={doLogout} style={[styles.logout, { borderColor: colors.error }]}><Ionicons name="log-out-outline" size={20} color={colors.error} /><AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText></Pressable>
         <AppText variant="caption" center>TrackMyRMC · v2.0.18 (76)</AppText>
       </ScrollView>
     </View>
