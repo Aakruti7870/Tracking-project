@@ -360,7 +360,7 @@ def test_pre_aab_complete_order_to_paid_delivery_e2e():
     payment = session.post(
         f"{API}/owner/invoices/{invoice['id']}/payment",
         headers=_auth(owner_token),
-        json={"amount": invoice["total"], "method": "E2E", "note": "pre-AAB full payment"},
+        json={"amount": invoice["total"], "method": "bank_transfer", "note": "pre-AAB full payment"},
         timeout=15,
     )
     assert payment.status_code == 200, payment.text
