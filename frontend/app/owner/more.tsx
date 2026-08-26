@@ -13,6 +13,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { key: "workforce", label: "Workforce Control", icon: "people-circle-outline", route: "/workforce" },
+  { key: "workforce_rules", label: "Shift & Attendance Rules", icon: "calendar-outline", route: "/workforce-rules" },
   { key: "workforce_reports", label: "Workforce Reports & Payroll", icon: "stats-chart-outline", route: "/workforce-reports" },
   { key: "plans", label: "Premium & Promotions", icon: "diamond-outline", route: "/plans-promotions" },
   { key: "billing", label: "Billing & Payment History", icon: "receipt-outline", route: "/owner/billing-history" },
@@ -87,7 +88,7 @@ export default function OwnerMore() {
 
         <Card style={{ gap: 4 }}>
           <AppText variant="label">Application</AppText>
-          <AppText variant="caption">TrackMyRMC 2.0.18 · Android version code 76</AppText>
+          <AppText variant="caption">TrackMyRMC 2.0.19 · Android version code 77</AppText>
           <AppText variant="caption">Business data is plant-scoped and server-authorized.</AppText>
         </Card>
 
