@@ -27,6 +27,7 @@ from routers import (
     notify,
     operator_ops,
     owner,
+    payroll_concurrency_hotfix,
     payroll_guard,
     plant_plans,
     plant_discovery,
@@ -119,6 +120,8 @@ app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
 app.include_router(workforce.router)
+# These three exact mutation routes must win before the original PR32 routes.
+app.include_router(payroll_concurrency_hotfix.router)
 app.include_router(workforce_reports.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
