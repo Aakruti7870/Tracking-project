@@ -28,6 +28,7 @@ from routers import (
     notify,
     operator_ops,
     owner,
+    payroll_closure,
     payroll_concurrency_hotfix,
     payroll_guard,
     plant_plans,
@@ -126,9 +127,11 @@ app.include_router(hr_master.router)
 app.include_router(workforce_roster.attendance_router)
 app.include_router(workforce.router)
 app.include_router(workforce_roster.router)
-# These three exact mutation routes must win before the original PR32 routes.
+# Closed-period guard must win before both the PR33 safe mutations and PR32 routes.
+app.include_router(payroll_closure.mutation_guard_router)
 app.include_router(payroll_concurrency_hotfix.router)
 app.include_router(workforce_reports.router)
+app.include_router(payroll_closure.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
@@ -152,6 +155,7 @@ async def on_startup():
     await workforce.ensure_indexes()
     await workforce_roster.ensure_indexes()
     await workforce_reports.ensure_indexes()
+    await payroll_closure.ensure_indexes()
     try:
         from routers.storage import init_storage
 
