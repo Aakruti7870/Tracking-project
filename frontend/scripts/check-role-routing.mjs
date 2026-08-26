@@ -35,12 +35,29 @@ for (const [role, route] of Object.entries(expectedRoutes)) {
   }
 }
 
-if (!login.includes("router.replace(roleRouteFor(me.role) as any)")) {
-  failures.push("Successful OTP verification must route directly using me.role");
+const directRoleRouteCount = login.split("router.replace(roleRouteFor(me.role) as any)").length - 1;
+if (directRoleRouteCount < 2) {
+  failures.push("Both mobile OTP and Google staff login must route directly using me.role");
+}
+
+if (!login.includes('testID="login-user-tab"') || !login.includes('testID="login-plant-tab"')) {
+  failures.push("Login must expose separate User Login and Plant User Login tabs");
+}
+
+if (!login.includes('testID="login-mobile-input"') || !login.includes('testID="login-google-button"')) {
+  failures.push("Login must keep mobile OTP and Google staff entry points distinct");
+}
+
+if (!login.includes('const fullNumber = `+91${mobile}`')) {
+  failures.push("User Login must normalize the fixed India prefix before OTP request");
+}
+
+if (login.includes("Dev mode — OTP auto-filled") || login.includes("One login for everyone")) {
+  failures.push("Login must not expose development or legacy instruction text");
 }
 
 if (login.includes("router.replace(\"/\")")) {
-  failures.push("Login must not route successful OTP verification through /");
+  failures.push("Login must not route successful authentication through /");
 }
 
 if (!login.includes("if (!hydrating && token && user)")) {
@@ -57,4 +74,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Auth routing regression check passed for all 13 roles.");
+console.log("Auth routing regression check passed for all 13 roles and both login flows.");
