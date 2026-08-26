@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from routers.workforce_reports import month_bounds, overlap_days, payroll_net
+from server import app
 
 
 def test_month_bounds_handles_leap_year_and_rejects_invalid_format():
@@ -28,3 +29,13 @@ def test_payroll_net_uses_explicit_components_only():
     assert payroll_net(25000, 2000, 1500, 500) == 28000
     assert payroll_net(0, 0, 0, 0) == 0
     assert payroll_net(1000, 0, 0, 1500) == -500
+
+
+def test_legacy_direct_payroll_write_fails_closed_before_finance_route():
+    routes = [
+        route for route in app.routes
+        if getattr(route, "path", None) == "/api/ops/plants/{plant_id}/payroll"
+        and "PUT" in getattr(route, "methods", set())
+    ]
+    assert len(routes) >= 2
+    assert routes[0].endpoint.__name__ == "retired_direct_payroll_write"
