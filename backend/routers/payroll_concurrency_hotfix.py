@@ -74,6 +74,28 @@ def _lock_matches(lock: dict | None, body: PayrollPaidBody) -> bool:
     return True
 
 
+def _finance_payment_matches(finance_doc: dict | None, amount: float, lock: dict | None) -> bool:
+    """Require an existing finance row to match the exact reserved payment.
+
+    This is deliberately stricter than payroll_key uniqueness. An orphaned row
+    from an interrupted older attempt must never be silently adopted by a later
+    attempt that uses a different payment reference, method, date or amount.
+    """
+    if not isinstance(finance_doc, dict) or not isinstance(lock, dict):
+        return False
+    try:
+        finance_amount = round(float(finance_doc.get("amount") or 0), 2)
+    except (TypeError, ValueError):
+        return False
+    return (
+        str(finance_doc.get("source") or "") == "PAYROLL"
+        and finance_amount == round(float(amount), 2)
+        and str(finance_doc.get("reference") or "") == str(lock.get("payment_reference") or "")
+        and str(finance_doc.get("payment_method") or "") == str(lock.get("payment_method") or "")
+        and str(finance_doc.get("expense_date") or "") == str(lock.get("paid_on") or "")
+    )
+
+
 @router.put("/plants/{plant_id}/payroll/{month}/{user_id}/draft")
 async def prepare_payroll_draft_safe(
     plant_id: str,
@@ -267,8 +289,8 @@ async def mark_payroll_paid_safe(
     payroll_key = f"{plant_id}:{user_id}:{month}"
     finance_doc = await expenses.find_one({"payroll_key": payroll_key})
     if finance_doc:
-        if str(finance_doc.get("source") or "") != "PAYROLL" or round(float(finance_doc.get("amount") or 0), 2) != amount:
-            raise HTTPException(409, "Existing finance posting does not match this payroll; reconciliation required")
+        if not _finance_payment_matches(finance_doc, amount, lock):
+            raise HTTPException(409, "Existing finance posting does not match this payment attempt; reconciliation required")
     else:
         candidate = {
             "plant_id": plant_id,
@@ -292,8 +314,8 @@ async def mark_payroll_paid_safe(
             finance_doc = await expenses.find_one({"payroll_key": payroll_key})
             if not finance_doc:
                 raise HTTPException(409, "Payroll finance posting conflict; retry the same payment action")
-            if str(finance_doc.get("source") or "") != "PAYROLL" or round(float(finance_doc.get("amount") or 0), 2) != amount:
-                raise HTTPException(409, "Existing finance posting does not match this payroll; reconciliation required")
+            if not _finance_payment_matches(finance_doc, amount, lock):
+                raise HTTPException(409, "Existing finance posting does not match this payment attempt; reconciliation required")
 
     expense_id = finance_doc["_id"]
     finalized_at = _utcnow()
