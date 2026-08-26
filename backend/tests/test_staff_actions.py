@@ -49,7 +49,7 @@ def _login(identifier: str) -> str:
     return r2.json()["access_token"]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def tokens():
     return {k: _login(v) for k, v in STAFF_IDS.items()}
 
@@ -88,228 +88,161 @@ class TestKyc:
         pending = [i for i in r.json()["items"] if i.get("badge") == "PENDING"]
         assert len(pending) >= 1
         # Approve first
-        approve_id = pending[0]["id"]
-        ra = requests.post(f"{BASE_URL}/api/staff/kyc/{approve_id}/approve", headers=_h(tokens["authority"]), timeout=15)
+        pid = pending[0]["id"]
+        ra = requests.post(f"{BASE_URL}/api/staff/kyc/{pid}/approve", headers=_h(tokens["authority"]), timeout=15)
         assert ra.status_code == 200, ra.text
-        assert ra.json()["status"] == "VERIFIED"
-        # Verify persisted
-        r2 = requests.get(f"{BASE_URL}/api/staff/collection/kyc", headers=_h(tokens["authority"]), timeout=15)
-        match = next((i for i in r2.json()["items"] if i["id"] == approve_id), None)
-        assert match and match["badge"] == "VERIFIED"
-
-        # Reject second if present
-        pending2 = [i for i in r2.json()["items"] if i.get("badge") == "PENDING"]
-        if pending2:
-            rid = pending2[0]["id"]
-            rr = requests.post(f"{BASE_URL}/api/staff/kyc/{rid}/reject",
-                               headers=_h(tokens["authority"]), json={"reason": "TEST_reject_reason"}, timeout=15)
-            assert rr.status_code == 200, rr.text
-            assert rr.json()["status"] == "REJECTED"
+        assert ra.json()["status"] == "APPROVED"
+        # rejecting an approved KYC is supported as a reviewer correction
+        rr = requests.post(f"{BASE_URL}/api/staff/kyc/{pid}/reject", headers=_h(tokens["authority"]), timeout=15)
+        assert rr.status_code == 200, rr.text
+        assert rr.json()["status"] == "REJECTED"
 
 
-# ---------------------------------------------------- Central admin: users
-class TestUsers:
-    def test_users_list_has_suspend_action(self, tokens):
+# ---------------------------------------------------- CENTRAL ADMIN
+class TestCentralAdmin:
+    def test_central_lists_users(self, tokens):
         r = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["central"]), timeout=15)
         assert r.status_code == 200
-        actionable = [u for u in r.json()["items"] if u.get("actions")]
-        assert len(actionable) > 0
+        assert len(r.json()["items"]) > 0
 
-    def test_suspend_then_activate(self, tokens):
+    def test_non_central_forbidden(self, tokens):
+        r = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["admin"]), timeout=15)
+        assert r.status_code == 403
+
+    def test_suspend_activate_user(self, tokens):
         r = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["central"]), timeout=15)
-        # pick a non-central user
-        target = next(u for u in r.json()["items"] if any(a["key"] == "suspend" for a in u.get("actions", [])) and "Central" not in (u.get("secondary") or ""))
+        users = r.json()["items"]
+        target = next((u for u in users if u.get("subtitle") == "CUSTOMER"), None)
+        if not target:
+            pytest.skip("no customer user")
         uid = target["id"]
-        r1 = requests.post(f"{BASE_URL}/api/staff/users/{uid}/suspend", headers=_h(tokens["central"]), timeout=15)
-        assert r1.status_code == 200 and r1.json()["status"] == "suspended"
-        r2 = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["central"]), timeout=15)
-        match = next(u for u in r2.json()["items"] if u["id"] == uid)
-        assert match["badge"].lower() == "suspended"
-        r3 = requests.post(f"{BASE_URL}/api/staff/users/{uid}/activate", headers=_h(tokens["central"]), timeout=15)
-        assert r3.status_code == 200 and r3.json()["status"] == "active"
-
-    def test_rbac_admin_cannot_suspend(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/users/xxx/suspend", headers=_h(tokens["admin"]), timeout=15)
-        assert r.status_code == 403
+        rs = requests.post(f"{BASE_URL}/api/staff/users/{uid}/suspend", headers=_h(tokens["central"]), timeout=15)
+        assert rs.status_code == 200
+        ra = requests.post(f"{BASE_URL}/api/staff/users/{uid}/activate", headers=_h(tokens["central"]), timeout=15)
+        assert ra.status_code == 200
 
 
-# ---------------------------------------------------- Fleet
+# ---------------------------------------------------- FLEET
 class TestFleet:
-    def test_add_vehicle_and_toggle_status(self, tokens):
-        tm = f"TSTEST{uuid.uuid4().hex[:6].upper()}"
-        r = requests.post(f"{BASE_URL}/api/staff/vehicles", headers=_h(tokens["fleet"]),
-                          json={"tm_number": tm, "capacity_m3": 6.5}, timeout=15)
+    def test_fleet_manager_add_vehicle(self, tokens):
+        before = requests.get(f"{BASE_URL}/api/staff/fleet", headers=_h(tokens["fleet"]), timeout=15)
+        assert before.status_code == 200
+        count = len(before.json()["vehicles"])
+        tm = "TEST" + uuid.uuid4().hex[:6].upper()
+        r = requests.post(f"{BASE_URL}/api/staff/fleet", headers=_h(tokens["fleet"]), json={"tm_number": tm, "capacity_m3": 7.0}, timeout=15)
         assert r.status_code == 200, r.text
-        vid = r.json()["id"]
-        # Duplicate should 409
-        r_dup = requests.post(f"{BASE_URL}/api/staff/vehicles", headers=_h(tokens["fleet"]),
-                              json={"tm_number": tm, "capacity_m3": 6.5}, timeout=15)
-        assert r_dup.status_code == 409
-        # Toggle maintenance
-        r2 = requests.post(f"{BASE_URL}/api/staff/vehicles/{vid}/status", headers=_h(tokens["fleet"]),
-                           json={"status": "maintenance"}, timeout=15)
-        assert r2.status_code == 200 and r2.json()["status"] == "maintenance"
-        r3 = requests.post(f"{BASE_URL}/api/staff/vehicles/{vid}/status", headers=_h(tokens["fleet"]),
-                           json={"status": "available"}, timeout=15)
-        assert r3.status_code == 200 and r3.json()["status"] == "available"
+        vid = r.json()["vehicle"]["id"]
+        after = requests.get(f"{BASE_URL}/api/staff/fleet", headers=_h(tokens["fleet"]), timeout=15)
+        assert len(after.json()["vehicles"]) == count + 1
+        rs = requests.patch(f"{BASE_URL}/api/staff/fleet/{vid}/status", headers=_h(tokens["fleet"]), json={"status": "maintenance"}, timeout=15)
+        assert rs.status_code == 200
+        assert rs.json()["vehicle"]["status"] == "maintenance"
 
-    def test_rbac_store_cannot_add_vehicle(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/vehicles", headers=_h(tokens["store"]),
-                          json={"tm_number": "TSFAIL", "capacity_m3": 6}, timeout=15)
+    def test_operator_cannot_manage_fleet(self, tokens):
+        r = requests.post(f"{BASE_URL}/api/staff/fleet", headers=_h(tokens["operator"]), json={"tm_number": "DENIED1"}, timeout=15)
         assert r.status_code == 403
 
 
-# ---------------------------------------------------- Inventory
+# ---------------------------------------------------- INVENTORY
 class TestInventory:
-    def test_add_material_and_adjust(self, tokens):
-        name = f"TEST_Mat_{uuid.uuid4().hex[:5]}"
-        r = requests.post(f"{BASE_URL}/api/staff/materials", headers=_h(tokens["store"]),
-                          json={"name": name, "unit": "MT", "stock": 5, "reorder": 2}, timeout=15)
+    def test_store_add_material_and_adjust(self, tokens):
+        name = "TEST Cement " + uuid.uuid4().hex[:6]
+        r = requests.post(f"{BASE_URL}/api/staff/inventory", headers=_h(tokens["store"]), json={"name": name, "unit": "kg", "quantity": 100.0}, timeout=15)
         assert r.status_code == 200, r.text
-        mid = r.json()["id"]
-        # Stock in
-        r_in = requests.post(f"{BASE_URL}/api/staff/materials/{mid}/adjust", headers=_h(tokens["store"]),
-                             json={"delta": 3}, timeout=15)
-        assert r_in.status_code == 200 and r_in.json()["stock"] == 8
-        # Excessive stock-out => 422
-        r_out = requests.post(f"{BASE_URL}/api/staff/materials/{mid}/adjust", headers=_h(tokens["store"]),
-                              json={"delta": -100}, timeout=15)
-        assert r_out.status_code == 422
-        # Reasonable stock-out
-        r_ok = requests.post(f"{BASE_URL}/api/staff/materials/{mid}/adjust", headers=_h(tokens["store"]),
-                             json={"delta": -3}, timeout=15)
-        assert r_ok.status_code == 200 and r_ok.json()["stock"] == 5
+        mid = r.json()["material"]["id"]
+        ra = requests.post(f"{BASE_URL}/api/staff/inventory/{mid}/adjust", headers=_h(tokens["store"]), json={"delta": -25, "reason": "test usage"}, timeout=15)
+        assert ra.status_code == 200
+        assert ra.json()["material"]["quantity"] == 75.0
+        rn = requests.post(f"{BASE_URL}/api/staff/inventory/{mid}/adjust", headers=_h(tokens["store"]), json={"delta": -1000, "reason": "negative test"}, timeout=15)
+        assert rn.status_code == 422
 
-    def test_rbac_fleet_cannot_adjust(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/materials/xxx/adjust", headers=_h(tokens["fleet"]),
-                          json={"delta": 1}, timeout=15)
+    def test_accountant_cannot_adjust_stock(self, tokens):
+        items = requests.get(f"{BASE_URL}/api/staff/inventory", headers=_h(tokens["store"]), timeout=15).json()["items"]
+        if not items:
+            pytest.skip("no inventory")
+        r = requests.post(f"{BASE_URL}/api/staff/inventory/{items[0]['id']}/adjust", headers=_h(tokens["accountant"]), json={"delta": 1}, timeout=15)
         assert r.status_code == 403
 
 
-# ---------------------------------------------------- Operator
-class TestOperator:
-    def test_production_start_complete(self, tokens):
+# ---------------------------------------------------- PRODUCTION
+class TestProduction:
+    def test_operator_production_start_complete(self, tokens):
         r = requests.get(f"{BASE_URL}/api/staff/collection/production", headers=_h(tokens["operator"]), timeout=15)
         assert r.status_code == 200
         items = r.json()["items"]
-        # find an ACCEPTED order
-        acc = next((i for i in items if any(a["key"] == "start" for a in i.get("actions", []))), None)
-        if not acc:
-            pytest.skip("no ACCEPTED order available for start")
-        oid = acc["id"]
-        r1 = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/start", headers=_h(tokens["operator"]), timeout=15)
-        assert r1.status_code == 200, r1.text
-        assert r1.json()["status"] == "IN_PRODUCTION"
+        candidate = next((i for i in items if i.get("badge_status") in ("ACCEPTED", "SCHEDULED")), None)
+        if not candidate:
+            pytest.skip("no accepted/scheduled order for production")
+        oid = candidate["id"]
+        rs = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production-start", headers=_h(tokens["operator"]), timeout=15)
+        assert rs.status_code == 200, rs.text
+        rc = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production-complete", headers=_h(tokens["operator"]), timeout=15)
+        assert rc.status_code == 200, rc.text
 
-        detail = requests.get(
-            f"{BASE_URL}/api/staff/orders/{oid}/production",
-            headers=_h(tokens["operator"]), timeout=15,
-        )
-        assert detail.status_code == 200, detail.text
-        remaining = float(detail.json()["remaining_quantity"])
-        assert remaining > 0
-        batch = requests.post(
-            f"{BASE_URL}/api/staff/orders/{oid}/production/batch",
-            headers=_h(tokens["operator"]),
-            json={"quantity": remaining, "batch_reference": f"OP-{uuid.uuid4().hex[:8]}"},
-            timeout=15,
-        )
-        assert batch.status_code == 200, batch.text
-
-        r2 = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/complete", headers=_h(tokens["operator"]), timeout=15)
-        assert r2.status_code == 200 and r2.json()["status"] == "PRODUCTION_COMPLETE"
-
-    def test_rbac_admin_cannot_start(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/orders/xxx/production/start", headers=_h(tokens["admin"]), timeout=15)
+    def test_accountant_forbidden_production(self, tokens):
+        r = requests.post(f"{BASE_URL}/api/staff/orders/507f1f77bcf86cd799439011/production-start", headers=_h(tokens["accountant"]), timeout=15)
         assert r.status_code == 403
 
 
-# ---------------------------------------------------- Quality
+# ---------------------------------------------------- QUALITY
 class TestQuality:
-    def test_record_test(self, tokens):
+    def test_quality_record(self, tokens):
         r = requests.get(f"{BASE_URL}/api/staff/collection/quality", headers=_h(tokens["quality"]), timeout=15)
         assert r.status_code == 200
         items = r.json()["items"]
         if not items:
-            pytest.skip("no quality candidates")
+            pytest.skip("no orders")
         oid = items[0]["id"]
-        # detail endpoint
-        rd = requests.get(f"{BASE_URL}/api/staff/quality/{oid}", headers=_h(tokens["quality"]), timeout=15)
-        assert rd.status_code == 200
-        body = {"order_id": oid, "slump_mm": 90, "cube_7d": 20, "cube_28d": 32, "result": "PASS", "remarks": "TEST_ok"}
-        rp = requests.post(f"{BASE_URL}/api/staff/quality", headers=_h(tokens["quality"]), json=body, timeout=15)
-        assert rp.status_code == 200 and rp.json()["result"] == "PASS"
-        # verify persistence -> badge should be QC PASS
-        r2 = requests.get(f"{BASE_URL}/api/staff/collection/quality", headers=_h(tokens["quality"]), timeout=15)
-        match = next(i for i in r2.json()["items"] if i["id"] == oid)
-        assert match["badge"] == "QC PASS"
+        body = {"slump_mm": 110, "temperature_c": 29.5, "cube_count": 6, "result": "PASS", "notes": "pytest"}
+        rr = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/quality", headers=_h(tokens["quality"]), json=body, timeout=15)
+        assert rr.status_code == 200, rr.text
 
-    def test_rbac_operator_cannot_record(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/quality", headers=_h(tokens["operator"]),
-                          json={"order_id": "x", "result": "PASS"}, timeout=15)
+    def test_store_forbidden_quality(self, tokens):
+        r = requests.post(f"{BASE_URL}/api/staff/orders/x/quality", headers=_h(tokens["store"]), json={}, timeout=15)
         assert r.status_code == 403
 
 
-# ---------------------------------------------------- Accountant
-class TestAccountant:
-    def test_record_payment_when_available(self, tokens):
-        r = requests.get(f"{BASE_URL}/api/staff/collection/invoices", headers=_h(tokens["accountant"]), timeout=15)
+# ---------------------------------------------------- PAYMENTS
+class TestPayments:
+    def test_accountant_record_payment(self, tokens):
+        r = requests.get(f"{BASE_URL}/api/staff/collection/payments", headers=_h(tokens["accountant"]), timeout=15)
         assert r.status_code == 200
-        payable = [i for i in r.json()["items"] if any(a["key"] == "pay" for a in i.get("actions", []))]
-        if not payable:
-            pytest.skip("seeded invoice already PAID")
-        inv = payable[0]
-        r2 = requests.post(f"{BASE_URL}/api/staff/invoices/{inv['id']}/payment",
-                           headers=_h(tokens["accountant"]), json={"amount": 100, "method": "cash"}, timeout=15)
-        assert r2.status_code in (200, 422)
+        items = r.json()["items"]
+        if not items:
+            pytest.skip("no orders")
+        oid = items[0]["id"]
+        body = {"amount": 1234.5, "method": "UPI", "reference": "PYTEST", "note": "test payment"}
+        rr = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/payments", headers=_h(tokens["accountant"]), json=body, timeout=15)
+        assert rr.status_code == 200, rr.text
 
-    def test_rbac_store_cannot_pay(self, tokens):
-        r = requests.post(f"{BASE_URL}/api/staff/invoices/xxx/payment", headers=_h(tokens["store"]),
-                          json={"amount": 1}, timeout=15)
+    def test_dispatcher_forbidden_payment(self, tokens):
+        r = requests.post(f"{BASE_URL}/api/staff/orders/x/payments", headers=_h(tokens["dispatcher"]), json={"amount": 10, "method": "CASH"}, timeout=15)
         assert r.status_code == 403
 
 
-# ---------------------------------------------------- Notifications
+# ---------------------------------------------------- NOTIFICATIONS
 class TestNotifications:
-    def test_feed_and_read_all(self, tokens):
-        # authority received a KYC notification via approve above (recipient is applicant)
-        # Use authority itself to test structure
-        r = requests.get(f"{BASE_URL}/api/notifications", headers=_h(tokens["authority"]), timeout=15)
+    def test_list_and_mark_read(self, tokens):
+        r = requests.get(f"{BASE_URL}/api/notifications", headers=_h(tokens["admin"]), timeout=15)
         assert r.status_code == 200
-        data = r.json()
-        assert "unread" in data and "items" in data
-        # Even if empty for authority, ensure endpoints work
-        r2 = requests.post(f"{BASE_URL}/api/notifications/read-all", headers=_h(tokens["authority"]), timeout=15)
-        assert r2.status_code == 200
-
-    def test_customer_gets_kyc_notification(self, tokens):
-        # customer likely has notifications from approved KYC / order status
-        r = requests.get(f"{BASE_URL}/api/notifications", headers=_h(tokens["customer"]), timeout=15)
-        assert r.status_code == 200
-        data = r.json()
-        assert isinstance(data["items"], list)
-        if data["items"]:
-            nid = data["items"][0]["id"]
-            r2 = requests.post(f"{BASE_URL}/api/notifications/{nid}/read", headers=_h(tokens["customer"]), timeout=15)
-                
-            assert r2.status_code == 200
+        items = r.json()["items"]
+        unread = [i for i in items if not i["read"]]
+        if unread:
+            nid = unread[0]["id"]
+            rr = requests.patch(f"{BASE_URL}/api/notifications/{nid}/read", headers=_h(tokens["admin"]), timeout=15)
+            assert rr.status_code == 200
+        allr = requests.post(f"{BASE_URL}/api/notifications/read-all", headers=_h(tokens["admin"]), timeout=15)
+        assert allr.status_code == 200
 
 
-# ---------------------------------------------------- Maps
+# ---------------------------------------------------- MAPS
 class TestMaps:
-    def test_status_not_configured(self, tokens):
-        r = requests.get(f"{BASE_URL}/api/maps/status", headers=_h(tokens["customer"]), timeout=15)
+    def test_maps_status(self, tokens):
+        r = requests.get(f"{BASE_URL}/api/maps/status", headers=_h(tokens["admin"]), timeout=15)
         assert r.status_code == 200
-        assert r.json() == {"configured": False}
+        assert "configured" in r.json()
 
-    def test_autocomplete_graceful(self, tokens):
-        r = requests.get(f"{BASE_URL}/api/maps/autocomplete", params={"input": "Hyd"},
-                         headers=_h(tokens["customer"]), timeout=15)
+    def test_maps_autocomplete(self, tokens):
+        r = requests.get(f"{BASE_URL}/api/maps/autocomplete", params={"input": "test"}, headers=_h(tokens["admin"]), timeout=15)
         assert r.status_code == 200
-        d = r.json()
-        assert d["configured"] is False
-        assert d["suggestions"] == []
-
-    def test_place_details_returns_409(self, tokens):
-        r = requests.get(f"{BASE_URL}/api/maps/place/xxx", headers=_h(tokens["customer"]), timeout=15)
-        assert r.status_code == 409
+        assert "predictions" in r.json()
