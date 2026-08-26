@@ -1,6 +1,9 @@
 name: Production Readiness
 
 on:
+  push:
+    branches:
+      - release/signed-aab-v2.0.18-vc76-a6d654d
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -15,7 +18,7 @@ concurrency:
 jobs:
   signed-play-aab:
     name: Signed Play AAB v2.0.18 vc76
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/signed-aab-v2.0.18-vc76-a6d654d'
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/signed-aab-v2.0.18-vc76-a6d654d' || github.ref == 'refs/heads/release/signed-aab-v2.0.18-vc76-a6d654d'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
