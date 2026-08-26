@@ -1,0 +1,209 @@
+name: Android Production AAB
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-production-aab-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-signed-aab:
+    name: Validate, build and sign Play AAB
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/aab-v2.0.18-vc76-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      EXPO_PUBLIC_BACKEND_URL: https://api.trackmyrmc.com
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout exact release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: release/aab-v2.0.18-vc76-build
+          fetch-depth: 2
+
+      - name: Verify release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "c173545eed4c7abcc85674f870ab432f4491c814" || {
+            echo "Release workflow commit is not based directly on the certified main SHA"
+            exit 1
+          }
+          test "$(git diff --name-only HEAD^ HEAD | tr -d '\r')" = ".github/workflows/android-production-aab.yml" || {
+            echo "Release branch contains changes beyond the AAB workflow"
+            git diff --name-only HEAD^ HEAD
+            exit 1
+          }
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate signing inputs and decode upload keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD="${ANDROID_STORE_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-}}"
+          missing=0
+          for pair in \
+            "ANDROID_KEYSTORE_BASE64:${ANDROID_KEYSTORE_BASE64:-}" \
+            "ANDROID_STORE_PASSWORD/ANDROID_KEYSTORE_PASSWORD:${STORE_PASSWORD:-}" \
+            "ANDROID_KEY_ALIAS:${ANDROID_KEY_ALIAS:-}" \
+            "ANDROID_KEY_PASSWORD:${ANDROID_KEY_PASSWORD:-}" \
+            "GOOGLE_MAPS_ANDROID_KEY:${GOOGLE_MAPS_ANDROID_KEY:-}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required GitHub secret: $name"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+          KEYSTORE_PATH="$RUNNER_TEMP/trackmyrmc-upload.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+          echo "TRACKMYRMC_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate production Expo metadata
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./app.json').expo.version")
+          VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          PACKAGE=$(node -p "require('./app.json').expo.android.package")
+          test "$VERSION" = "2.0.18"
+          test "$VERSION_CODE" = "76"
+          test "$PACKAGE" = "com.trackmyrmc.concreteking"
+          test "$EXPO_PUBLIC_BACKEND_URL" = "https://api.trackmyrmc.com"
+          echo "TRACKMYRMC_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          npx expo config --type public >/tmp/expo-public-config.txt
+          test -s /tmp/expo-public-config.txt
+
+      - name: Generate Android native project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Bind release signing to protected upload keystore
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/build.gradle')
+          text = path.read_text()
+          replacements = [
+              (r"storeFile\s+file\(['\"]debug\.keystore['\"]\)", 'storeFile file(System.getenv("TRACKMYRMC_KEYSTORE_PATH"))'),
+              (r"storePassword\s+['\"]android['\"]", 'storePassword System.getenv("TRACKMYRMC_STORE_PASSWORD")'),
+              (r"keyAlias\s+['\"]androiddebugkey['\"]", 'keyAlias System.getenv("ANDROID_KEY_ALIAS")'),
+              (r"keyPassword\s+['\"]android['\"]", 'keyPassword System.getenv("ANDROID_KEY_PASSWORD")'),
+          ]
+          for pattern, replacement in replacements:
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'Expected generated signing line not found: {pattern}')
+          if 'signingConfig signingConfigs.debug' not in text:
+              raise SystemExit('Generated release build is not using the signing config expected by this workflow')
+          path.write_text(text)
+          PY
+
+      - name: Verify generated Android identity and version
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
+          test -n "$gradle_file"
+          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+76" "$gradle_file" >/dev/null
+
+      - name: Build signed release AAB
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Verify AAB bundle, signature and upload certificate
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          test -f "$SOURCE_AAB"
+          unzip -l "$SOURCE_AAB" | grep -F "base/assets/index.android.bundle" >/dev/null || {
+            echo "Signed AAB is missing the embedded Android JavaScript bundle"
+            exit 1
+          }
+          jarsigner -verify -verbose -certs "$SOURCE_AAB" >/tmp/jarsigner-verify.txt
+
+          KEYSTORE_SHA256=$(keytool -list -v \
+            -keystore "$TRACKMYRMC_KEYSTORE_PATH" \
+            -storepass "$TRACKMYRMC_STORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" | awk '/SHA256:/{print $2; exit}')
+          AAB_SHA256_CERT=$(keytool -printcert -jarfile "$SOURCE_AAB" | awk '/SHA256:/{print $2; exit}')
+          test -n "$KEYSTORE_SHA256"
+          test "$KEYSTORE_SHA256" = "$AAB_SHA256_CERT" || {
+            echo "AAB certificate does not match the configured upload keystore"
+            exit 1
+          }
+
+          mkdir -p release
+          FINAL_AAB="release/TrackMyRMC-v${TRACKMYRMC_VERSION}-vc${TRACKMYRMC_VERSION_CODE}-signed.aab"
+          cp "$SOURCE_AAB" "$FINAL_AAB"
+          sha256sum "$FINAL_AAB" | tee release/SHA256SUMS.txt
+          {
+            echo "release_commit=$(git rev-parse HEAD)"
+            echo "certified_main=c173545eed4c7abcc85674f870ab432f4491c814"
+            echo "version=${TRACKMYRMC_VERSION}"
+            echo "versionCode=${TRACKMYRMC_VERSION_CODE}"
+            echo "package=com.trackmyrmc.concreteking"
+            echo "backend=https://api.trackmyrmc.com"
+            echo "upload_cert_sha256=${KEYSTORE_SHA256}"
+          } | tee release/build-metadata.txt
+
+      - name: Upload signed Play Console AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackMyRMC-v${{ env.TRACKMYRMC_VERSION }}-vc${{ env.TRACKMYRMC_VERSION_CODE }}-signed-play-console
+          path: |
+            frontend/release/*.aab
+            frontend/release/SHA256SUMS.txt
+            frontend/release/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 30
