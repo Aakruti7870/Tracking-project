@@ -1,10 +1,13 @@
 """Concurrency-safe payroll mutations for the PR32 workforce payroll lifecycle.
 
-These routes intentionally shadow the matching PR32 mutation routes. They add
-compare-and-set protection to draft/owner decisions and an explicit POSTING
-reservation before finance expense creation so concurrent users cannot lose an
-owner decision or leave a salary expense posted for a payroll that was returned.
+These routes intentionally shadow the matching PR32 mutation routes. Draft and
+owner mutations use compare-and-set filters, while payment uses an atomic lock
+on an APPROVED payroll before the finance ledger is touched. The visible status
+stays APPROVED during posting so the existing mobile UI remains compatible and
+a failed/retried payment can safely resume.
 """
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -42,6 +45,33 @@ def _cas_filter(current: dict) -> dict:
     else:
         query["updated_at"] = {"$exists": False}
     return query
+
+
+def _owner_mutation_filter(current: dict) -> dict:
+    """Owner decisions must never cross an active finance-posting lock."""
+    query = _cas_filter(current)
+    query["payment_lock"] = {"$exists": False}
+    return query
+
+
+def _payment_reservation_filter(current: dict) -> dict:
+    """Reserve an approved payroll only if no other payment attempt owns it."""
+    query = _cas_filter(current)
+    query["status"] = "APPROVED"
+    query["payment_lock"] = {"$exists": False}
+    return query
+
+
+def _lock_matches(lock: dict | None, body: PayrollPaidBody) -> bool:
+    if not isinstance(lock, dict):
+        return False
+    if str(lock.get("payment_reference") or "") != body.payment_reference.strip():
+        return False
+    if str(lock.get("payment_method") or "") != body.payment_method:
+        return False
+    if body.paid_on is not None and str(lock.get("paid_on") or "") != body.paid_on.isoformat():
+        return False
+    return True
 
 
 @router.put("/plants/{plant_id}/payroll/{month}/{user_id}/draft")
@@ -146,7 +176,7 @@ async def owner_payroll_decision_safe(
 
     now = _utcnow()
     updated = await payroll_records.find_one_and_update(
-        _cas_filter(current),
+        _owner_mutation_filter(current),
         {"$set": {
             "status": target,
             "owner_decision_note": (body.note or "").strip() or None,
@@ -157,6 +187,9 @@ async def owner_payroll_decision_safe(
         return_document=ReturnDocument.AFTER,
     )
     if not updated:
+        latest = await payroll_records.find_one({"_id": current["_id"]})
+        if latest and latest.get("payment_lock"):
+            raise HTTPException(409, "Payroll payment posting is in progress; Accountant must complete or retry it")
         raise HTTPException(409, "Payroll changed concurrently; refresh and review the latest amounts")
 
     await write_audit(
@@ -191,31 +224,41 @@ async def mark_payroll_paid_safe(
         raise HTTPException(404, "Payroll record not found")
     if current.get("status") == "PAID":
         return {"payroll": _serialize(current), "idempotent": True}
+    if current.get("status") != "APPROVED":
+        raise HTTPException(409, "Plant Owner approval is required before payment")
 
-    # Atomically reserve APPROVED -> POSTING before touching the finance ledger.
-    # POSTING blocks the owner-return route and also makes retries recoverable.
-    if current.get("status") == "APPROVED":
-        now = _utcnow()
+    requested_reference = body.payment_reference.strip()
+    now = _utcnow()
+    lock = current.get("payment_lock")
+    if lock:
+        if not _lock_matches(lock, body):
+            raise HTTPException(409, "A different payroll payment attempt is already in progress")
+    else:
+        paid_on = body.paid_on or now.date()
+        lock = {
+            "id": uuid4().hex,
+            "payment_method": body.payment_method,
+            "payment_reference": requested_reference,
+            "paid_on": paid_on.isoformat(),
+            "note": (body.note or "").strip() or None,
+            "reserved_by": ctx["user_id"],
+            "reserved_at": now,
+        }
         reserved = await payroll_records.find_one_and_update(
-            _cas_filter(current),
-            {"$set": {
-                "status": "POSTING",
-                "payment_started_by": ctx["user_id"],
-                "payment_started_at": now,
-                "updated_at": now,
-            }},
+            _payment_reservation_filter(current),
+            {"$set": {"payment_lock": lock, "updated_at": now}},
             return_document=ReturnDocument.AFTER,
         )
         if reserved:
             current = reserved
         else:
-            current = await payroll_records.find_one(key)
-            if current and current.get("status") == "PAID":
-                return {"payroll": _serialize(current), "idempotent": True}
-            if not current or current.get("status") != "POSTING":
+            latest = await payroll_records.find_one(key)
+            if latest and latest.get("status") == "PAID":
+                return {"payroll": _serialize(latest), "idempotent": True}
+            if not latest or latest.get("status") != "APPROVED" or not _lock_matches(latest.get("payment_lock"), body):
                 raise HTTPException(409, "Payroll changed concurrently; refresh before recording payment")
-    elif current.get("status") != "POSTING":
-        raise HTTPException(409, "Plant Owner approval is required before payment")
+            current = latest
+            lock = latest["payment_lock"]
 
     amount = round(float(current.get("net_amount") or 0), 2)
     if amount < 0:
@@ -223,18 +266,19 @@ async def mark_payroll_paid_safe(
 
     payroll_key = f"{plant_id}:{user_id}:{month}"
     finance_doc = await expenses.find_one({"payroll_key": payroll_key})
-    if not finance_doc:
-        now = _utcnow()
-        requested_paid_on = body.paid_on or now.date()
+    if finance_doc:
+        if str(finance_doc.get("source") or "") != "PAYROLL" or round(float(finance_doc.get("amount") or 0), 2) != amount:
+            raise HTTPException(409, "Existing finance posting does not match this payroll; reconciliation required")
+    else:
         candidate = {
             "plant_id": plant_id,
             "category": "salary",
             "amount": amount,
-            "expense_date": requested_paid_on.isoformat(),
+            "expense_date": str(lock["paid_on"]),
             "vendor": current.get("user_name"),
-            "reference": body.payment_reference.strip(),
-            "payment_method": body.payment_method,
-            "notes": (body.note or "").strip() or f"Payroll {month}",
+            "reference": str(lock["payment_reference"]),
+            "payment_method": str(lock["payment_method"]),
+            "notes": str(lock.get("note") or f"Payroll {month}"),
             "payroll_key": payroll_key,
             "source": "PAYROLL",
             "created_by": ctx["user_id"],
@@ -247,32 +291,34 @@ async def mark_payroll_paid_safe(
         except DuplicateKeyError:
             finance_doc = await expenses.find_one({"payroll_key": payroll_key})
             if not finance_doc:
-                raise HTTPException(409, "Payroll finance posting conflict; refresh and retry")
+                raise HTTPException(409, "Payroll finance posting conflict; retry the same payment action")
+            if str(finance_doc.get("source") or "") != "PAYROLL" or round(float(finance_doc.get("amount") or 0), 2) != amount:
+                raise HTTPException(409, "Existing finance posting does not match this payroll; reconciliation required")
 
     expense_id = finance_doc["_id"]
-    paid_on_value = str(finance_doc.get("expense_date"))
-    payment_method = str(finance_doc.get("payment_method") or body.payment_method)
-    payment_reference = str(finance_doc.get("reference") or body.payment_reference.strip())
-    now = _utcnow()
+    finalized_at = _utcnow()
     updated = await payroll_records.find_one_and_update(
-        {"_id": current["_id"], "status": "POSTING"},
-        {"$set": {
-            "status": "PAID",
-            "paid_by": ctx["user_id"],
-            "paid_at": now,
-            "paid_on": paid_on_value,
-            "payment_method": payment_method,
-            "payment_reference": payment_reference,
-            "finance_expense_id": str(expense_id),
-            "updated_at": now,
-        }},
+        {"_id": current["_id"], "status": "APPROVED", "payment_lock.id": lock["id"]},
+        {
+            "$set": {
+                "status": "PAID",
+                "paid_by": ctx["user_id"],
+                "paid_at": finalized_at,
+                "paid_on": str(finance_doc.get("expense_date") or lock["paid_on"]),
+                "payment_method": str(finance_doc.get("payment_method") or lock["payment_method"]),
+                "payment_reference": str(finance_doc.get("reference") or lock["payment_reference"]),
+                "finance_expense_id": str(expense_id),
+                "updated_at": finalized_at,
+            },
+            "$unset": {"payment_lock": ""},
+        },
         return_document=ReturnDocument.AFTER,
     )
     if not updated:
         latest = await payroll_records.find_one({"_id": current["_id"]})
         if latest and latest.get("status") == "PAID":
             return {"payroll": _serialize(latest), "idempotent": True}
-        raise HTTPException(409, "Payroll payment is reserved for reconciliation; retry the payment action")
+        raise HTTPException(409, "Finance posting is reserved; retry the same payment action to finalize payroll")
 
     await write_audit(
         ctx["user_id"],
@@ -285,6 +331,6 @@ async def mark_payroll_paid_safe(
         user_id,
         "workforce_payroll_paid",
         "Payroll marked paid",
-        f"Your payroll for {month} was marked paid. Reference: {payment_reference}.",
+        f"Your payroll for {month} was marked paid. Reference: {updated.get('payment_reference')}.",
     )
     return {"payroll": _serialize(updated)}
