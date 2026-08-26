@@ -6,13 +6,15 @@ Layered architecture: config -> database -> models -> security/rbac -> services
 import logging
 import os
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import ensure_indexes
 from notifications import provider_status
+from roles import Role
+from security import require_role
 from routers import (
     account_deletion,
     auth,
@@ -127,9 +129,26 @@ app.include_router(hr_master.router)
 app.include_router(workforce_roster.attendance_router)
 app.include_router(workforce.router)
 app.include_router(workforce_roster.router)
-# Closed-period guard must win before both the PR33 safe mutations and PR32 routes.
-app.include_router(payroll_closure.mutation_guard_router)
-app.include_router(payroll_concurrency_hotfix.router)
+
+# Preserve the PR33 concurrency-safe endpoint functions as the route owners while
+# adding PR37's closed-period guard as an authenticated router dependency. This
+# keeps the existing concurrency regression contract intact and still blocks all
+# three payroll mutations whenever a month is CLOSED or CLOSING.
+payroll_period_guard_access = require_role(Role.PLANT_OWNER.value, Role.ACCOUNTANT.value)
+
+
+async def ensure_payroll_mutation_period_open(
+    plant_id: str,
+    month: str,
+    ctx: dict = Depends(payroll_period_guard_access),
+):
+    del ctx
+    await payroll_closure._ensure_period_mutable(plant_id, month)
+
+
+guarded_payroll_mutations = APIRouter(dependencies=[Depends(ensure_payroll_mutation_period_open)])
+guarded_payroll_mutations.include_router(payroll_concurrency_hotfix.router)
+app.include_router(guarded_payroll_mutations)
 app.include_router(workforce_reports.router)
 app.include_router(payroll_closure.router)
 app.include_router(loads.router)
