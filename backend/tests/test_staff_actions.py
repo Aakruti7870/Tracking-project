@@ -5,7 +5,7 @@ Covers:
 - Central admin user suspend/activate
 - Fleet manager: add vehicle + set status
 - Store manager: add material + stock adjust (incl. negative-stock 422)
-- Operator production start/complete
+- Operator production start/batch/complete lifecycle
 - Quality engineer record quality test
 - Accountant record payment
 - Notifications list / mark read / mark-all-read
@@ -220,6 +220,25 @@ class TestProduction:
         oid = candidate["id"]
         rs = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/start", headers=_h(tokens["operator"]), timeout=15)
         assert rs.status_code == 200, rs.text
+
+        detail = requests.get(f"{BASE_URL}/api/staff/orders/{oid}/production", headers=_h(tokens["operator"]), timeout=15)
+        assert detail.status_code == 200, detail.text
+        remaining = float(detail.json()["remaining_quantity"])
+        assert remaining > 0
+
+        rb = requests.post(
+            f"{BASE_URL}/api/staff/orders/{oid}/production/batch",
+            headers=_h(tokens["operator"]),
+            json={
+                "quantity": remaining,
+                "batch_reference": "PYTEST-COMPLETE",
+                "remarks": "production lifecycle regression",
+                "consume_materials": False,
+            },
+            timeout=15,
+        )
+        assert rb.status_code == 200, rb.text
+
         rc = requests.post(f"{BASE_URL}/api/staff/orders/{oid}/production/complete", headers=_h(tokens["operator"]), timeout=15)
         assert rc.status_code == 200, rc.text
 
