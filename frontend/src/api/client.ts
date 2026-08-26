@@ -35,34 +35,33 @@ function authHeaders(token: string) {
   };
 }
 
-export async function requestOtp(identifier: string) {
-  const res = await fetch(`${apiBase()}/auth/request-otp`, {
+export async function apiPublicPost<T>(path: string, body?: any): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identifier }),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return handle<{
+  return handle<T>(res);
+}
+
+export async function requestOtp(identifier: string) {
+  return apiPublicPost<{
     status: string;
     channel: string;
     expires_in: number;
     dev_otp?: string;
     delivery: { adapter: string; configured: boolean };
-  }>(res);
+  }>("/auth/request-otp", { identifier });
 }
 
 export async function verifyOtp(identifier: string, code: string) {
-  const res = await fetch(`${apiBase()}/auth/verify-otp`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identifier, code }),
-  });
-  return handle<{
+  return apiPublicPost<{
     access_token: string;
     token_type: string;
     expires_at: string;
     role: string;
     name: string;
-  }>(res);
+  }>("/auth/verify-otp", { identifier, code });
 }
 
 export async function apiGet<T>(path: string, token: string): Promise<T> {
