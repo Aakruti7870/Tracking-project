@@ -20,23 +20,30 @@ class Role(str, Enum):
 
 ALL_ROLES = [r.value for r in Role]
 
-# Which identifier channel is allowed to authenticate a given role.
-# Customers & drivers -> mobile OTP; staff/authority/admin -> email OTP.
-# Plant owner -> either.
+MOBILE_OTP_ROLES = {
+    Role.CUSTOMER.value,
+    Role.DRIVER.value,
+}
+
+GOOGLE_LOGIN_ROLES = {
+    Role.PLANT_OWNER.value,
+    Role.ADMIN.value,
+    Role.DISPATCHER.value,
+    Role.OPERATOR.value,
+    Role.SUPERVISOR.value,
+    Role.ACCOUNTANT.value,
+    Role.QUALITY_ENGINEER.value,
+    Role.FLEET_MANAGER.value,
+    Role.STORE_MANAGER.value,
+    Role.AUTHORITY.value,
+    Role.CENTRAL_ADMIN.value,
+}
+
+# OTP sign-in is intentionally mobile-only. Plant Owner and all staff/admin
+# identities authenticate through Google against pre-provisioned email accounts.
 ROLE_LOGIN_CHANNELS = {
     Role.CUSTOMER.value: {"sms"},
     Role.DRIVER.value: {"sms"},
-    Role.PLANT_OWNER.value: {"sms", "email"},
-    Role.ADMIN.value: {"email"},
-    Role.DISPATCHER.value: {"email"},
-    Role.OPERATOR.value: {"email"},
-    Role.SUPERVISOR.value: {"email"},
-    Role.ACCOUNTANT.value: {"email"},
-    Role.QUALITY_ENGINEER.value: {"email"},
-    Role.FLEET_MANAGER.value: {"email"},
-    Role.STORE_MANAGER.value: {"email"},
-    Role.AUTHORITY.value: {"email"},
-    Role.CENTRAL_ADMIN.value: {"email"},
 }
 
 # Human-readable labels used by clients.
