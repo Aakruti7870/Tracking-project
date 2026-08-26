@@ -13,6 +13,14 @@ function apiBase(): string {
 
 export type ApiError = { status: number; detail: string };
 
+export type AuthSessionResponse = {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  role: string;
+  name: string;
+};
+
 async function handle<T>(res: Response): Promise<T> {
   let body: any = null;
   try {
@@ -35,6 +43,11 @@ function authHeaders(token: string) {
   };
 }
 
+export async function apiPublicGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`);
+  return handle<T>(res);
+}
+
 export async function apiPublicPost<T>(path: string, body?: any): Promise<T> {
   const res = await fetch(`${apiBase()}${path}`, {
     method: "POST",
@@ -55,13 +68,15 @@ export async function requestOtp(identifier: string) {
 }
 
 export async function verifyOtp(identifier: string, code: string) {
-  return apiPublicPost<{
-    access_token: string;
-    token_type: string;
-    expires_at: string;
-    role: string;
-    name: string;
-  }>("/auth/verify-otp", { identifier, code });
+  return apiPublicPost<AuthSessionResponse>("/auth/verify-otp", { identifier, code });
+}
+
+export async function startGoogleStaffLogin() {
+  return apiPublicGet<{ authorization_url: string }>("/auth/google/start");
+}
+
+export async function exchangeGoogleStaffCode(code: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/google/exchange", { code });
 }
 
 export async function apiGet<T>(path: string, token: string): Promise<T> {
