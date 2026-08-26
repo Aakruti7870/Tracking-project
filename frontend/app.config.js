@@ -5,21 +5,18 @@ const path = require("path");
 const FINAL_ICON_SHA256 = "5c7025bfde202bf8fd4f2f9af4ae642b0e1dab3dcbec7166910eeede0f57b5d7";
 const FINAL_ICON_BYTES = 53192;
 const FINAL_ICON_SOURCE_FILES = [
+  "part-00.txt",
   "part-01.txt",
-  "repair-01.txt",
   "part-02.txt",
   "part-03.txt",
-  "safe-04-1.txt",
-  "safe-04-2.txt",
-  "safe-04-3.txt",
-  "safe-04-4.txt",
-  "safe-05-1.txt",
-  "safe-05-2.txt",
-  "safe-05-3.txt",
-  "safe-05-4.txt",
+  "part-04.txt",
+  "part-04b.txt",
+  "part-05.txt",
   "part-06.txt",
   "part-07.txt",
-  "safe-08.txt",
+  "part-07b.txt",
+  "part-08.txt",
+  "part-09.txt",
 ];
 
 function sha256(buffer) {
