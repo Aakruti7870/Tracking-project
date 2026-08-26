@@ -109,13 +109,43 @@ def _staff_session_payload(user: dict) -> dict:
     }
 
 
+def _legacy_staff_auth_response(url: str, kwargs: dict):
+    """Return a CI-only auth response for a provisioned Google staff login."""
+    body = kwargs.get("json") or {}
+    identifier = str(body.get("identifier") or "").strip()
+    user = _find_google_staff(identifier) if identifier else None
+    if not user:
+        return None
+
+    endpoint = url.rstrip("/")
+    if endpoint.endswith("/api/auth/request-otp"):
+        return _json_response(
+            200,
+            {
+                "status": "OTP_SENT",
+                "channel": "email",
+                "expires_in": 300,
+                "delivery": {"configured": False},
+                "dev_otp": _TEST_OTP,
+            },
+        )
+
+    if endpoint.endswith("/api/auth/verify-otp"):
+        if str(body.get("code") or "") != _TEST_OTP:
+            return _json_response(400, {"detail": "Invalid or expired code"})
+        return _json_response(200, _staff_session_payload(user))
+
+    return None
+
+
 @pytest.fixture(scope="module", autouse=True)
 def legacy_staff_session_adapter(request):
     """Adapt legacy staff email-OTP setup without touching production auth.
 
-    The adapter must be module-scoped because the legacy bearer-token fixtures
-    it supports are also module-scoped.  A function-scoped autouse fixture is
-    initialized too late and therefore cannot intercept those login helpers.
+    The adapter is module-scoped because the legacy bearer-token fixtures it
+    supports are also module-scoped.  It covers both ``requests.Session.post``
+    and the module-level ``requests.post`` helper because the legacy integration
+    modules use both styles.
 
     Customer/Driver mobile OTP calls and all requests from dedicated auth test
     modules pass through unchanged.  For the explicitly listed legacy modules,
@@ -126,34 +156,24 @@ def legacy_staff_session_adapter(request):
         yield
         return
 
-    original_post = requests.Session.post
+    original_session_post = requests.Session.post
+    original_post = requests.post
 
-    def patched_post(session, url, *args, **kwargs):
-        body = kwargs.get("json") or {}
-        identifier = str(body.get("identifier") or "").strip()
-        user = _find_google_staff(identifier) if identifier else None
+    def patched_session_post(session, url, *args, **kwargs):
+        response = _legacy_staff_auth_response(url, kwargs)
+        if response is not None:
+            return response
+        return original_session_post(session, url, *args, **kwargs)
 
-        if user and url.rstrip("/").endswith("/api/auth/request-otp"):
-            return _json_response(
-                200,
-                {
-                    "status": "OTP_SENT",
-                    "channel": "email",
-                    "expires_in": 300,
-                    "delivery": {"configured": False},
-                    "dev_otp": _TEST_OTP,
-                },
-            )
-
-        if user and url.rstrip("/").endswith("/api/auth/verify-otp"):
-            if str(body.get("code") or "") != _TEST_OTP:
-                return _json_response(400, {"detail": "Invalid or expired code"})
-            return _json_response(200, _staff_session_payload(user))
-
-        return original_post(session, url, *args, **kwargs)
+    def patched_post(url, *args, **kwargs):
+        response = _legacy_staff_auth_response(url, kwargs)
+        if response is not None:
+            return response
+        return original_post(url, *args, **kwargs)
 
     patcher = pytest.MonkeyPatch()
-    patcher.setattr(requests.Session, "post", patched_post)
+    patcher.setattr(requests.Session, "post", patched_session_post)
+    patcher.setattr(requests, "post", patched_post)
     try:
         yield
     finally:
