@@ -40,6 +40,11 @@ def _valid_production_origin(origin: str) -> bool:
     )
 
 
+def _valid_https_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.scheme == "https" and parsed.netloc)
+
+
 class Settings:
     VALID_ENVIRONMENTS = {"development", "test", "preview", "production"}
 
@@ -61,6 +66,15 @@ class Settings:
     OTP_RESEND_SECONDS: int = int(os.environ.get("OTP_RESEND_SECONDS", 30))
     SESSION_TTL_SECONDS: int = int(os.environ.get("SESSION_TTL_SECONDS", 604800))
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
+
+    # Plant/staff Google OAuth. The client secret stays server-side; the Android
+    # app receives only a short-lived one-time exchange code after Google login.
+    GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    GOOGLE_OAUTH_CLIENT_SECRET: str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    GOOGLE_OAUTH_REDIRECT_URI: str = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+    GOOGLE_OAUTH_APP_REDIRECT_URI: str = os.environ.get(
+        "GOOGLE_OAUTH_APP_REDIRECT_URI", "trackmyrmc://auth/google"
+    ).strip()
 
     # HTTP security
     CORS_ORIGINS: list[str] = _csv("CORS_ORIGINS")
@@ -86,6 +100,12 @@ class Settings:
             missing.append("JWT_SECRET")
         if len(self.OTP_PEPPER) < 32 or self.OTP_PEPPER.startswith("dev-insecure"):
             missing.append("OTP_PEPPER")
+        if not self.GOOGLE_OAUTH_CLIENT_ID:
+            missing.append("GOOGLE_OAUTH_CLIENT_ID")
+        if not self.GOOGLE_OAUTH_CLIENT_SECRET:
+            missing.append("GOOGLE_OAUTH_CLIENT_SECRET")
+        if not self.GOOGLE_OAUTH_REDIRECT_URI:
+            missing.append("GOOGLE_OAUTH_REDIRECT_URI")
         if missing:
             raise RuntimeError(
                 "Production security configuration missing/unsafe: " + ", ".join(missing)
@@ -95,6 +115,12 @@ class Settings:
         ):
             raise RuntimeError(
                 "Production CORS_ORIGINS must contain explicit HTTPS origins only; wildcards, paths and query strings are forbidden"
+            )
+        if not _valid_https_url(self.GOOGLE_OAUTH_REDIRECT_URI):
+            raise RuntimeError("GOOGLE_OAUTH_REDIRECT_URI must be an HTTPS URL in production")
+        if self.GOOGLE_OAUTH_APP_REDIRECT_URI != "trackmyrmc://auth/google":
+            raise RuntimeError(
+                "GOOGLE_OAUTH_APP_REDIRECT_URI must be trackmyrmc://auth/google in production"
             )
         if self.DEBUG_OTP:
             raise RuntimeError("DEBUG_OTP must be false in production")
