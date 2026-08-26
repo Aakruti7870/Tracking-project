@@ -1,0 +1,112 @@
+name: Pre-AAB Candidate Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Branch, tag, or SHA to validate
+        required: true
+        default: main
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  complete-business-lifecycle:
+    name: Candidate order-to-payment E2E
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-pre-aab-e2e]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: test
+      MONGO_URL: mongodb://127.0.0.1:27017
+      DB_NAME: trackmyrmc_pre_aab_candidate_ci
+      JWT_SECRET: ci-only-trackmyrmc-jwt-secret-not-for-production-32chars
+      OTP_PEPPER: ci-only-trackmyrmc-otp-pepper-not-for-production-32chars
+      DEBUG_OTP: "true"
+      OTP_RESEND_SECONDS: "1"
+      CORS_ORIGINS: http://127.0.0.1:8081
+      EXPO_PUBLIC_BACKEND_URL: http://127.0.0.1:8000
+      STORAGE_MODE: local
+      LOCAL_STORAGE_DIR: /tmp/trackmyrmc-pre-aab-candidate-storage
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout dispatched candidate
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_ref }}
+
+      - name: Checkout current PR 42 candidate
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          ref: feat/login-auth-rebuild
+
+      - name: Record exact candidate SHA
+        run: git rev-parse HEAD
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-ci.txt
+
+      - name: Install backend CI dependencies
+        working-directory: backend
+        run: python -m pip install -r requirements-ci.txt
+
+      - name: Compile backend and E2E test
+        working-directory: backend
+        run: python -m py_compile server.py tests/test_pre_aab_e2e.py
+
+      - name: Start isolated candidate backend
+        working-directory: backend
+        run: |
+          rm -f /tmp/trackmyrmc-pre-aab-candidate.log
+          python -m uvicorn server:app --host 127.0.0.1 --port 8000 > /tmp/trackmyrmc-pre-aab-candidate.log 2>&1 &
+          echo $! > /tmp/trackmyrmc-pre-aab-candidate.pid
+
+      - name: Wait for seeded API health
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/api/health > /tmp/pre-aab-candidate-health.json; then
+              cat /tmp/pre-aab-candidate-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Candidate backend did not become healthy"
+          cat /tmp/trackmyrmc-pre-aab-candidate.log || true
+          exit 1
+
+      - name: Run complete candidate E2E lifecycle
+        working-directory: backend
+        run: pytest -n 0 -q tests/test_pre_aab_e2e.py --tb=short
+
+      - name: Show backend log on failure
+        if: failure()
+        run: cat /tmp/trackmyrmc-pre-aab-candidate.log || true
+
+      - name: Stop isolated backend
+        if: always()
+        run: |
+          if [ -f /tmp/trackmyrmc-pre-aab-candidate.pid ]; then
+            kill "$(cat /tmp/trackmyrmc-pre-aab-candidate.pid)" 2>/dev/null || true
+          fi
