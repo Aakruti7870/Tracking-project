@@ -1,0 +1,129 @@
+name: Android AAB Validation
+
+on:
+  push:
+    branches:
+      - main
+      - fix/aab-release-validation
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-aab-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aab-validation:
+    name: Build and validate Android App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      CI: "1"
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Require connected backend for AAB validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EXPO_PUBLIC_BACKEND_URL" = "https://api.example.invalid" ]; then
+            echo "AAB validation requires PREVIEW_BACKEND_URL so the generated bundle does not contain a placeholder API origin."
+            exit 1
+          fi
+          curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/aab-backend-health.json
+          cat /tmp/aab-backend-health.json
+
+      - name: Generate Android native project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Verify Android identity, version and Firebase wiring
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
+          version_code=$(node -p "require('./app.json').expo.android.versionCode")
+          version_name=$(node -p "require('./app.json').expo.version")
+          test -n "$gradle_file"
+          test -n "$version_code"
+          test -n "$version_name"
+          test -f android/app/google-services.json
+          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null || {
+            echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
+            exit 1
+          }
+          grep -E "versionCode[[:space:]=]+${version_code}" "$gradle_file" >/dev/null || {
+            echo "Expected Android versionCode ${version_code} was not generated"
+            exit 1
+          }
+          grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null || {
+            echo "Firebase Google Services plugin is missing from generated Android app"
+            exit 1
+          }
+          echo "AAB identity OK: ${version_name} (versionCode ${version_code})"
+
+      - name: Increase Gradle CI metaspace
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          properties="android/gradle.properties"
+          test -f "$properties"
+          if grep -q '^org.gradle.jvmargs=' "$properties"; then
+            sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8/' "$properties"
+          else
+            printf '\norg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8\n' >> "$properties"
+          fi
+          grep '^org.gradle.jvmargs=' "$properties"
+
+      - name: Build release AAB
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Validate AAB structure and JavaScript bundle
+        working-directory: frontend/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          aab="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$aab"
+          unzip -t "$aab" >/tmp/aab-zip-test.txt
+          unzip -l "$aab" | grep -F "base/assets/index.android.bundle" >/dev/null || {
+            echo "AAB is missing base/assets/index.android.bundle"
+            exit 1
+          }
+          jarsigner -verify "$aab" >/tmp/aab-signature.txt
+          cat /tmp/aab-signature.txt
+          sha256sum "$aab" | tee /tmp/aab-sha256.txt
+
+      - name: Upload Android validation AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: trackmyrmc-validation-aab
+          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
