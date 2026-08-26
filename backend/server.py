@@ -34,6 +34,7 @@ from routers import (
     storage,
     workforce,
     workforce_reports,
+    workforce_rules,
 )
 
 logging.basicConfig(
@@ -118,8 +119,11 @@ app.include_router(master_data.router)
 app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
+# PR33 shadows the PR31 attendance punch routes with the rules-aware handlers.
+app.include_router(workforce_rules.shadow_router)
 app.include_router(workforce.router)
 app.include_router(workforce_reports.router)
+app.include_router(workforce_rules.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
@@ -141,6 +145,7 @@ async def on_startup():
     await ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_reports.ensure_indexes()
+    await workforce_rules.ensure_indexes()
     try:
         from routers.storage import init_storage
 
