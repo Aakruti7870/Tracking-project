@@ -35,6 +35,7 @@ from routers import (
     storage,
     workforce,
     workforce_reports,
+    workforce_roster,
 )
 
 logging.basicConfig(
@@ -119,7 +120,10 @@ app.include_router(master_data.router)
 app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
+# Geofence-aware attendance must win before the original workforce punch routes.
+app.include_router(workforce_roster.attendance_router)
 app.include_router(workforce.router)
+app.include_router(workforce_roster.router)
 # These three exact mutation routes must win before the original PR32 routes.
 app.include_router(payroll_concurrency_hotfix.router)
 app.include_router(workforce_reports.router)
@@ -143,6 +147,7 @@ app.add_middleware(
 async def on_startup():
     await ensure_indexes()
     await workforce.ensure_indexes()
+    await workforce_roster.ensure_indexes()
     await workforce_reports.ensure_indexes()
     try:
         from routers.storage import init_storage

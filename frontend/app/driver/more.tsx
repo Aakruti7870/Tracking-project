@@ -29,50 +29,17 @@ export default function DriverMore() {
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }}>
         <AppText variant="title">More</AppText>
         <Card style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-          <View style={[styles.avatar, { backgroundColor: colors.brand }]}>
-            <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.xl, color: colors.onBrand }}>{(user?.name || "D").charAt(0)}</AppText>
-          </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <AppText variant="heading">{user?.name}</AppText>
-            <AppText variant="caption">{user?.phone}</AppText>
-            <Badge label="Driver" color={colors.brand} />
-          </View>
+          <View style={[styles.avatar, { backgroundColor: colors.brand }]}><AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.xl, color: colors.onBrand }}>{(user?.name || "D").charAt(0)}</AppText></View>
+          <View style={{ flex: 1, gap: 4 }}><AppText variant="heading">{user?.name}</AppText><AppText variant="caption">{user?.phone}</AppText><Badge label="Driver" color={colors.brand} /></View>
         </Card>
-        <View style={{ gap: spacing.sm }}>
-          <AppText variant="label">Appearance</AppText>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {MODES.map((m) => {
-              const sel = mode === m.key;
-              return (
-                <Pressable key={m.key} testID={`driver-theme-${m.key}`} onPress={() => setMode(m.key)} style={[styles.mode, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
-                  <Ionicons name={m.icon} size={18} color={sel ? colors.onBrand : colors.onSurfaceSecondary} />
-                  <AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{m.label}</AppText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-        <Pressable testID="driver-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
-          <View style={{ flex: 1 }}>
-            <AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText>
-            <AppText variant="caption">Attendance, leave, visits and expense claims</AppText>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>
-        <Pressable testID="driver-logout" onPress={async () => { await signOut(); router.replace("/login"); }} style={[styles.logout, { borderColor: colors.error }]}>
-          <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText>
-        </Pressable>
+        <View style={{ gap: spacing.sm }}><AppText variant="label">Appearance</AppText><View style={{ flexDirection: "row", gap: spacing.sm }}>{MODES.map((m) => { const sel = mode === m.key; return <Pressable key={m.key} testID={`driver-theme-${m.key}`} onPress={() => setMode(m.key)} style={[styles.mode, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}><Ionicons name={m.icon} size={18} color={sel ? colors.onBrand : colors.onSurfaceSecondary} /><AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{m.label}</AppText></Pressable>; })}</View></View>
+        <Pressable testID="driver-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Ionicons name="people-circle-outline" size={22} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText><AppText variant="caption">Attendance, leave, visits and expense claims</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>
+        <Pressable testID="driver-shift-roster" onPress={() => router.push("/shift-roster" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Ionicons name="calendar-outline" size={22} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Roster</AppText><AppText variant="caption">Upcoming shifts, week-offs and attendance geofence</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>
+        <Pressable testID="driver-logout" onPress={async () => { await signOut(); router.replace("/login"); }} style={[styles.logout, { borderColor: colors.error }]}><Ionicons name="log-out-outline" size={20} color={colors.error} /><AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error }}>Logout</AppText></Pressable>
         <AppText variant="caption" center>TrackMyRMC · v2.0.18 (76)</AppText>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  avatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  mode: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, height: 44, borderRadius: radius.md, borderWidth: 1 },
-  manage: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
-  logout: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, height: 52, borderRadius: radius.md, borderWidth: 1 },
-});
+const styles = StyleSheet.create({avatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },mode: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, height: 44, borderRadius: radius.md, borderWidth: 1 },manage: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },logout: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, height: 52, borderRadius: radius.md, borderWidth: 1 }});
