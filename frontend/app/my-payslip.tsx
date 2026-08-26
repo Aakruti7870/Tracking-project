@@ -103,7 +103,7 @@ export default function MyPayslipScreen() {
 
         <Card style={{ gap: spacing.md }}>
           <Input label="Month (YYYY-MM)" value={month} onChangeText={setMonth} placeholder="2026-08" />
-          <Button disabled={loading || month.length !== 7} onPress={load}>Load Payslip</Button>
+          <Button label="Load Payslip" disabled={loading || month.length !== 7} onPress={load} />
         </Card>
 
         {loading ? <ActivityIndicator color={colors.brand} /> : payslip ? <>
@@ -120,7 +120,7 @@ export default function MyPayslipScreen() {
             <AppText variant="caption">Paid days: {payslip.payroll_snapshot.paid_days}</AppText>
             <AppText variant="caption">Payment: {payslip.payroll_snapshot.payment_method || "-"} · {payslip.payroll_snapshot.payment_reference || "-"}</AppText>
             <AppText variant="caption">Paid on: {payslip.payroll_snapshot.paid_on || "-"}</AppText>
-            <Button onPress={() => Share.share({ title: payslip.payslip_number, message: message(payslip) })}>Share / Save Payslip</Button>
+            <Button label="Share / Save Payslip" onPress={() => Share.share({ title: payslip.payslip_number, message: message(payslip) })} />
             <AppText variant="caption">{payslip.notice || "This payslip is a historical snapshot and cannot be changed by later salary-master edits."}</AppText>
           </Card>
         </> : <Card><AppText variant="caption">No issued payslip found for {month}. Payslips become available after the Plant Owner closes a fully-paid payroll month.</AppText></Card>}
