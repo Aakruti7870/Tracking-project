@@ -139,6 +139,50 @@ def _legacy_staff_auth_response(url: str, kwargs: dict):
 
 
 @pytest.fixture(scope="module", autouse=True)
+def pre_aab_e2e_vehicle_capacity(request):
+    """Guarantee one isolated available mixer for the deterministic E2E flow.
+
+    The normal full backend suite intentionally leaves some dispatch/production
+    vehicles occupied while exercising state guards.  Without an isolated mixer,
+    a later pre-AAB E2E test could fail for test-ordering reasons rather than an
+    application defect.  This fixture only applies to that E2E module.
+    """
+    test_path = Path(str(request.fspath)).name
+    if test_path != "test_pre_aab_e2e.py":
+        yield
+        return
+
+    mongo_url = os.environ.get("MONGO_URL")
+    db_name = os.environ.get("DB_NAME")
+    if not mongo_url or not db_name:
+        yield
+        return
+
+    client = MongoClient(mongo_url)
+    try:
+        db = client[db_name]
+        plant = db.plants.find_one({"name": {"$regex": "Kondapur", "$options": "i"}})
+        assert plant, "seeded Kondapur plant is missing for pre-AAB E2E"
+        db.vehicles.update_one(
+            {"tm_number": "PREAABE2E01"},
+            {
+                "$set": {
+                    "plant_id": str(plant["_id"]),
+                    "capacity_m3": 6.5,
+                    "status": "available",
+                    "current_order_id": None,
+                    "current_load_id": None,
+                }
+            },
+            upsert=True,
+        )
+    finally:
+        client.close()
+
+    yield
+
+
+@pytest.fixture(scope="module", autouse=True)
 def legacy_staff_session_adapter(request):
     """Adapt legacy staff email-OTP setup without touching production auth.
 
