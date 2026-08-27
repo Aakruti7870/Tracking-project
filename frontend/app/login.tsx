@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -68,6 +70,15 @@ const CONTACT_ACTIONS: ContactAction[] = [
   },
 ];
 
+const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
+
+const DEMO_ROLES: { role: string; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
+  { role: "customer", label: "User", icon: "person-outline" },
+  { role: "plant_owner", label: "Owner", icon: "business-outline" },
+  { role: "authority", label: "Authority", icon: "shield-checkmark-outline" },
+  { role: "driver", label: "Driver", icon: "car-outline" },
+];
+
 const GOOGLE_ERRORS: Record<string, string> = {
   account_not_provisioned: "This Google account is not registered as a TrackMyRMC plant user.",
   account_not_ready: "This staff account is not fully assigned yet. Contact your plant administrator.",
@@ -90,7 +101,7 @@ export default function Login() {
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { hydrating, token, user, requestOtp, verify, verifyGoogle } = useAuth();
+  const { hydrating, token, user, requestOtp, verify, verifyGoogle, demoLogin } = useAuth();
 
   const [mode, setMode] = useState<LoginMode>("user");
   const [phase, setPhase] = useState<"enter" | "otp">("enter");
@@ -210,12 +221,60 @@ export default function Login() {
     }
   };
 
-  const openExternal = async (url: string) => {
+  const handleDemoLogin = async (role: string) => {
+    setError(null);
+    setLoading(true);
     try {
+      const me = await demoLogin(role);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast(`Welcome, ${me.name}`, "success");
+      router.replace(roleRouteFor(me.role) as any);
+    } catch (e: any) {
+      setError(e.detail || "Demo login is unavailable");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openExternal = async (url: string) => {    try {
       await Linking.openURL(url);
     } catch {
       toast("Unable to open this link on your device", "error");
     }
+  };
+
+  const PRIVACY_POLICY_URL = "https://trackmyrmc.com/privacy_policy";
+  const ACCOUNT_DELETION_URL = "https://trackmyrmc.com/account-deletion";
+
+  const confirmAccountDeletion = () => {
+    Haptics.selectionAsync();
+    const title = "Delete your TrackMyRMC account?";
+    const body =
+      "You are about to open the TrackMyRMC account-deletion portal. On the next page you will verify with a captcha and confirm your mobile number or email, and then your account and personal profile data will be deleted permanently. This cannot be undone.\n\nBusiness records (orders, challans, invoices) that are legally required may be retained in anonymized form.\n\nProceed to the deletion portal?";
+    const proceed = () => {
+      void openExternal(ACCOUNT_DELETION_URL);
+    };
+    if (Platform.OS === "web") {
+      // React Native Alert.alert is a no-op on RN Web; fall back to the browser
+      // confirm dialog so pre-login account deletion is still gated by an
+      // explicit user confirmation before we open the deletion portal.
+      const ok =
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function" &&
+        window.confirm(`${title}\n\n${body}`);
+      if (ok) proceed();
+      return;
+    }
+    Alert.alert(
+      title,
+      body,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", style: "destructive", onPress: proceed },
+      ],
+      { cancelable: true },
+    );
   };
 
   return (
@@ -381,7 +440,85 @@ export default function Login() {
             </View>
           )}
 
+          {DEMO_LOGIN_ENABLED ? (
+            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <AppText variant="label" style={styles.demoTitle}>
+                Demo access (Google Play review)
+              </AppText>
+              <View style={styles.demoGrid}>
+                {DEMO_ROLES.map((item) => (
+                  <Pressable
+                    key={item.role}
+                    testID={`demo-login-${item.role}`}
+                    disabled={loading}
+                    onPress={() => handleDemoLogin(item.role)}
+                    style={({ pressed }) => [
+                      styles.demoChip,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: pressed ? colors.brand + "1A" : colors.surface,
+                        opacity: loading ? 0.6 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.icon} size={18} color={colors.brand} />
+                    <AppText style={styles.demoChipLabel}>{item.label}</AppText>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           <View style={styles.legal}>
+            <View style={styles.legalCardsRow}>
+              <Pressable
+                testID="login-privacy-card"
+                accessibilityRole="link"
+                accessibilityLabel="Privacy Policy"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  void openExternal(PRIVACY_POLICY_URL);
+                }}
+                style={[
+                  styles.legalCard,
+                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+                ]}
+              >
+                <View style={[styles.legalCardIcon, { backgroundColor: colors.brand + "1A" }]}>
+                  <Ionicons name="shield-checkmark-outline" size={22} color={colors.brand} />
+                </View>
+                <View style={styles.legalCardBody}>
+                  <AppText style={styles.legalCardTitle}>Privacy Policy</AppText>
+                  <AppText style={styles.legalCardSub} numberOfLines={2}>
+                    How TrackMyRMC uses your data
+                  </AppText>
+                </View>
+                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
+              </Pressable>
+
+              <Pressable
+                testID="login-delete-account-card"
+                accessibilityRole="button"
+                accessibilityLabel="Delete Account"
+                onPress={confirmAccountDeletion}
+                style={[
+                  styles.legalCard,
+                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+                ]}
+              >
+                <View style={[styles.legalCardIcon, { backgroundColor: "#E45B5B22" }]}>
+                  <Ionicons name="trash-outline" size={22} color="#E45B5B" />
+                </View>
+                <View style={styles.legalCardBody}>
+                  <AppText style={styles.legalCardTitle}>Delete Account</AppText>
+                  <AppText style={styles.legalCardSub} numberOfLines={2}>
+                    Erase your account without signing in
+                  </AppText>
+                </View>
+                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
+              </Pressable>
+            </View>
+
             <View style={styles.legalRow}>
               <Pressable onPress={() => router.push("/privacy")}>
                 <AppText variant="caption" color={colors.brand}>Privacy Policy</AppText>
@@ -544,12 +681,81 @@ const styles = StyleSheet.create({
     marginTop: spacing["2xl"],
     paddingTop: spacing.lg,
   },
-  legalRow: {
+  demoBox: {
+    marginTop: spacing.xl,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  demoTitle: {
+    textAlign: "center",
+  },
+  demoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "center",
+  },
+  demoChip: {
+    minHeight: 44,
+    flexGrow: 1,
+    minWidth: "45%",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  demoChipLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },  legalRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
     alignItems: "center",
     gap: spacing.sm,
+  },
+  legalCardsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  legalCard: {
+    flex: 1,
+    minHeight: 76,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  legalCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  legalCardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  legalCardTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },
+  legalCardSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    opacity: 0.72,
   },
   poweredBy: {
     marginTop: spacing.lg,
