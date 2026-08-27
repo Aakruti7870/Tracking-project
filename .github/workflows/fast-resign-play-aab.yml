@@ -1,0 +1,166 @@
+name: Fast Re-sign Play AAB
+
+# Emergency repair path: takes the already-built and bundletool-validated vc80 AAB
+# from run 33113738845, proves its exact known SHA-256, removes the wrong debug
+# JAR signature, and re-signs the identical bundle payload with the historical
+# Google Play upload private key. No application code is rebuilt or changed.
+
+on:
+  push:
+    branches:
+      - "fix/play-upload-fast-resign"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  resign:
+    name: Re-sign exact vc80 bundle with Play key
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_INPUT_AAB_SHA256: "19f7b972aa6315578f0f9d43f6803147b1f314d9e36e8c041f59c37c5920f1e0"
+      EXPECTED_PLAY_UPLOAD_MD5: "86:CA:AD:71:31:E2:5A:00:A4:12:A8:84:9B:FF:B1:AB"
+      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
+      EXPECTED_PLAY_UPLOAD_SHA256: "2D:C2:82:9A:A7:E3:DA:02:93:8A:7B:E2:AC:E6:4B:8C:6F:DE:27:1D:C7:00:96:85:18:8C:15:5F:DA:11:35:F4"
+      SOURCE_ARTIFACT_ID: "9664253205"
+
+    steps:
+      - name: Verify required signing secrets exist
+        run: |
+          missing=()
+          [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || missing+=("ANDROID_KEYSTORE_BASE64")
+          [ -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || missing+=("ANDROID_KEYSTORE_PASSWORD")
+          [ -n "${{ secrets.ANDROID_STORE_PASSWORD }}" ] || missing+=("ANDROID_STORE_PASSWORD")
+          [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ] || missing+=("ANDROID_KEY_ALIAS")
+          [ ${#missing[@]} -eq 0 ] || { echo "Missing: ${missing[*]}"; exit 1; }
+
+      - name: Download exact previously validated vc80 AAB
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            -o /tmp/source-artifact.zip
+          mkdir -p /tmp/source-aab
+          unzip -q /tmp/source-artifact.zip -d /tmp/source-aab
+          aab="$(find /tmp/source-aab -type f -name '*.aab' | head -n1)"
+          test -s "$aab"
+          actual="$(sha256sum "$aab" | awk '{print $1}')"
+          echo "Known source AAB SHA-256: $actual"
+          [ "$actual" = "$EXPECTED_INPUT_AAB_SHA256" ] || { echo "ERROR: source AAB bytes are not the frozen validated vc80 bundle."; exit 1; }
+          cp "$aab" /tmp/TrackMyRMC-v2.0.22-vc80-PLAY-UPLOAD-SIGNED.aab
+
+      - name: Restore and prove exact Play upload key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD_A: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD_B: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          printf "%s" "$KEYSTORE_B64" | base64 -d > /tmp/upload-keystore.jks
+          test -s /tmp/upload-keystore.jks
+
+          key_info="$(keytool -list -v -keystore /tmp/upload-keystore.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS")"
+          printf '%s\n' "$key_info" | grep -q 'Entry type: PrivateKeyEntry'
+          keytool -exportcert -keystore /tmp/upload-keystore.jks -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" -file /tmp/upload-cert.der >/dev/null
+
+          md5="$(openssl x509 -inform DER -in /tmp/upload-cert.der -noout -fingerprint -md5 | cut -d= -f2 | tr -d '\r')"
+          sha1="$(openssl x509 -inform DER -in /tmp/upload-cert.der -noout -fingerprint -sha1 | cut -d= -f2 | tr -d '\r')"
+          sha256="$(openssl x509 -inform DER -in /tmp/upload-cert.der -noout -fingerprint -sha256 | cut -d= -f2 | tr -d '\r')"
+          echo "Play key MD5:     $md5"
+          echo "Play key SHA-1:   $sha1"
+          echo "Play key SHA-256: $sha256"
+          [ "$md5" = "$EXPECTED_PLAY_UPLOAD_MD5" ]
+          [ "$sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" ]
+          [ "$sha256" = "$EXPECTED_PLAY_UPLOAD_SHA256" ]
+
+          mkdir -p /tmp/preflight && echo TrackMyRMC > /tmp/preflight/test.txt
+          jar --create --file /tmp/base.jar -C /tmp/preflight test.txt
+          cp /tmp/base.jar /tmp/test-a.jar
+          if jarsigner -keystore /tmp/upload-keystore.jks -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD_A" \
+              /tmp/test-a.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "KEY_MODE=KEY_SECRET" >> "$GITHUB_ENV"
+          else
+            cp /tmp/base.jar /tmp/test-b.jar
+            if jarsigner -keystore /tmp/upload-keystore.jks -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD_B" \
+                /tmp/test-b.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+              echo "KEY_MODE=STORE_SECRET" >> "$GITHUB_ENV"
+            else
+              echo "ERROR: correct Play certificate is present but its private key cannot sign with configured passwords."
+              exit 1
+            fi
+          fi
+          echo "Play private-key signing preflight: PASS."
+
+      - name: Remove wrong debug signature and Play-sign identical bundle
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          aab=/tmp/TrackMyRMC-v2.0.22-vc80-PLAY-UPLOAD-SIGNED.aab
+
+          # Remove only top-level JAR signing metadata from the rejected debug-signed AAB.
+          zip -q -d "$aab" 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/*.EC' 'META-INF/MANIFEST.MF' || true
+
+          if [ "$KEY_MODE" = "KEY_SECRET" ]; then
+            KEY_PASSWORD="$KEY_PASSWORD_SECRET"
+          elif [ "$KEY_MODE" = "STORE_SECRET" ]; then
+            KEY_PASSWORD="$STORE_PASSWORD"
+          else
+            echo "ERROR: private-key preflight mode missing."; exit 1
+          fi
+
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore /tmp/upload-keystore.jks -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+            "$aab" "$KEY_ALIAS"
+          jarsigner -verify "$aab" >/dev/null
+          echo "Re-signed AAB JAR verification: PASS."
+
+      - name: Final certificate + bundletool + manifest gate
+        run: |
+          set -euo pipefail
+          aab=/tmp/TrackMyRMC-v2.0.22-vc80-PLAY-UPLOAD-SIGNED.aab
+          sig_entry="$(unzip -Z1 "$aab" | grep -Ei '^META-INF/[^/]+\.(RSA|DSA|EC)$' | head -n1)"
+          test -n "$sig_entry"
+          unzip -p "$aab" "$sig_entry" > /tmp/final-signer.p7
+          openssl pkcs7 -inform DER -in /tmp/final-signer.p7 -print_certs -out /tmp/final-signer.pem >/dev/null
+
+          md5="$(openssl x509 -in /tmp/final-signer.pem -noout -fingerprint -md5 | cut -d= -f2 | tr -d '\r')"
+          sha1="$(openssl x509 -in /tmp/final-signer.pem -noout -fingerprint -sha1 | cut -d= -f2 | tr -d '\r')"
+          sha256="$(openssl x509 -in /tmp/final-signer.pem -noout -fingerprint -sha256 | cut -d= -f2 | tr -d '\r')"
+          echo "FINAL MD5:     $md5"
+          echo "FINAL SHA-1:   $sha1"
+          echo "FINAL SHA-256: $sha256"
+          [ "$md5" = "$EXPECTED_PLAY_UPLOAD_MD5" ]
+          [ "$sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" ]
+          [ "$sha256" = "$EXPECTED_PLAY_UPLOAD_SHA256" ]
+
+          curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
+          java -jar /tmp/bundletool.jar validate --bundle="$aab"
+          java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" > /tmp/manifest.xml
+          grep -F 'package="com.trackmyrmc.concreteking"' /tmp/manifest.xml
+          grep -F 'android:versionCode="80"' /tmp/manifest.xml
+          grep -F 'android:versionName="2.0.22"' /tmp/manifest.xml
+
+          echo "FINAL AAB file SHA-256: $(sha256sum "$aab" | awk '{print $1}')"
+          echo "GOOGLE PLAY UPLOAD CERTIFICATE: EXACT MATCH."
+
+      - name: Upload corrected Play-signed AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackMyRMC-v2.0.22-vc80-PLAY-UPLOAD-SIGNED
+          path: /tmp/TrackMyRMC-v2.0.22-vc80-PLAY-UPLOAD-SIGNED.aab
+          if-no-files-found: error
+          retention-days: 14
