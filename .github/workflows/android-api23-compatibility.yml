@@ -1,0 +1,121 @@
+name: Android API23 Compatibility Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-api23-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api23-build:
+    name: Build + verify API23 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Generate Android project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install
+      - name: Assert generated Android SDK contract
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fx 'android.minSdkVersion=23' android/gradle.properties
+          grep -Fx 'android.compileSdkVersion=36' android/gradle.properties
+          grep -Fx 'android.targetSdkVersion=36' android/gradle.properties
+          grep -Fx 'android.buildToolsVersion=36.0.0' android/gradle.properties
+          cd android
+          chmod +x gradlew
+          ./gradlew properties --no-daemon | tee /tmp/gradle-properties.txt
+      - name: Build release APK
+        working-directory: frontend/android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+      - name: Verify final APK manifest and device filters
+        working-directory: frontend/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='app/build/outputs/apk/release/app-release.apk'
+          test -s "$apk"
+          aapt=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          test -n "$aapt"
+          "$aapt" dump badging "$apk" | tee /tmp/apk-badging.txt
+          grep -F "sdkVersion:'23'" /tmp/apk-badging.txt
+          grep -F "targetSdkVersion:'36'" /tmp/apk-badging.txt
+          grep -F "package: name='com.trackmyrmc.concreteking'" /tmp/apk-badging.txt
+          if grep -E "uses-feature-not-required: name='android.hardware.(camera|camera.autofocus|camera.flash|location|location.gps|location.network|screen.portrait)'" /tmp/apk-badging.txt >/tmp/optional-features.txt; then
+            cat /tmp/optional-features.txt
+          fi
+          unzip -l "$apk" | grep -F 'assets/index.android.bundle' >/dev/null
+      - name: Upload API23 candidate APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: trackmyrmc-vc78-api23-candidate-apk
+          path: frontend/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  api23-boot:
+    name: Boot smoke test on Android 6 API23
+    needs: api23-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: trackmyrmc-vc78-api23-candidate-apk
+          path: /tmp/trackmyrmc-api23
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch on API23 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 23
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            apk=/tmp/trackmyrmc-api23/app-release.apk
+            test -s "$apk"
+            adb install -r "$apk"
+            adb logcat -c
+            adb shell am start -W -n com.trackmyrmc.concreteking/.MainActivity | tee /tmp/launch.txt
+            sleep 15
+            pid=$(adb shell pidof com.trackmyrmc.concreteking | tr -d '\r')
+            test -n "$pid"
+            echo "TrackMyRMC API23 process: $pid"
+            adb logcat -d > /tmp/api23-logcat.txt
+            if grep -E 'FATAL EXCEPTION|Unable to start activity.*trackmyrmc|Process: com\.trackmyrmc\.concreteking.*has died' /tmp/api23-logcat.txt; then
+              echo 'TrackMyRMC crashed during API23 startup smoke test.'
+              exit 1
+            fi
+            tail -n 120 /tmp/api23-logcat.txt
