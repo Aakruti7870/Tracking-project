@@ -46,7 +46,17 @@ export async function configureForegroundNotifications(): Promise<void> {
   foregroundHandlerConfigured = true;
 }
 
-export async function registerPushDevice(authToken: string): Promise<string | null> {
+export async function getNotificationPermissionStatus(): Promise<string> {
+  if (Platform.OS !== "android") return "granted";
+  const Notifications = await notificationsModule();
+  const permission = await Notifications.getPermissionsAsync();
+  return permission.status;
+}
+
+export async function registerPushDevice(
+  authToken: string,
+  requestPermission = false,
+): Promise<string | null> {
   if (Platform.OS !== "android") return null;
   const Notifications = await notificationsModule();
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
@@ -54,11 +64,15 @@ export async function registerPushDevice(authToken: string): Promise<string | nu
     importance: Notifications.AndroidImportance.HIGH,
     sound: "default",
   });
+
   let permission = await Notifications.getPermissionsAsync();
-  if (permission.status !== "granted") {
+  if (permission.status !== "granted" && requestPermission) {
+    // The caller must show TrackMyRMC's app-owned notification explanation and
+    // receive an affirmative user action before requesting Android permission.
     permission = await Notifications.requestPermissionsAsync();
   }
   if (permission.status !== "granted") return null;
+
   const nativeToken = await Notifications.getDevicePushTokenAsync();
   return registerTokenValue(authToken, nativeToken.data);
 }
