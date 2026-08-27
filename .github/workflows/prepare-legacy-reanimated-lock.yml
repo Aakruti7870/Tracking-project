@@ -1,0 +1,45 @@
+name: Prepare Legacy Reanimated Lock
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-lock:
+    if: github.head_ref == 'chore/bump-v2.0.20-vc78'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+      - name: Generate Legacy Architecture dependency lock
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install react-native-reanimated@3.19.5 --save-exact --package-lock-only --ignore-scripts
+          npm uninstall react-native-worklets --package-lock-only --ignore-scripts
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          p.expo = p.expo || {};
+          p.expo.install = p.expo.install || {};
+          p.expo.install.exclude = Array.from(new Set([...(p.expo.install.exclude || []), 'react-native-reanimated@~4.1.1']));
+          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          NODE
+          npm install --package-lock-only --ignore-scripts
+          node -e "const p=require('./package.json'); if(p.dependencies['react-native-reanimated']!=='3.19.5') process.exit(1); if(p.dependencies['react-native-worklets']) process.exit(2);"
+          npm ls react-native-reanimated --package-lock-only || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vc78-legacy-dependency-lock
+          path: |
+            frontend/package.json
+            frontend/package-lock.json
+          if-no-files-found: error
+          retention-days: 2
