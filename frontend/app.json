@@ -2,7 +2,7 @@
   "expo": {
     "name": "TrackMyRMC",
     "slug": "frontend",
-    "version": "2.0.18",
+    "version": "2.0.19",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trackmyrmc",
@@ -25,16 +25,20 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.trackmyrmc.concreteking",
-      "versionCode": 76,
+      "versionCode": 77,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
-        "READ_MEDIA_IMAGES",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ],
       "intentFilters": [
         {
@@ -79,7 +83,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "./plugins/with-play-store-compatibility"
     ],
     "experiments": {
       "typedRoutes": true
