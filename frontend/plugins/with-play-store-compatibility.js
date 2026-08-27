@@ -1,7 +1,7 @@
 const { withAndroidManifest, withGradleProperties } = require('@expo/config-plugins');
 
 const ANDROID_BUILD_PROPERTIES = {
-  'android.minSdkVersion': '23',
+  'android.minSdkVersion': '24',
   'android.compileSdkVersion': '36',
   'android.targetSdkVersion': '36',
   'android.buildToolsVersion': '36.0.0',
