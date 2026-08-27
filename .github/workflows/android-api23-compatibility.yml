@@ -98,6 +98,27 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Prepare API24 smoke-test script
+        run: |
+          cat > /tmp/api24-smoke.sh <<'SMOKE'
+          #!/usr/bin/env bash
+          set -eu
+          apk=/tmp/trackmyrmc-api24/app-release.apk
+          test -s "$apk"
+          adb install -r "$apk"
+          adb logcat -c
+          adb shell am start -W -n com.trackmyrmc.concreteking/.MainActivity | tee /tmp/launch.txt
+          sleep 15
+          pid=$(adb shell pidof com.trackmyrmc.concreteking | tr -d '\r')
+          test -n "$pid"
+          adb logcat -d > /tmp/api24-logcat.txt
+          if grep -E 'FATAL EXCEPTION|Unable to start activity.*trackmyrmc|Process: com\.trackmyrmc\.concreteking.*has died' /tmp/api24-logcat.txt; then
+            echo 'TrackMyRMC crashed during API24 startup smoke test.'
+            exit 1
+          fi
+          echo "TrackMyRMC API24 process: $pid"
+          SMOKE
+          chmod +x /tmp/api24-smoke.sh
       - name: Install and launch on API24 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -105,19 +126,4 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: |
-            set -eu
-            apk=/tmp/trackmyrmc-api24/app-release.apk
-            test -s "$apk"
-            adb install -r "$apk"
-            adb logcat -c
-            adb shell am start -W -n com.trackmyrmc.concreteking/.MainActivity | tee /tmp/launch.txt
-            sleep 15
-            pid=$(adb shell pidof com.trackmyrmc.concreteking | tr -d '\r')
-            test -n "$pid"
-            adb logcat -d > /tmp/api24-logcat.txt
-            if grep -E 'FATAL EXCEPTION|Unable to start activity.*trackmyrmc|Process: com\.trackmyrmc\.concreteking.*has died' /tmp/api24-logcat.txt; then
-              echo 'TrackMyRMC crashed during API24 startup smoke test.'
-              exit 1
-            fi
-            echo "TrackMyRMC API24 process: $pid"
+          script: bash /tmp/api24-smoke.sh
