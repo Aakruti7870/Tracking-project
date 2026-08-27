@@ -2,12 +2,13 @@ name: Release Signed AAB
 
 # Produces a Google Play upload-signed .aab for com.trackmyrmc.concreteking.
 # Required GitHub Actions secrets (Repo -> Settings -> Secrets and variables -> Actions):
-#   ANDROID_KEYSTORE_BASE64      - base64 of the upload keystore .jks / .p12
-#   ANDROID_KEYSTORE_PASSWORD    - keystore password
-#   ANDROID_STORE_PASSWORD       - key store password (usually same as ANDROID_KEYSTORE_PASSWORD)
-#   ANDROID_KEY_ALIAS            - alias inside the keystore (e.g. "concreteking")
-# Optional repo variable:
-#   PREVIEW_BACKEND_URL          - production API base URL baked into the release JS bundle
+#   ANDROID_KEYSTORE_BASE64      - base64 of the Play upload keystore .jks / .p12
+#   ANDROID_KEYSTORE_PASSWORD    - private-key password
+#   ANDROID_STORE_PASSWORD       - keystore/store password
+#   ANDROID_KEY_ALIAS            - alias inside the keystore
+#
+# IMPORTANT: Google Play expects the historical TrackMyRMC upload certificate below.
+# This workflow hard-fails before and after the Gradle build if any other certificate is used.
 
 on:
   workflow_dispatch:
@@ -17,6 +18,8 @@ on:
         required: false
         default: main
   push:
+    branches:
+      - "fix/play-upload-signing-cert-gate"
     tags:
       - "v*"
 
@@ -36,10 +39,12 @@ jobs:
       CI: "1"
       EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.trackmyrmc.com' }}
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_ref || github.ref }}
+          # Repair-branch validation intentionally builds the exact frozen green main SHA.
+          ref: a6cdbb62aa9db2f615f436be399f374072c8213c
 
       - uses: actions/setup-node@v4
         with:
@@ -83,6 +88,24 @@ jobs:
           test -s upload-keystore.jks
           echo "keystore size: $(stat -c%s upload-keystore.jks) bytes"
 
+      - name: Verify Play upload keystore certificate
+        working-directory: frontend/android/app
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          cert_info="$(keytool -list -v -keystore upload-keystore.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS")"
+          actual_sha1="$(printf '%s\n' "$cert_info" | sed -n 's/^[[:space:]]*SHA1:[[:space:]]*//p' | head -n1 | tr -d '[:space:]')"
+          echo "Expected Play upload SHA1: $EXPECTED_PLAY_UPLOAD_SHA1"
+          echo "Restored keystore SHA1:     $actual_sha1"
+          test -n "$actual_sha1"
+          if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "ERROR: GitHub signing keystore does not match the certificate registered in Google Play."
+            exit 1
+          fi
+          echo "Play upload keystore certificate MATCHES."
+
       - name: Wire release signingConfig into build.gradle
         working-directory: frontend/android
         env:
@@ -97,15 +120,13 @@ jobs:
           TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
           TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
           EOF
-          # Insert signingConfigs.release + link into buildTypes.release if not present.
           python3 - <<'PY'
-          import re, pathlib
+          import pathlib, re
+
           gradle = pathlib.Path("app/build.gradle")
           text = gradle.read_text()
-          if "TRACKMYRMC_UPLOAD_STORE_FILE" in text:
-              print("signingConfig already wired, skipping")
-          else:
-              signing_block = """
+
+          signing_block = """
               signingConfigs {
                   release {
                       if (project.hasProperty('TRACKMYRMC_UPLOAD_STORE_FILE')) {
@@ -116,21 +137,69 @@ jobs:
                       }
                   }
               }
-              """
-              # Insert signingConfigs block just before buildTypes
-              text2 = re.sub(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              # Link release build type to the release signingConfig
-              text2 = re.sub(
-                  r'(buildTypes\s*\{[^{}]*release\s*\{[^{}]*?)(signingConfig\s+signingConfigs\.\w+)',
-                  r'\1signingConfig signingConfigs.release',
-                  text2,
+          """
+
+          if "TRACKMYRMC_UPLOAD_STORE_FILE" not in text:
+              m = re.search(r"\n\s*buildTypes\s*\{", text)
+              if not m:
+                  raise SystemExit("buildTypes block not found")
+              text = text[:m.start()] + "\n" + signing_block + text[m.start():]
+
+          def block_bounds(src: str, keyword_start: int):
+              open_brace = src.find("{", keyword_start)
+              if open_brace < 0:
+                  raise SystemExit("opening brace not found")
+              depth = 0
+              for i in range(open_brace, len(src)):
+                  if src[i] == "{":
+                      depth += 1
+                  elif src[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return open_brace, i
+              raise SystemExit("unterminated Gradle block")
+
+          bt = re.search(r"\bbuildTypes\s*\{", text)
+          if not bt:
+              raise SystemExit("buildTypes block not found after signing insertion")
+          bt_open, bt_close = block_bounds(text, bt.start())
+          bt_body = text[bt_open + 1:bt_close]
+
+          rel = re.search(r"\brelease\s*\{", bt_body)
+          if not rel:
+              raise SystemExit("release buildType not found")
+          rel_abs_start = bt_open + 1 + rel.start()
+          rel_open, rel_close = block_bounds(text, rel_abs_start)
+          release_body = text[rel_open + 1:rel_close]
+
+          replacement = "signingConfig signingConfigs.release"
+          if re.search(r"signingConfig\s+signingConfigs\.\w+", release_body):
+              release_body = re.sub(
+                  r"signingConfig\s+signingConfigs\.\w+",
+                  replacement,
+                  release_body,
                   count=1,
-                  flags=re.DOTALL,
               )
-              if text2 == text:
-                  raise SystemExit("failed to patch app/build.gradle with release signingConfig")
-              gradle.write_text(text2)
-              print("signingConfig wired into app/build.gradle")
+          else:
+              release_body = "\n        " + replacement + release_body
+
+          text = text[:rel_open + 1] + release_body + text[rel_close:]
+          gradle.write_text(text)
+
+          # Re-read and prove the release block now uses release signing, never debug signing.
+          verify = gradle.read_text()
+          bt = re.search(r"\bbuildTypes\s*\{", verify)
+          bt_open, bt_close = block_bounds(verify, bt.start())
+          bt_body = verify[bt_open + 1:bt_close]
+          rel = re.search(r"\brelease\s*\{", bt_body)
+          rel_abs_start = bt_open + 1 + rel.start()
+          rel_open, rel_close = block_bounds(verify, rel_abs_start)
+          final_release = verify[rel_open + 1:rel_close]
+          if "signingConfig signingConfigs.release" not in final_release:
+              raise SystemExit("release signingConfig was not wired")
+          if "signingConfig signingConfigs.debug" in final_release:
+              raise SystemExit("release build still references debug signingConfig")
+          print("release buildType is wired to signingConfigs.release")
           PY
 
       - name: Build signed release AAB
@@ -150,16 +219,27 @@ jobs:
           echo "AAB: $aab"
           echo "Size: $size bytes"
           echo "SHA-256: $sha"
-          echo "aab_sha=$sha" >> "$GITHUB_OUTPUT" || true
-          # bundletool signature check
+
+          cert_info="$(keytool -printcert -jarfile "$aab")"
+          actual_sha1="$(printf '%s\n' "$cert_info" | sed -n 's/^[[:space:]]*SHA1:[[:space:]]*//p' | head -n1 | tr -d '[:space:]')"
+          owner="$(printf '%s\n' "$cert_info" | sed -n 's/^Owner:[[:space:]]*//p' | head -n1)"
+          echo "Built AAB certificate owner: $owner"
+          echo "Expected Play upload SHA1:  $EXPECTED_PLAY_UPLOAD_SHA1"
+          echo "Built AAB SHA1:             $actual_sha1"
+          test -n "$actual_sha1"
+          if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "ERROR: built AAB is not signed with the Google Play registered upload certificate."
+            exit 1
+          fi
+
           curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
-          # Confirm application ID + versionCode inside the bundle manifest.
           unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
           grep -F 'android:versionCode="80"' /tmp/aab-manifest.xml
           grep -F 'android:versionName="2.0.22"' /tmp/aab-manifest.xml
+          echo "AAB certificate MATCHES Google Play upload key."
 
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
