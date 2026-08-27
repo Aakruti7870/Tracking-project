@@ -1,4 +1,4 @@
-name: Android API23 Compatibility Gate
+name: Android Play Compatibility Gate
 
 on:
   pull_request:
@@ -10,12 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-api23-compat-${{ github.ref }}
+  group: android-play-compat-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  api23-build:
-    name: Build + verify API23 APK
+  android-build:
+    name: Build + verify Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fx 'android.minSdkVersion=23' android/gradle.properties
+          grep -Fx 'android.minSdkVersion=24' android/gradle.properties
           grep -Fx 'android.compileSdkVersion=36' android/gradle.properties
           grep -Fx 'android.targetSdkVersion=36' android/gradle.properties
           grep -Fx 'android.buildToolsVersion=36.0.0' android/gradle.properties
@@ -64,47 +64,50 @@ jobs:
           aapt=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
           test -n "$aapt"
           "$aapt" dump badging "$apk" | tee /tmp/apk-badging.txt
-          grep -F "sdkVersion:'23'" /tmp/apk-badging.txt
+          grep -F "sdkVersion:'24'" /tmp/apk-badging.txt
           grep -F "targetSdkVersion:'36'" /tmp/apk-badging.txt
           grep -F "package: name='com.trackmyrmc.concreteking'" /tmp/apk-badging.txt
-          if grep -E "uses-feature-not-required: name='android.hardware.(camera|camera.autofocus|camera.flash|location|location.gps|location.network|screen.portrait)'" /tmp/apk-badging.txt >/tmp/optional-features.txt; then
-            cat /tmp/optional-features.txt
-          fi
+          for feature in camera camera.autofocus camera.flash location location.gps location.network screen.portrait; do
+            if grep -F "uses-feature: name='android.hardware.${feature}'" /tmp/apk-badging.txt >/dev/null; then
+              echo "Required hardware feature unexpectedly filters devices: android.hardware.${feature}"
+              exit 1
+            fi
+          done
           unzip -l "$apk" | grep -F 'assets/index.android.bundle' >/dev/null
-      - name: Upload API23 candidate APK
+      - name: Upload Android candidate APK
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-vc78-api23-candidate-apk
+          name: trackmyrmc-vc78-android-candidate-apk
           path: frontend/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
 
-  api23-boot:
-    name: Boot smoke test on Android 6 API23
-    needs: api23-build
+  android-boot:
+    name: Boot smoke test on Android 7 API24
+    needs: android-build
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: trackmyrmc-vc78-api23-candidate-apk
-          path: /tmp/trackmyrmc-api23
+          name: trackmyrmc-vc78-android-candidate-apk
+          path: /tmp/trackmyrmc-api24
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install and launch on API23 emulator
+      - name: Install and launch on API24 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 23
+          api-level: 24
           arch: x86_64
           profile: pixel_2
           disable-animations: true
           script: |
             set -euo pipefail
-            apk=/tmp/trackmyrmc-api23/app-release.apk
+            apk=/tmp/trackmyrmc-api24/app-release.apk
             test -s "$apk"
             adb install -r "$apk"
             adb logcat -c
@@ -112,10 +115,9 @@ jobs:
             sleep 15
             pid=$(adb shell pidof com.trackmyrmc.concreteking | tr -d '\r')
             test -n "$pid"
-            echo "TrackMyRMC API23 process: $pid"
-            adb logcat -d > /tmp/api23-logcat.txt
-            if grep -E 'FATAL EXCEPTION|Unable to start activity.*trackmyrmc|Process: com\.trackmyrmc\.concreteking.*has died' /tmp/api23-logcat.txt; then
-              echo 'TrackMyRMC crashed during API23 startup smoke test.'
+            adb logcat -d > /tmp/api24-logcat.txt
+            if grep -E 'FATAL EXCEPTION|Unable to start activity.*trackmyrmc|Process: com\.trackmyrmc\.concreteking.*has died' /tmp/api24-logcat.txt; then
+              echo 'TrackMyRMC crashed during API24 startup smoke test.'
               exit 1
             fi
-            tail -n 120 /tmp/api23-logcat.txt
+            echo "TrackMyRMC API24 process: $pid"
