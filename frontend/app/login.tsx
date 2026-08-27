@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -242,6 +244,39 @@ export default function Login() {
     }
   };
 
+  const PRIVACY_POLICY_URL = "https://trackmyrmc.com/privacy_policy";
+  const ACCOUNT_DELETION_URL = "https://trackmyrmc.com/account-deletion";
+
+  const confirmAccountDeletion = () => {
+    Haptics.selectionAsync();
+    const title = "Delete your TrackMyRMC account?";
+    const body =
+      "You are about to open the TrackMyRMC account-deletion portal. On the next page you will verify with a captcha and confirm your mobile number or email, and then your account and personal profile data will be deleted permanently. This cannot be undone.\n\nBusiness records (orders, challans, invoices) that are legally required may be retained in anonymized form.\n\nProceed to the deletion portal?";
+    const proceed = () => {
+      void openExternal(ACCOUNT_DELETION_URL);
+    };
+    if (Platform.OS === "web") {
+      // React Native Alert.alert is a no-op on RN Web; fall back to the browser
+      // confirm dialog so pre-login account deletion is still gated by an
+      // explicit user confirmation before we open the deletion portal.
+      const ok =
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function" &&
+        window.confirm(`${title}\n\n${body}`);
+      if (ok) proceed();
+      return;
+    }
+    Alert.alert(
+      title,
+      body,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", style: "destructive", onPress: proceed },
+      ],
+      { cancelable: true },
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style="light" />
@@ -435,12 +470,61 @@ export default function Login() {
           ) : null}
 
           <View style={styles.legal}>
+            <View style={styles.legalCardsRow}>
+              <Pressable
+                testID="login-privacy-card"
+                accessibilityRole="link"
+                accessibilityLabel="Privacy Policy"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  void openExternal(PRIVACY_POLICY_URL);
+                }}
+                style={[
+                  styles.legalCard,
+                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+                ]}
+              >
+                <View style={[styles.legalCardIcon, { backgroundColor: colors.brand + "1A" }]}>
+                  <Ionicons name="shield-checkmark-outline" size={22} color={colors.brand} />
+                </View>
+                <View style={styles.legalCardBody}>
+                  <AppText style={styles.legalCardTitle}>Privacy Policy</AppText>
+                  <AppText style={styles.legalCardSub} numberOfLines={2}>
+                    How TrackMyRMC uses your data
+                  </AppText>
+                </View>
+                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
+              </Pressable>
+
+              <Pressable
+                testID="login-delete-account-card"
+                accessibilityRole="button"
+                accessibilityLabel="Delete Account"
+                onPress={confirmAccountDeletion}
+                style={[
+                  styles.legalCard,
+                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+                ]}
+              >
+                <View style={[styles.legalCardIcon, { backgroundColor: "#E45B5B22" }]}>
+                  <Ionicons name="trash-outline" size={22} color="#E45B5B" />
+                </View>
+                <View style={styles.legalCardBody}>
+                  <AppText style={styles.legalCardTitle}>Delete Account</AppText>
+                  <AppText style={styles.legalCardSub} numberOfLines={2}>
+                    Erase your account without signing in
+                  </AppText>
+                </View>
+                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
+              </Pressable>
+            </View>
+
             <View style={styles.legalRow}>
-              <Pressable onPress={() => router.push("/privacy")}>
+              <Pressable onPress={() => openExternal(PRIVACY_POLICY_URL)}>
                 <AppText variant="caption" color={colors.brand}>Privacy Policy</AppText>
               </Pressable>
               <AppText variant="caption">·</AppText>
-              <Pressable onPress={() => router.push("/account-deletion-public")}>
+              <Pressable onPress={confirmAccountDeletion}>
                 <AppText variant="caption" color={colors.brand}>Delete Account</AppText>
               </Pressable>
             </View>
@@ -630,6 +714,43 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: spacing.sm,
+  },
+  legalCardsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  legalCard: {
+    flex: 1,
+    minHeight: 76,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  legalCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  legalCardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  legalCardTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },
+  legalCardSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    opacity: 0.72,
   },
   poweredBy: {
     marginTop: spacing.lg,

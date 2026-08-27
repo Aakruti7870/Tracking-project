@@ -3,7 +3,10 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
 import { storage } from "@/src/utils/storage";
-import { requestBackgroundLocationConsent } from "@/src/location/BackgroundLocationConsent";
+import {
+  requestBackgroundLocationConsent,
+  requestForegroundLocationConsent,
+} from "@/src/location/BackgroundLocationConsent";
 
 export const TRIP_LOCATION_TASK = "trackmyrmc-active-trip-location";
 const ACTIVE_TRIP_KEY = "tmrmc_active_trip_id";
@@ -86,8 +89,16 @@ export async function startTripLocationTracking(tripId: string): Promise<Trackin
   const servicesEnabled = await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) return { mode: "unavailable" };
 
-  const foreground = await Location.requestForegroundPermissionsAsync();
-  if (foreground.status !== "granted") return { mode: "denied" };
+  const foreground = await Location.getForegroundPermissionsAsync();
+  if (foreground.status !== "granted") {
+    // Google Play requires a prominent in-app disclosure BEFORE the OS
+    // location prompt (even for foreground). If the user declines the
+    // disclosure, do not request the OS permission at all.
+    const consented = await requestForegroundLocationConsent();
+    if (!consented) return { mode: "denied" };
+    const requested = await Location.requestForegroundPermissionsAsync();
+    if (requested.status !== "granted") return { mode: "denied" };
+  }
 
   await storage.setItem(ACTIVE_TRIP_KEY, tripId);
 
