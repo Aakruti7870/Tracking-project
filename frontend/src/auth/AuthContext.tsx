@@ -34,7 +34,8 @@ type AuthContextValue = {
   user: Me | null;
   requestOtp: typeof requestOtp;
   verify: (identifier: string, code: string) => Promise<Me>;
-  verifyGoogle: (code: string) => Promise<Me>;verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
+  verifyGoogle: (code: string) => Promise<Me>;
+  verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
   refreshMe: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -89,8 +90,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
- with:
-
   const verifyPlayReview = async (role: PlayReviewRole, accessCode: string): Promise<Me> => {
     const res = await playReviewLogin(role, accessCode);
     return acceptSession(res.access_token);
@@ -127,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-value={{
+      value={{
         hydrating,
         token,
         user,
