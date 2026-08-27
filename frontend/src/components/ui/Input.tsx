@@ -21,6 +21,8 @@ type Props = {
   error?: string | null;
   editable?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  autoCorrect?: boolean;
+  secureTextEntry?: boolean;
   center?: boolean;
   testID?: string;
 };
@@ -36,6 +38,8 @@ export function Input({
   error,
   editable = true,
   autoCapitalize = "none",
+  autoCorrect = false,
+  secureTextEntry = false,
   center = false,
   testID,
 }: Props) {
@@ -56,6 +60,8 @@ export function Input({
         maxLength={maxLength}
         editable={editable}
         autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        secureTextEntry={secureTextEntry}
         style={[
           styles.input,
           {
