@@ -1,0 +1,244 @@
+name: Android Production AAB vc79
+
+on:
+  push:
+    branches:
+      - release/signed-aab-v2.0.21-vc79-b99abce
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-production-aab-vc79
+  cancel-in-progress: false
+
+jobs:
+  signed-play-aab:
+    name: Signed Play AAB v2.0.21 vc79
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: "1"
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout exact vc79 release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/signed-aab-v2.0.21-vc79-b99abce
+          fetch-depth: 2
+
+      - name: Verify certified source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          CERTIFIED_MAIN="b99abce997a92b8a39ef6e629e8d71fb0d428478"
+          test "$(git rev-parse HEAD^)" = "$CERTIFIED_MAIN" || {
+            echo "Release commit is not based directly on certified main $CERTIFIED_MAIN"
+            exit 1
+          }
+          changed="$(git diff --name-only "$CERTIFIED_MAIN" HEAD | tr -d '\r')"
+          test "$changed" = ".github/workflows/android-production-aab-vc79.yml" || {
+            echo "Release branch contains changes beyond the temporary AAB runner:"
+            printf '%s\n' "$changed"
+            exit 1
+          }
+
+      - name: Verify configured Tracking-project backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${EXPO_PUBLIC_BACKEND_URL:-}" || {
+            echo "::error::PREVIEW_BACKEND_URL repository variable is not configured"
+            exit 1
+          }
+          case "$EXPO_PUBLIC_BACKEND_URL" in
+            https://*) ;;
+            *) echo "::error::Release backend must use HTTPS"; exit 1 ;;
+          esac
+          curl --retry 3 --retry-delay 2 -fsS "$EXPO_PUBLIC_BACKEND_URL/health" | tee /tmp/root-health.json
+          curl --retry 3 --retry-delay 2 -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" | tee /tmp/api-health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in ('/tmp/root-health.json', '/tmp/api-health.json'):
+              payload = json.loads(Path(path).read_text())
+              if payload.get('status') != 'healthy':
+                  raise SystemExit(f'Backend health is not healthy: {payload}')
+          PY
+
+      - name: Validate protected existing Play signing inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD="${ANDROID_STORE_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-}}"
+          missing=0
+          for pair in \
+            "ANDROID_KEYSTORE_BASE64:${ANDROID_KEYSTORE_BASE64:-}" \
+            "ANDROID_STORE_PASSWORD/ANDROID_KEYSTORE_PASSWORD:${STORE_PASSWORD:-}" \
+            "ANDROID_KEY_ALIAS:${ANDROID_KEY_ALIAS:-}" \
+            "ANDROID_KEY_PASSWORD:${ANDROID_KEY_PASSWORD:-}" \
+            "GOOGLE_MAPS_ANDROID_KEY:${GOOGLE_MAPS_ANDROID_KEY:-}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required GitHub secret: $name"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          KEYSTORE_PATH="$RUNNER_TEMP/trackmyrmc-upload.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "TRACKMYRMC_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate release identity
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./app.json').expo.version")
+          VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          PACKAGE=$(node -p "require('./app.json').expo.android.package")
+          FIREBASE_PACKAGE=$(node -p "require('./google-services.json').client[0].client_info.android_client_info.package_name")
+          test "$VERSION" = "2.0.21"
+          test "$VERSION_CODE" = "79"
+          test "$PACKAGE" = "com.trackmyrmc.concreteking"
+          test "$FIREBASE_PACKAGE" = "com.trackmyrmc.concreteking"
+          npx expo config --type public >/tmp/expo-public-config.txt
+          test -s /tmp/expo-public-config.txt
+          echo "TRACKMYRMC_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+
+      - name: Generate Android native project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Verify Android release contract
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
+          test -n "$gradle_file"
+          test -f android/app/google-services.json
+          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+79" "$gradle_file" >/dev/null
+          grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
+          grep -F '"package_name": "com.trackmyrmc.concreteking"' android/app/google-services.json >/dev/null
+          grep -Fx 'android.minSdkVersion=24' android/gradle.properties
+          grep -Fx 'android.compileSdkVersion=36' android/gradle.properties
+          grep -Fx 'android.targetSdkVersion=36' android/gradle.properties
+          grep -R -F "$GOOGLE_MAPS_ANDROID_KEY" android/app/src/main/AndroidManifest.xml >/dev/null || {
+            echo "Google Maps Android key was not injected into AndroidManifest.xml"
+            exit 1
+          }
+
+      - name: Increase Gradle CI memory ceiling
+        working-directory: frontend
+        run: |
+          properties="android/gradle.properties"
+          if grep -q '^org.gradle.jvmargs=' "$properties"; then
+            sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8/' "$properties"
+          else
+            printf '\norg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8\n' >> "$properties"
+          fi
+
+      - name: Bind release build to existing Play upload keystore
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('android/app/build.gradle')
+          text = path.read_text()
+          replacements = [
+              (r"storeFile\s+file\(['\"]debug\.keystore['\"]\)", 'storeFile file(System.getenv("TRACKMYRMC_KEYSTORE_PATH"))'),
+              (r"storePassword\s+['\"]android['\"]", 'storePassword System.getenv("TRACKMYRMC_STORE_PASSWORD")'),
+              (r"keyAlias\s+['\"]androiddebugkey['\"]", 'keyAlias System.getenv("ANDROID_KEY_ALIAS")'),
+              (r"keyPassword\s+['\"]android['\"]", 'keyPassword System.getenv("ANDROID_KEY_PASSWORD")'),
+          ]
+          for pattern, replacement in replacements:
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'Expected generated signing line not found: {pattern}')
+          if 'signingConfig signingConfigs.debug' not in text:
+              raise SystemExit('Generated release build is not wired to expected signing config')
+          path.write_text(text)
+          PY
+
+      - name: Build final signed release AAB
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Verify AAB structure and signing certificate
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$SOURCE_AAB"
+          unzip -t "$SOURCE_AAB" >/tmp/aab-zip-test.txt
+          unzip -l "$SOURCE_AAB" | grep -F "base/assets/index.android.bundle" >/dev/null
+          jarsigner -verify -verbose -certs "$SOURCE_AAB" >/tmp/jarsigner-verify.txt
+          KEYSTORE_SHA256=$(keytool -list -v -keystore "$TRACKMYRMC_KEYSTORE_PATH" -storepass "$TRACKMYRMC_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | awk '/SHA256:/{print $2; exit}')
+          AAB_CERT_SHA256=$(keytool -printcert -jarfile "$SOURCE_AAB" | awk '/SHA256:/{print $2; exit}')
+          test -n "$KEYSTORE_SHA256"
+          test "$KEYSTORE_SHA256" = "$AAB_CERT_SHA256" || {
+            echo "AAB certificate does not match configured existing Play upload keystore"
+            exit 1
+          }
+          mkdir -p release
+          FINAL_AAB="release/TrackMyRMC-v${TRACKMYRMC_VERSION}-vc${TRACKMYRMC_VERSION_CODE}-signed.aab"
+          cp "$SOURCE_AAB" "$FINAL_AAB"
+          sha256sum "$FINAL_AAB" | tee release/SHA256SUMS.txt
+          {
+            echo "release_source_main=b99abce997a92b8a39ef6e629e8d71fb0d428478"
+            echo "release_runner_commit=$(git rev-parse HEAD)"
+            echo "version=${TRACKMYRMC_VERSION}"
+            echo "versionCode=${TRACKMYRMC_VERSION_CODE}"
+            echo "package=com.trackmyrmc.concreteking"
+            echo "backend=${EXPO_PUBLIC_BACKEND_URL}"
+            echo "upload_cert_sha256=${KEYSTORE_SHA256}"
+          } | tee release/build-metadata.txt
+
+      - name: Upload final signed Play Console AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackMyRMC-v2.0.21-vc79-signed-play-console-b99abce
+          path: |
+            frontend/release/TrackMyRMC-v2.0.21-vc79-signed.aab
+            frontend/release/SHA256SUMS.txt
+            frontend/release/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 30
