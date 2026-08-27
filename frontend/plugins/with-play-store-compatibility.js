@@ -12,6 +12,7 @@ const BLOCKED_MEDIA_PERMISSIONS = [
   'android.permission.READ_MEDIA_IMAGES',
   'android.permission.READ_MEDIA_VIDEO',
   'android.permission.READ_EXTERNAL_STORAGE',
+  'android.permission.WRITE_EXTERNAL_STORAGE',
 ];
 
 const BLOCKED_MEDIA_PERMISSION_SET = new Set(BLOCKED_MEDIA_PERMISSIONS);
