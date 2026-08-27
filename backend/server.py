@@ -35,6 +35,7 @@ from routers import (
     payroll_guard,
     plant_plans,
     plant_discovery,
+    play_review,
     staff,
     storage,
     workforce,
@@ -110,6 +111,7 @@ async def health():
 
 app.include_router(meta)
 app.include_router(auth.router)
+app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
 app.include_router(customer.router)
