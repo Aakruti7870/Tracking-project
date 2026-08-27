@@ -3,255 +3,280 @@ name: Production Readiness
 on:
   push:
     branches:
-      - main
-      - fix/production-readiness-final
-      - fix/tracking-project-100-percent
+      - release/signed-aab-v2.0.20-vc78-9dd2238
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-readiness-${{ github.ref }}
-  cancel-in-progress: true
+  group: signed-aab-release-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  backend:
-    name: Backend API + security tests
+  signed-play-aab:
+    name: Signed Play AAB v2.0.20 vc78
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/signed-aab-v2.0.20-vc78-9dd2238' || github.ref == 'refs/heads/release/signed-aab-v2.0.20-vc78-9dd2238'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    services:
-      mongo:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+    timeout-minutes: 50
     env:
-      APP_ENV: test
-      MONGO_URL: mongodb://127.0.0.1:27017
-      DB_NAME: trackmyrmc_ci
-      JWT_SECRET: ci-only-trackmyrmc-jwt-secret-not-for-production-32chars
-      OTP_PEPPER: ci-only-trackmyrmc-otp-pepper-not-for-production-32chars
-      DEBUG_OTP: "true"
-      OTP_RESEND_SECONDS: "1"
-      CORS_ORIGINS: http://127.0.0.1:8081
-      EXPO_PUBLIC_BACKEND_URL: http://127.0.0.1:8000
-      STORAGE_MODE: local
-      LOCAL_STORAGE_DIR: /tmp/trackmyrmc-storage
-      PYTHONPATH: .
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements-ci.txt
-      - name: Install backend dependencies
-        working-directory: backend
-        run: python -m pip install --upgrade pip -q && pip install -q -r requirements-ci.txt
-      - name: Python import/compile validation
-        run: python -m compileall -q backend
-      - name: Focused production-hardening unit tests
-        working-directory: backend
-        run: pytest -n 0 -q tests/test_production_hardening_unit.py tests/test_runtime_config_unit.py tests/test_business_domain_unit.py
-      - name: Start TrackMyRMC API
-        working-directory: backend
-        run: |
-          uvicorn server:app --host 127.0.0.1 --port 8000 > /tmp/trackmyrmc-api.log 2>&1 &
-          echo $! > /tmp/trackmyrmc-api.pid
-      - name: Wait for health
-        run: |
-          for i in {1..45}; do
-            if curl -fsS http://127.0.0.1:8000/health >/tmp/root-health.json && curl -fsS http://127.0.0.1:8000/api/health >/tmp/health.json; then
-              cat /tmp/root-health.json
-              cat /tmp/health.json
-              exit 0
-            fi
-            sleep 1
-          done
-          cat /tmp/trackmyrmc-api.log || true
-          exit 1
-      - name: Full backend integration suite
-        working-directory: backend
-        shell: bash
-        run: |
-          set +e
-          pytest -n 0 -q --tb=short --junitxml=/tmp/backend-pytest.xml > /tmp/backend-pytest.log 2>&1
-          status=$?
-          if [ $status -ne 0 ]; then
-            echo "--- backend pytest failure summary ---"
-            tail -n 260 /tmp/backend-pytest.log
-          else
-            cat /tmp/backend-pytest.log
-          fi
-          exit $status
-      - name: Upload backend test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-diagnostics
-          path: |
-            /tmp/backend-pytest.xml
-            /tmp/backend-pytest.log
-            /tmp/trackmyrmc-api.log
-          if-no-files-found: warn
-          retention-days: 7
-      - name: API log on failure
-        if: failure()
-        run: tail -n 200 /tmp/trackmyrmc-api.log || true
+      CI: "1"
+      NODE_ENV: production
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-  frontend:
-    name: Expo typecheck + lint + config + build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout exact release branch
+        uses: actions/checkout@v4
         with:
-          node-version: "20.19.4"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-      - name: Verify preview backend if configured
+          ref: release/signed-aab-v2.0.20-vc78-9dd2238
+          fetch-depth: 0
+
+      - name: Verify certified source boundary
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$EXPO_PUBLIC_BACKEND_URL" = "https://api.example.invalid" ]; then
-            echo "::notice::PREVIEW_BACKEND_URL is not configured; running build-only validation."
-            exit 0
-          fi
-          curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
-          cat /tmp/preview-health.json
-      - name: TypeScript
-        working-directory: frontend
-        run: npm run typecheck
-      - name: Lint
-        working-directory: frontend
-        run: npm run lint
-      - name: Expo Doctor
-        working-directory: frontend
-        run: npm run doctor
-      - name: Validate public Expo config
-        working-directory: frontend
-        run: npx expo config --type public >/tmp/expo-config.txt && test -s /tmp/expo-config.txt
-      - name: Build Expo web preview
-        working-directory: frontend
-        run: npm run build:preview
+          CERTIFIED_MAIN="9dd2238e03f3e4f6f1237cc1ebcbda67c63a3440"
+          git merge-base --is-ancestor "$CERTIFIED_MAIN" HEAD || {
+            echo "Release branch is not descended from certified main $CERTIFIED_MAIN"
+            exit 1
+          }
+          changed="$(git diff --name-only "$CERTIFIED_MAIN" HEAD | tr -d '\r')"
+          test "$changed" = ".github/workflows/production-readiness.yml" || {
+            echo "Release branch contains changes beyond the temporary release runner:"
+            printf '%s\n' "$changed"
+            exit 1
+          }
 
-  android-native:
-    name: Android standalone preview APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
-      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
-      CI: "1"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Reject legacy backend endpoints in frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E 'https://[^[:space:]]+\.run\.app|https://[^[:space:]]+\.a\.run\.app' -- frontend; then
+            echo "A direct Cloud Run URL is hardcoded in frontend source. Release is blocked."
+            exit 1
+          fi
+          if git grep -n -I -F 'trackmyrmc-production' -- frontend; then
+            echo "Legacy Google Cloud project marker detected in frontend. Release is blocked."
+            exit 1
+          fi
+
+      - name: Verify exact new Tracking-project backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BACKEND="https://tracking-preview-api-224495133432.asia-south1.run.app"
+          test -n "${EXPO_PUBLIC_BACKEND_URL:-}" || {
+            echo "PREVIEW_BACKEND_URL is not configured"
+            exit 1
+          }
+          test "$EXPO_PUBLIC_BACKEND_URL" = "$EXPECTED_BACKEND" || {
+            echo "Release backend is not the certified new Tracking-project service"
+            echo "Expected: $EXPECTED_BACKEND"
+            echo "Actual:   $EXPO_PUBLIC_BACKEND_URL"
+            exit 1
+          }
+          curl --retry 3 --retry-delay 2 -fsS "$EXPO_PUBLIC_BACKEND_URL/health" | tee /tmp/root-health.json
+          curl --retry 3 --retry-delay 2 -fsS "$EXPO_PUBLIC_BACKEND_URL/api/" | tee /tmp/api-root.json
+          curl --retry 3 --retry-delay 2 -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" | tee /tmp/api-health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = json.loads(Path('/tmp/root-health.json').read_text())
+          api_root = json.loads(Path('/tmp/api-root.json').read_text())
+          health = json.loads(Path('/tmp/api-health.json').read_text())
+          assert root.get('status') == 'healthy', root
+          assert api_root.get('service') == 'TrackMyRMC' and api_root.get('status') == 'ok', api_root
+          assert health.get('status') == 'healthy', health
+          notifications = health.get('notifications')
+          assert isinstance(notifications, dict), health
+          assert notifications.get('adapter') == 'twilio_sms', notifications
+          for key in ('configured', 'sms', 'email', 'push', 'push_adapter'):
+              assert key in notifications, notifications
+          PY
+          hr_code="$(curl --retry 3 --retry-delay 2 -sS -o /tmp/hr-probe.json -w '%{http_code}' "$EXPO_PUBLIC_BACKEND_URL/api/hr/employees")"
+          case "$hr_code" in
+            401|403) echo "Current Tracking-project HR route confirmed (HTTP $hr_code without auth)" ;;
+            *)
+              echo "Expected current Tracking-project HR route to exist and require auth; got HTTP $hr_code"
+              cat /tmp/hr-probe.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Validate protected existing Play signing inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD="${ANDROID_STORE_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-}}"
+          missing=0
+          for pair in \
+            "ANDROID_KEYSTORE_BASE64:${ANDROID_KEYSTORE_BASE64:-}" \
+            "ANDROID_STORE_PASSWORD/ANDROID_KEYSTORE_PASSWORD:${STORE_PASSWORD:-}" \
+            "ANDROID_KEY_ALIAS:${ANDROID_KEY_ALIAS:-}" \
+            "ANDROID_KEY_PASSWORD:${ANDROID_KEY_PASSWORD:-}" \
+            "GOOGLE_MAPS_ANDROID_KEY:${GOOGLE_MAPS_ANDROID_KEY:-}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required GitHub secret: $name"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          KEYSTORE_PATH="$RUNNER_TEMP/trackmyrmc-upload.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "TRACKMYRMC_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-java@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Verify preview backend if configured
+
+      - name: Validate production metadata and Firebase identity
+        working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$EXPO_PUBLIC_BACKEND_URL" = "https://api.example.invalid" ]; then
-            echo "::notice::PREVIEW_BACKEND_URL is not configured; compiling Android only."
-            exit 0
-          fi
-          curl -fsS "$EXPO_PUBLIC_BACKEND_URL/api/health" >/tmp/preview-health.json
-          cat /tmp/preview-health.json
+          VERSION=$(node -p "require('./app.json').expo.version")
+          VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          PACKAGE=$(node -p "require('./app.json').expo.android.package")
+          FIREBASE_PACKAGE=$(node -p "require('./google-services.json').client[0].client_info.android_client_info.package_name")
+          FIREBASE_PROJECT=$(node -p "require('./google-services.json').project_info.project_id")
+          test "$VERSION" = "2.0.20"
+          test "$VERSION_CODE" = "78"
+          test "$PACKAGE" = "com.trackmyrmc.concreteking"
+          test "$FIREBASE_PACKAGE" = "com.trackmyrmc.concreteking"
+          test "$FIREBASE_PROJECT" = "track-my-rmc"
+          test "$EXPO_PUBLIC_BACKEND_URL" = "https://tracking-preview-api-224495133432.asia-south1.run.app"
+          npx expo config --type public >/tmp/expo-public-config.txt
+          test -s /tmp/expo-public-config.txt
+          echo "TRACKMYRMC_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TRACKMYRMC_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+
       - name: Generate Android native project
         working-directory: frontend
         run: npx expo prebuild --platform android --clean --no-install
-      - name: Verify Android identity and version
+
+      - name: Verify Android identity, Firebase and Maps wiring
         working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
           gradle_file=$(find android/app -maxdepth 1 -type f -name 'build.gradle*' | head -n 1)
-          version_code=$(node -p "require('./app.json').expo.android.versionCode")
           test -n "$gradle_file"
-          test -n "$version_code"
-          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null || {
-            echo "Expected Android applicationId com.trackmyrmc.concreteking was not generated"
+          test -f android/app/google-services.json
+          grep -F "com.trackmyrmc.concreteking" "$gradle_file" >/dev/null
+          grep -E "versionCode[[:space:]=]+78" "$gradle_file" >/dev/null
+          grep -F "com.google.gms.google-services" "$gradle_file" >/dev/null
+          grep -F '"package_name": "com.trackmyrmc.concreteking"' android/app/google-services.json >/dev/null
+          grep -R -F "$GOOGLE_MAPS_ANDROID_KEY" android/app/src/main/AndroidManifest.xml >/dev/null || {
+            echo "Google Maps Android key was not injected into AndroidManifest.xml"
             exit 1
           }
-          grep -E "versionCode[[:space:]=]+${version_code}" "$gradle_file" >/dev/null || {
-            echo "Expected Android versionCode ${version_code} was not generated"
-            exit 1
-          }
-      - name: Compile standalone release APK
+
+      - name: Increase Gradle CI memory ceiling
+        working-directory: frontend
+        run: |
+          properties="android/gradle.properties"
+          if grep -q '^org.gradle.jvmargs=' "$properties"; then
+            sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8/' "$properties"
+          else
+            printf '\norg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8\n' >> "$properties"
+          fi
+
+      - name: Bind release build to existing Play upload keystore
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('android/app/build.gradle')
+          text = path.read_text()
+          replacements = [
+              (r"storeFile\s+file\(['\"]debug\.keystore['\"]\)", 'storeFile file(System.getenv("TRACKMYRMC_KEYSTORE_PATH"))'),
+              (r"storePassword\s+['\"]android['\"]", 'storePassword System.getenv("TRACKMYRMC_STORE_PASSWORD")'),
+              (r"keyAlias\s+['\"]androiddebugkey['\"]", 'keyAlias System.getenv("ANDROID_KEY_ALIAS")'),
+              (r"keyPassword\s+['\"]android['\"]", 'keyPassword System.getenv("ANDROID_KEY_PASSWORD")'),
+          ]
+          for pattern, replacement in replacements:
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'Expected generated signing line not found: {pattern}')
+          if 'signingConfig signingConfigs.debug' not in text:
+              raise SystemExit('Generated release build is not wired to expected signing config')
+          path.write_text(text)
+          PY
+
+      - name: Build signed release AAB
         working-directory: frontend/android
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace
-      - name: Verify standalone APK contains JavaScript bundle and signature
-        working-directory: frontend/android
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Verify AAB structure and signing certificate
+        working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
-          apk="app/build/outputs/apk/release/app-release.apk"
-          test -f "$apk"
-          unzip -l "$apk" | grep -F "assets/index.android.bundle" >/dev/null || {
-            echo "Standalone APK is missing assets/index.android.bundle"
+          SOURCE_AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$SOURCE_AAB"
+          unzip -t "$SOURCE_AAB" >/tmp/aab-zip-test.txt
+          unzip -l "$SOURCE_AAB" | grep -F "base/assets/index.android.bundle" >/dev/null
+          jarsigner -verify -verbose -certs "$SOURCE_AAB" >/tmp/jarsigner-verify.txt
+          KEYSTORE_SHA256=$(keytool -list -v -keystore "$TRACKMYRMC_KEYSTORE_PATH" -storepass "$TRACKMYRMC_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | awk '/SHA256:/{print $2; exit}')
+          AAB_CERT_SHA256=$(keytool -printcert -jarfile "$SOURCE_AAB" | awk '/SHA256:/{print $2; exit}')
+          test -n "$KEYSTORE_SHA256"
+          test "$KEYSTORE_SHA256" = "$AAB_CERT_SHA256" || {
+            echo "AAB certificate does not match configured existing Play upload keystore"
             exit 1
           }
-          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -n "$apksigner"
-          "$apksigner" verify --verbose "$apk"
-      - name: Upload standalone Android preview APK
-        if: env.EXPO_PUBLIC_BACKEND_URL != 'https://api.example.invalid'
+          mkdir -p release
+          FINAL_AAB="release/TrackMyRMC-v${TRACKMYRMC_VERSION}-vc${TRACKMYRMC_VERSION_CODE}-signed.aab"
+          cp "$SOURCE_AAB" "$FINAL_AAB"
+          sha256sum "$FINAL_AAB" | tee release/SHA256SUMS.txt
+          {
+            echo "release_source_main=9dd2238e03f3e4f6f1237cc1ebcbda67c63a3440"
+            echo "release_runner_commit=$(git rev-parse HEAD)"
+            echo "version=${TRACKMYRMC_VERSION}"
+            echo "versionCode=${TRACKMYRMC_VERSION_CODE}"
+            echo "package=com.trackmyrmc.concreteking"
+            echo "backend=${EXPO_PUBLIC_BACKEND_URL}"
+            echo "firebase_project=track-my-rmc"
+            echo "upload_cert_sha256=${KEYSTORE_SHA256}"
+          } | tee release/build-metadata.txt
+
+      - name: Upload signed Play Console AAB
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-standalone-preview-apk
-          path: frontend/android/app/build/outputs/apk/release/app-release.apk
+          name: TrackMyRMC-v2.0.20-vc78-signed-play-console-9dd2238
+          path: |
+            frontend/release/TrackMyRMC-v2.0.20-vc78-signed.aab
+            frontend/release/SHA256SUMS.txt
+            frontend/release/build-metadata.txt
           if-no-files-found: error
-          retention-days: 7
-
-  repository-security:
-    name: Repository secret/signing guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Reject tracked secret/signing file types
-        shell: bash
-        run: |
-          set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(\.env($|\.)|credentials\.json$|\.credentials($|/)|.*\.(key|pem|p12|pfx|jks|keystore)$)' | grep -v -E '(^|/)\.env\.example$' || true)
-          if [ -n "$bad" ]; then
-            echo "Tracked secret/signing files are forbidden:"
-            echo "$bad"
-            exit 1
-          fi
-      - name: Reject private key material in tracked text
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git grep -n -I -E -- '-----BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY-----' -- ':!*.md' ':!*.example'; then
-            echo "Private key material detected in tracked files."
-            exit 1
-          fi
+          retention-days: 30
