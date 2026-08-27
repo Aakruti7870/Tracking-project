@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Linking, View } from "react-native";
+import { Linking, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText } from "@/src/components/ui/AppText";
@@ -22,18 +22,23 @@ export default function PublicAccountDeletion() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top }}>
-      <View style={{ flex: 1, justifyContent: "center", padding: spacing.lg }}>
-        <Card style={{ gap: spacing.lg }}>
-          <View style={{ gap: spacing.sm }}>
-            <AppText variant="title">Delete Account</AppText>
-            <AppText variant="bodyMuted">
-              Opening the official TrackMyRMC account-deletion page in your browser.
-            </AppText>
-          </View>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 80, gap: spacing.lg }}>
+        <Card style={{ gap: spacing.md }}>
+          <AppText variant="title">Delete Account</AppText>
+          <AppText variant="bodyMuted">
+            You can request deletion without signing in. The official TrackMyRMC account-deletion page opens in your browser and verifies account ownership before accepting the request.
+          </AppText>
           <Button label="Open Delete Account Page" onPress={openDeletionPage} />
           <AppText variant="caption" center>{DELETE_ACCOUNT_URL}</AppText>
         </Card>
-      </View>
+
+        <Card style={{ gap: spacing.sm }}>
+          <AppText variant="heading">What happens after verification</AppText>
+          <AppText variant="bodyMuted">
+            After a verified deletion request is completed, your sign-in identity, personal profile and active sessions are removed or anonymized. Orders, challans, invoices and other statutory transaction records may be retained only where legally required.
+          </AppText>
+        </Card>
+      </ScrollView>
     </View>
   );
 }
