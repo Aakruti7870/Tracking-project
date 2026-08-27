@@ -17,6 +17,8 @@ on:
         required: false
         default: main
   push:
+    branches:
+      - "release/signed-aab-v2.0.22-vc80-20260828"
     tags:
       - "v*"
 
@@ -39,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_ref || github.ref }}
+          ref: a6cdbb62aa9db2f615f436be399f374072c8213c
 
       - uses: actions/setup-node@v4
         with:
