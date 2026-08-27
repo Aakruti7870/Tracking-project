@@ -390,6 +390,10 @@ export default function Login() {
               <Pressable onPress={() => router.push("/account-deletion-public")}>
                 <AppText variant="caption" color={colors.brand}>Delete Account</AppText>
               </Pressable>
+              <AppText variant="caption">·</AppText>
+              <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)}>
+                <AppText variant="caption" color={colors.brand}>App Review Access</AppText>
+              </Pressable>
             </View>
 
             <AppText variant="caption" center style={styles.poweredBy}>
@@ -542,6 +546,7 @@ const styles = StyleSheet.create({
   },
   legalRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
     alignItems: "center",
     gap: spacing.sm,
