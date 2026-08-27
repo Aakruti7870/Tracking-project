@@ -520,11 +520,11 @@ export default function Login() {
             </View>
 
             <View style={styles.legalRow}>
-              <Pressable onPress={() => openExternal(PRIVACY_POLICY_URL)}>
+              <Pressable onPress={() => router.push("/privacy")}>
                 <AppText variant="caption" color={colors.brand}>Privacy Policy</AppText>
               </Pressable>
               <AppText variant="caption">·</AppText>
-              <Pressable onPress={confirmAccountDeletion}>
+              <Pressable onPress={() => router.push("/account-deletion-public")}>
                 <AppText variant="caption" color={colors.brand}>Delete Account</AppText>
               </Pressable>
             </View>
