@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PlayReviewRole } from "@/src/api/client";
+import type { PlayReviewRole } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { roleRouteFor } from "@/src/auth/roleRoutes";
 import { AppText } from "@/src/components/ui/AppText";
@@ -115,7 +115,6 @@ export default function ReviewAccess() {
           }}
           placeholder="Code from Play Console app access"
           autoCapitalize="none"
-          autoCorrect={false}
           secureTextEntry
           error={error || undefined}
         />
