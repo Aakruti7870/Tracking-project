@@ -1,5 +1,5 @@
-import React from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -10,8 +10,13 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
+import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
+import {
+  getNotificationPermissionStatus,
+  registerPushDevice,
+} from "@/src/notifications/pushClient";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Feed = { unread: number; items: { id: string; event: string; title: string; body: string; read: boolean; created_at: string | null }[] };
@@ -28,6 +33,14 @@ export default function Notifications() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data, loading, refetch } = useGet<Feed>("/notifications");
+  const [permission, setPermission] = useState<string | null>(null);
+  const [permissionBusy, setPermissionBusy] = useState(false);
+
+  useEffect(() => {
+    void getNotificationPermissionStatus()
+      .then(setPermission)
+      .catch(() => setPermission(null));
+  }, []);
 
   const markAll = async () => {
     await apiPost("/notifications/read-all", token!);
@@ -36,6 +49,19 @@ export default function Notifications() {
   const openOne = async (id: string) => {
     await apiPost(`/notifications/${id}/read`, token!);
     refetch();
+  };
+
+  const enableDeviceNotifications = async () => {
+    if (!token) return;
+    setPermissionBusy(true);
+    try {
+      await registerPushDevice(token, true);
+      const next = await getNotificationPermissionStatus();
+      setPermission(next);
+      if (next !== "granted") await Linking.openSettings();
+    } finally {
+      setPermissionBusy(false);
+    }
   };
 
   return (
@@ -56,6 +82,23 @@ export default function Notifications() {
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
+        {permission && permission !== "granted" ? (
+          <Card style={{ gap: spacing.sm }}>
+            <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
+              <Ionicons name="notifications-outline" size={22} color={colors.brand} />
+              <AppText variant="heading" style={{ flex: 1 }}>Device notifications are optional</AppText>
+            </View>
+            <AppText variant="bodyMuted">
+              Enable them if you want Android alerts for order status, assigned trips, KYC decisions and safety updates. The in-app notification feed works even if you keep device notifications off.
+            </AppText>
+            <Button
+              label="Enable device notifications"
+              onPress={enableDeviceNotifications}
+              loading={permissionBusy}
+            />
+          </Card>
+        ) : null}
+
         {loading && !data ? (
           <><Skeleton height={70} style={{ borderRadius: radius.lg }} /><Skeleton height={70} style={{ borderRadius: radius.lg }} /></>
         ) : data && data.items.length === 0 ? (
