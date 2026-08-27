@@ -66,6 +66,16 @@ export function shouldTrackTrip(status?: string | null): boolean {
   return !!status && activeStatuses.has(status);
 }
 
+export async function hasBackgroundLocationPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  try {
+    const permission = await Location.getBackgroundPermissionsAsync();
+    return permission.status === "granted";
+  } catch {
+    return false;
+  }
+}
+
 async function startForegroundWatcher(tripId: string): Promise<Location.LocationSubscription> {
   return Location.watchPositionAsync(
     {
@@ -79,18 +89,23 @@ async function startForegroundWatcher(tripId: string): Promise<Location.Location
   );
 }
 
-export async function startTripLocationTracking(tripId: string): Promise<TrackingStartResult> {
+export async function startTripLocationTracking(
+  tripId: string,
+  options: { allowBackground?: boolean } = {},
+): Promise<TrackingStartResult> {
   if (!tripId || Platform.OS === "web") return { mode: "unavailable" };
 
   const servicesEnabled = await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) return { mode: "unavailable" };
 
+  // IMPORTANT: the caller must show TrackMyRMC's prominent disclosure and get
+  // affirmative consent before invoking this function for a trip. This keeps the
+  // app-owned disclosure immediately before Android's location runtime prompt.
   const foreground = await Location.requestForegroundPermissionsAsync();
   if (foreground.status !== "granted") return { mode: "denied" };
 
   await storage.setItem(ACTIVE_TRIP_KEY, tripId);
 
-  // Send an immediate point rather than waiting for the first watch interval.
   try {
     const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     await postLocation(tripId, current);
@@ -98,10 +113,10 @@ export async function startTripLocationTracking(tripId: string): Promise<Trackin
     // A watcher may still receive a position shortly afterwards.
   }
 
-  // Android delivery tracking should continue while the driver backgrounds the
-  // app. If background permission is refused, degrade to foreground tracking
-  // instead of making the trip workflow unusable.
-  if (Platform.OS === "android") {
+  // Background location is requested only after the app-owned prominent
+  // disclosure has been accepted. If background permission is refused, the app
+  // degrades to foreground-only tracking rather than blocking the delivery.
+  if (Platform.OS === "android" && options.allowBackground === true) {
     try {
       const background = await Location.requestBackgroundPermissionsAsync();
       const taskAvailable = await TaskManager.isAvailableAsync();

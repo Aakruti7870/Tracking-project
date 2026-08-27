@@ -2,7 +2,7 @@
   "expo": {
     "name": "TrackMyRMC",
     "slug": "frontend",
-    "version": "2.0.20",
+    "version": "2.0.21",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trackmyrmc",
@@ -25,7 +25,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.trackmyrmc.concreteking",
-      "versionCode": 78,
+      "versionCode": 79,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
@@ -38,7 +38,8 @@
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "intentFilters": [
         {

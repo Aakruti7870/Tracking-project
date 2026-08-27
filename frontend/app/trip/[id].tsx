@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -17,6 +17,7 @@ import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import {
+  hasBackgroundLocationPermission,
   shouldTrackTrip,
   startTripLocationTracking,
   stopTripLocationTracking,
@@ -63,6 +64,7 @@ export default function TripDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, loading, error, reload } = useGet<Detail>(`/driver/trips/${id}`);
   const [busy, setBusy] = useState(false);
+  const [locationDisclosureVisible, setLocationDisclosureVisible] = useState(false);
   const foregroundWatch = useRef<{ remove: () => void } | null>(null);
 
   const t = data?.trip;
@@ -70,6 +72,22 @@ export default function TripDetail() {
   const stageIdx = t
     ? STAGES.indexOf(t.status === "POD_PENDING" ? "UNLOADING" : t.status)
     : -1;
+
+  const beginTracking = async (allowBackground: boolean) => {
+    if (!id) return;
+    const result = await startTripLocationTracking(id, { allowBackground });
+    if (result.mode === "foreground") {
+      foregroundWatch.current?.remove();
+      foregroundWatch.current = result.subscription;
+      if (allowBackground) {
+        toast("Background location was not granted. Tracking will work only while TrackMyRMC is open.", "info");
+      }
+    } else if (result.mode === "denied") {
+      toast("Location permission is required for live mixer tracking", "error");
+    } else if (result.mode === "unavailable") {
+      toast("Location services are unavailable. Turn on GPS for live tracking.", "error");
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -79,22 +97,20 @@ export default function TripDetail() {
     if (!id || !t?.status) return;
 
     if (TERMINAL.has(t.status)) {
+      setLocationDisclosureVisible(false);
       void stopTripLocationTracking();
       return;
     }
 
     if (shouldTrackTrip(t.status)) {
-      void startTripLocationTracking(id).then((result) => {
-        if (cancelled) {
-          if (result.mode === "foreground") result.subscription.remove();
-          return;
-        }
-        if (result.mode === "foreground") {
-          foregroundWatch.current = result.subscription;
-        } else if (result.mode === "denied") {
-          toast("Location permission is required for live mixer tracking", "error");
-        } else if (result.mode === "unavailable") {
-          toast("Location services are unavailable. Turn on GPS for live tracking.", "error");
+      void hasBackgroundLocationPermission().then((alreadyGranted) => {
+        if (cancelled) return;
+        if (alreadyGranted) {
+          void beginTracking(true);
+        } else {
+          // Google Play requires this app-owned prominent disclosure to appear
+          // before Android's location runtime permission prompt.
+          setLocationDisclosureVisible(true);
         }
       });
     }
@@ -104,7 +120,17 @@ export default function TripDetail() {
       foregroundWatch.current?.remove();
       foregroundWatch.current = null;
     };
-  }, [id, t?.status, toast]);
+  }, [id, t?.status]);
+
+  const acceptLocationDisclosure = async () => {
+    setLocationDisclosureVisible(false);
+    await beginTracking(true);
+  };
+
+  const declineLocationDisclosure = () => {
+    setLocationDisclosureVisible(false);
+    toast("Live mixer location sharing remains off. You can continue the trip and enable it later.", "info");
+  };
 
   const advance = async (path: string, msg: string) => {
     setBusy(true);
@@ -251,6 +277,33 @@ export default function TripDetail() {
           )}
         </ScrollView>
       ) : null}
+
+      <Modal
+        visible={locationDisclosureVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={declineLocationDisclosure}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.disclosureCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.disclosureIcon, { backgroundColor: colors.brandSoft }]}>
+              <Ionicons name="location-outline" size={26} color={colors.onBrandSoft} />
+            </View>
+            <AppText variant="title">Location for active deliveries</AppText>
+            <AppText variant="bodyMuted">
+              This app collects location data to enable live mixer delivery tracking even when the app is closed or not in use.
+            </AppText>
+            <AppText variant="bodyMuted">
+              During an active assigned delivery, your location is sent to TrackMyRMC and shared with the assigned plant and the authorized customer tracking view. Tracking stops when the delivery is completed.
+            </AppText>
+            <AppText variant="caption">
+              Location is not used for advertising. You can decline and continue using the trip workflow without background location sharing.
+            </AppText>
+            <Button label="Agree & Continue" onPress={acceptLocationDisclosure} />
+            <Button label="Not now" variant="outline" onPress={declineLocationDisclosure} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -293,4 +346,23 @@ const styles = StyleSheet.create({
   stages: { flexDirection: "row", alignItems: "center" },
   dot: { width: 16, height: 16, borderRadius: 8 },
   bar: { flex: 1, height: 3, marginHorizontal: 2 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.68)",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  disclosureCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    padding: spacing.xl,
+    gap: spacing.md,
+  },
+  disclosureIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
