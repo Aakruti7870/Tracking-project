@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
+import { Linking, PanResponder, Platform, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -59,18 +59,28 @@ export default function PodScreen() {
   ).current;
 
   const pickImage = async (fromCamera: boolean) => {
-    const req = fromCamera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!req.granted) {
-      if (!req.canAskAgain) {
-        toast("Permission blocked. Opening settings…", "error");
-        Linking.openSettings();
-      } else {
-        toast(`${fromCamera ? "Camera" : "Photos"} permission is needed for the site photo`, "info");
+    if (fromCamera) {
+      const req = await ImagePicker.requestCameraPermissionsAsync();
+      if (!req.granted) {
+        if (!req.canAskAgain) {
+          toast("Camera permission is blocked. Opening settings…", "error");
+          Linking.openSettings();
+        } else {
+          toast("Camera permission is needed only to capture the proof-of-delivery site photo", "info");
+        }
+        return;
       }
-      return;
+    } else if (Platform.OS === "ios") {
+      // Android uses the system photo picker so broad photo/storage permission is
+      // not requested. iOS still requires the normal library permission flow.
+      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!req.granted) {
+        if (!req.canAskAgain) Linking.openSettings();
+        else toast("Photos permission is needed only for the site photo you choose", "info");
+        return;
+      }
     }
+
     const res = fromCamera
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6 })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.6 });
@@ -160,6 +170,9 @@ export default function PodScreen() {
 
         <View style={{ gap: spacing.sm }}>
           <AppText variant="heading">Site Photo</AppText>
+          <AppText variant="caption">
+            Camera access is requested only if you tap Camera. On Android, Gallery uses the system photo picker without broad photo or storage access.
+          </AppText>
           {photo ? (
             <View>
               <Image source={{ uri: photo }} style={styles.photo} contentFit="cover" />
