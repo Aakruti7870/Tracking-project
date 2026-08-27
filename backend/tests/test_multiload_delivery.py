@@ -7,7 +7,7 @@ import uuid
 from pymongo import MongoClient
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://tracking-verify.preview.emergentagent.com"
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://aab-release.preview.emergentagent.com"
 API = f"{BASE_URL}/api"
 CUSTOMER = "+919000000001"
 OWNER = "owner@trackmyrmc.test"
