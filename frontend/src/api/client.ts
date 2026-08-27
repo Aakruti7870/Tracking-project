@@ -79,6 +79,10 @@ export async function exchangeGoogleStaffCode(code: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/google/exchange", { code });
 }
 
+export async function demoLogin(role: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/demo-login", { role });
+}
+
 export async function apiGet<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${apiBase()}${path}`, {
     headers: { Authorization: `Bearer ${token}` },

@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
 import { storage } from "@/src/utils/storage";
+import { requestBackgroundLocationConsent } from "@/src/location/BackgroundLocationConsent";
 
 export const TRIP_LOCATION_TASK = "trackmyrmc-active-trip-location";
 const ACTIVE_TRIP_KEY = "tmrmc_active_trip_id";
@@ -103,6 +104,16 @@ export async function startTripLocationTracking(tripId: string): Promise<Trackin
   // instead of making the trip workflow unusable.
   if (Platform.OS === "android") {
     try {
+      const existing = await Location.getBackgroundPermissionsAsync();
+      if (existing.status !== "granted") {
+        // Google Play requires a prominent in-app disclosure BEFORE the OS
+        // background-location prompt. If the driver declines the disclosure,
+        // degrade to foreground-only tracking instead of prompting the OS.
+        const consented = await requestBackgroundLocationConsent();
+        if (!consented) {
+          return { mode: "foreground", subscription: await startForegroundWatcher(tripId) };
+        }
+      }
       const background = await Location.requestBackgroundPermissionsAsync();
       const taskAvailable = await TaskManager.isAvailableAsync();
       if (background.status === "granted" && taskAvailable) {

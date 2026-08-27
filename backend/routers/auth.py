@@ -270,6 +270,70 @@ async def verify_otp(body: VerifyOtpBody):
     return await _issue_session(user, "mobile_otp")
 
 
+class DemoLoginBody(BaseModel):
+    role: str = Field(min_length=2, max_length=40)
+
+
+# Google Play reviewer / demo one-tap login. Only these fixed demo identities
+# can ever be issued a session, and only when ENABLE_DEMO_LOGIN is set. The four
+# primary review roles are self-provisioned if missing so a reviewer can sign in
+# against a fresh backend; the remaining staff roles must be seeded normally.
+DEMO_LOGIN_ACCOUNTS: dict[str, dict[str, str]] = {
+    Role.CUSTOMER.value: {"identifier": "+919000000001", "name": "Demo Customer"},
+    Role.DRIVER.value: {"identifier": "+919000000002", "name": "Demo Driver"},
+    Role.PLANT_OWNER.value: {"identifier": "owner@trackmyrmc.test", "name": "Demo Plant Owner"},
+    Role.AUTHORITY.value: {"identifier": "authority@trackmyrmc.test", "name": "Demo Authority"},
+    Role.ADMIN.value: {"identifier": "admin@trackmyrmc.test", "name": "Demo Plant Admin"},
+    Role.DISPATCHER.value: {"identifier": "dispatcher@trackmyrmc.test", "name": "Demo Dispatcher"},
+    Role.OPERATOR.value: {"identifier": "operator@trackmyrmc.test", "name": "Demo Operator"},
+    Role.SUPERVISOR.value: {"identifier": "supervisor@trackmyrmc.test", "name": "Demo Supervisor"},
+    Role.ACCOUNTANT.value: {"identifier": "accountant@trackmyrmc.test", "name": "Demo Accountant"},
+    Role.QUALITY_ENGINEER.value: {"identifier": "quality@trackmyrmc.test", "name": "Demo Quality Engineer"},
+    Role.FLEET_MANAGER.value: {"identifier": "fleet@trackmyrmc.test", "name": "Demo Fleet Manager"},
+    Role.STORE_MANAGER.value: {"identifier": "store@trackmyrmc.test", "name": "Demo Store Manager"},
+    Role.CENTRAL_ADMIN.value: {"identifier": "central@trackmyrmc.test", "name": "Demo Central Admin"},
+}
+
+SELF_PROVISION_DEMO_ROLES = {
+    Role.CUSTOMER.value,
+    Role.DRIVER.value,
+    Role.PLANT_OWNER.value,
+    Role.AUTHORITY.value,
+}
+
+
+@router.post("/demo-login")
+async def demo_login(body: DemoLoginBody):
+    """One-tap demo sign-in for Google Play reviewers (flag-gated)."""
+    if not settings.ENABLE_DEMO_LOGIN:
+        raise HTTPException(404, "Not found")
+    account = DEMO_LOGIN_ACCOUNTS.get(body.role)
+    if not account:
+        raise HTTPException(400, "Unknown demo role")
+    channel, value = normalize_identifier(account["identifier"])
+    user = await _find_login_user(channel, value)
+    if not user and body.role in SELF_PROVISION_DEMO_ROLES:
+        from models import User
+
+        key = identifier_key(value.lower() if "@" in value else value)
+        new_user = User(
+            name=account["name"],
+            email=value if channel == "email" else None,
+            phone=value if channel == "sms" else None,
+            identifier_keys=[key],
+            roles=[body.role],
+            primary_role=body.role,
+        )
+        try:
+            insert = await users.insert_one(new_user.to_mongo())
+            user = await users.find_one({"_id": insert.inserted_id})
+        except DuplicateKeyError:
+            user = await _find_login_user(channel, value)
+    if not user:
+        raise HTTPException(503, "Demo account is not available on this server")
+    return await _issue_session(user, "demo_login")
+
+
 @router.get("/google/start")
 async def google_start():
     if not (

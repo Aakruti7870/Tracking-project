@@ -68,6 +68,15 @@ const CONTACT_ACTIONS: ContactAction[] = [
   },
 ];
 
+const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
+
+const DEMO_ROLES: { role: string; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
+  { role: "customer", label: "User", icon: "person-outline" },
+  { role: "plant_owner", label: "Owner", icon: "business-outline" },
+  { role: "authority", label: "Authority", icon: "shield-checkmark-outline" },
+  { role: "driver", label: "Driver", icon: "car-outline" },
+];
+
 const GOOGLE_ERRORS: Record<string, string> = {
   account_not_provisioned: "This Google account is not registered as a TrackMyRMC plant user.",
   account_not_ready: "This staff account is not fully assigned yet. Contact your plant administrator.",
@@ -90,7 +99,7 @@ export default function Login() {
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { hydrating, token, user, requestOtp, verify, verifyGoogle } = useAuth();
+  const { hydrating, token, user, requestOtp, verify, verifyGoogle, demoLogin } = useAuth();
 
   const [mode, setMode] = useState<LoginMode>("user");
   const [phase, setPhase] = useState<"enter" | "otp">("enter");
@@ -210,8 +219,23 @@ export default function Login() {
     }
   };
 
-  const openExternal = async (url: string) => {
+  const handleDemoLogin = async (role: string) => {
+    setError(null);
+    setLoading(true);
     try {
+      const me = await demoLogin(role);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast(`Welcome, ${me.name}`, "success");
+      router.replace(roleRouteFor(me.role) as any);
+    } catch (e: any) {
+      setError(e.detail || "Demo login is unavailable");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openExternal = async (url: string) => {    try {
       await Linking.openURL(url);
     } catch {
       toast("Unable to open this link on your device", "error");
@@ -381,6 +405,35 @@ export default function Login() {
             </View>
           )}
 
+          {DEMO_LOGIN_ENABLED ? (
+            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <AppText variant="label" style={styles.demoTitle}>
+                Demo access (Google Play review)
+              </AppText>
+              <View style={styles.demoGrid}>
+                {DEMO_ROLES.map((item) => (
+                  <Pressable
+                    key={item.role}
+                    testID={`demo-login-${item.role}`}
+                    disabled={loading}
+                    onPress={() => handleDemoLogin(item.role)}
+                    style={({ pressed }) => [
+                      styles.demoChip,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: pressed ? colors.brand + "1A" : colors.surface,
+                        opacity: loading ? 0.6 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.icon} size={18} color={colors.brand} />
+                    <AppText style={styles.demoChipLabel}>{item.label}</AppText>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           <View style={styles.legal}>
             <View style={styles.legalRow}>
               <Pressable onPress={() => router.push("/privacy")}>
@@ -540,7 +593,39 @@ const styles = StyleSheet.create({
     marginTop: spacing["2xl"],
     paddingTop: spacing.lg,
   },
-  legalRow: {
+  demoBox: {
+    marginTop: spacing.xl,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  demoTitle: {
+    textAlign: "center",
+  },
+  demoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "center",
+  },
+  demoChip: {
+    minHeight: 44,
+    flexGrow: 1,
+    minWidth: "45%",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  demoChipLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },  legalRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
