@@ -106,7 +106,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             apk=/tmp/trackmyrmc-api24/app-release.apk
             test -s "$apk"
             adb install -r "$apk"
