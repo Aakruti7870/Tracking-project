@@ -36,6 +36,7 @@ from routers import (
     plant_plans,
     plant_discovery,
     play_review,
+    public_policy,
     staff,
     storage,
     workforce,
@@ -109,6 +110,7 @@ async def health():
     return {"status": "healthy", "notifications": provider_status()}
 
 
+app.include_router(public_policy.router)
 app.include_router(meta)
 app.include_router(auth.router)
 app.include_router(play_review.router)
