@@ -1,4 +1,12 @@
-const { withAndroidManifest } = require('@expo/config-plugins');
+const { withAndroidManifest, withGradleProperties } = require('@expo/config-plugins');
+
+const ANDROID_BUILD_PROPERTIES = {
+  'android.minSdkVersion': '23',
+  'android.compileSdkVersion': '36',
+  'android.targetSdkVersion': '36',
+  'android.buildToolsVersion': '36.0.0',
+  'android.ndkVersion': '27.1.12297006',
+};
 
 const BLOCKED_MEDIA_PERMISSIONS = [
   'android.permission.READ_MEDIA_IMAGES',
@@ -11,12 +19,31 @@ const BLOCKED_MEDIA_PERMISSION_SET = new Set(BLOCKED_MEDIA_PERMISSIONS);
 const OPTIONAL_HARDWARE_FEATURES = [
   'android.hardware.camera',
   'android.hardware.camera.autofocus',
+  'android.hardware.camera.flash',
   'android.hardware.location',
   'android.hardware.location.gps',
   'android.hardware.location.network',
+  'android.hardware.screen.portrait',
 ];
 
+function upsertGradleProperty(properties, key, value) {
+  const next = properties.filter(
+    (entry) => !(entry && entry.type === 'property' && entry.key === key),
+  );
+  next.push({ type: 'property', key, value });
+  return next;
+}
+
 module.exports = function withPlayStoreCompatibility(config) {
+  config = withGradleProperties(config, (modConfig) => {
+    let properties = Array.isArray(modConfig.modResults) ? modConfig.modResults : [];
+    for (const [key, value] of Object.entries(ANDROID_BUILD_PROPERTIES)) {
+      properties = upsertGradleProperty(properties, key, value);
+    }
+    modConfig.modResults = properties;
+    return modConfig;
+  });
+
   return withAndroidManifest(config, (modConfig) => {
     const manifest = modConfig.modResults.manifest;
     manifest.$ = manifest.$ || {};
