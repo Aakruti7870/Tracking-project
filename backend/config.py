@@ -67,10 +67,13 @@ class Settings:
     SESSION_TTL_SECONDS: int = int(os.environ.get("SESSION_TTL_SECONDS", 604800))
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
 
-    # Google Play reviewer / demo one-tap login. Safe to enable in any
-    # environment: the /auth/demo-login route only ever issues sessions for the
-    # fixed demo identities and is a no-op (404) when this flag is unset.
-    ENABLE_DEMO_LOGIN: bool = os.environ.get("ENABLE_DEMO_LOGIN", "false").lower() == "true"
+    # Google Play review access. Google requires reusable credentials that bypass
+    # normal OTP / third-party sign-in. This endpoint is disabled unless the
+    # deployment explicitly enables it and supplies a strong server-side code.
+    PLAY_REVIEW_ACCESS_ENABLED: bool = os.environ.get(
+        "PLAY_REVIEW_ACCESS_ENABLED", "false"
+    ).lower() == "true"
+    PLAY_REVIEW_ACCESS_CODE: str = os.environ.get("PLAY_REVIEW_ACCESS_CODE", "").strip()
 
     # Plant/staff Google OAuth. The client secret stays server-side; the Android
     # app receives only a short-lived one-time exchange code after Google login.
@@ -88,6 +91,11 @@ class Settings:
         if self.APP_ENV not in self.VALID_ENVIRONMENTS:
             raise RuntimeError(
                 "APP_ENV must be one of: " + ", ".join(sorted(self.VALID_ENVIRONMENTS))
+            )
+
+        if self.PLAY_REVIEW_ACCESS_ENABLED and len(self.PLAY_REVIEW_ACCESS_CODE) < 10:
+            raise RuntimeError(
+                "PLAY_REVIEW_ACCESS_CODE must contain at least 10 characters when reviewer access is enabled"
             )
 
         if self.is_dev:

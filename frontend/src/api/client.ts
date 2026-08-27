@@ -21,6 +21,8 @@ export type AuthSessionResponse = {
   name: string;
 };
 
+export type PlayReviewRole = "customer" | "plant_owner" | "authority" | "driver";
+
 async function handle<T>(res: Response): Promise<T> {
   let body: any = null;
   try {
@@ -69,6 +71,13 @@ export async function requestOtp(identifier: string) {
 
 export async function verifyOtp(identifier: string, code: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/verify-otp", { identifier, code });
+}
+
+export async function playReviewLogin(role: PlayReviewRole, accessCode: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/play-review", {
+    role,
+    access_code: accessCode,
+  });
 }
 
 export async function startGoogleStaffLogin() {
