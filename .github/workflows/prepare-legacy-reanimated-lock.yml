@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare-lock:
@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20.19.4'
@@ -31,15 +34,32 @@ jobs:
           p.expo.install = p.expo.install || {};
           p.expo.install.exclude = Array.from(new Set([...(p.expo.install.exclude || []), 'react-native-reanimated@~4.1.1']));
           fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          app.expo.newArchEnabled = false;
+          fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
           NODE
           npm install --package-lock-only --ignore-scripts
-          node -e "const p=require('./package.json'); if(p.dependencies['react-native-reanimated']!=='3.19.5') process.exit(1); if(p.dependencies['react-native-worklets']) process.exit(2);"
-          npm ls react-native-reanimated --package-lock-only || true
+          node -e "const p=require('./package.json'); if(p.dependencies['react-native-reanimated']!=='3.19.5') process.exit(1); if(p.dependencies['react-native-worklets']) process.exit(2); const a=require('./app.json'); if(a.expo.newArchEnabled!==false) process.exit(3);"
+      - name: Commit generated migration files to PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- frontend/package.json frontend/package-lock.json frontend/app.json; then
+            echo 'Legacy migration files already committed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/package.json frontend/package-lock.json frontend/app.json
+          git commit -m 'fix(android): use legacy architecture for API23 compatibility'
+          git push origin HEAD:${{ github.head_ref }}
       - uses: actions/upload-artifact@v4
         with:
           name: vc78-legacy-dependency-lock
           path: |
             frontend/package.json
             frontend/package-lock.json
+            frontend/app.json
           if-no-files-found: error
           retention-days: 2
