@@ -5,6 +5,8 @@ import {
   apiGet,
   apiPost,
   exchangeGoogleStaffCode,
+  playReviewLogin,
+  PlayReviewRole,
   requestOtp,
   verifyOtp,
 } from "@/src/api/client";
@@ -33,6 +35,7 @@ type AuthContextValue = {
   requestOtp: typeof requestOtp;
   verify: (identifier: string, code: string) => Promise<Me>;
   verifyGoogle: (code: string) => Promise<Me>;
+  verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
   refreshMe: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -87,6 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
+  const verifyPlayReview = async (role: PlayReviewRole, accessCode: string): Promise<Me> => {
+    const res = await playReviewLogin(role, accessCode);
+    return acceptSession(res.access_token);
+  };
+
   const refreshMe = async () => {
     if (!token) return;
     try {
@@ -118,7 +126,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ hydrating, token, user, requestOtp, verify, verifyGoogle, refreshMe, signOut }}
+      value={{
+        hydrating,
+        token,
+        user,
+        requestOtp,
+        verify,
+        verifyGoogle,
+        verifyPlayReview,
+        refreshMe,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>
