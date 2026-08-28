@@ -1,0 +1,141 @@
+name: Deploy Production Web
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - frontend/**
+      - .github/workflows/deploy-production-web.yml
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Branch, tag, or SHA to deploy
+        required: false
+        default: main
+      service:
+        description: Cloud Run web service name
+        required: false
+        default: tracking-web
+      region:
+        description: Google Cloud region
+        required: false
+        default: asia-south1
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-web-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, deploy, and verify production web
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'tracking-project-preview' }}
+      SERVICE: ${{ inputs.service || 'tracking-web' }}
+      REGION: ${{ inputs.region || 'asia-south1' }}
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify web deployment inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f frontend/Dockerfile
+          test -f frontend/nginx.conf
+          grep -F 'output": "single"' frontend/app.json >/dev/null
+          grep -F 'EXPO_PUBLIC_BACKEND_URL=https://trackmyrmc.com' frontend/Dockerfile >/dev/null
+          echo "Candidate SHA: $(git rev-parse HEAD)"
+          echo "Project: $PROJECT_ID"
+          echo "Service: $SERVICE"
+          echo "Region: $REGION"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy current Expo web app
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROJECT_ID"
+          SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="${SHA:0:12}"
+          gcloud run deploy "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --source frontend \
+            --platform managed \
+            --port 8080 \
+            --allow-unauthenticated \
+            --cpu 1 \
+            --memory 512Mi \
+            --min-instances 0 \
+            --max-instances 5 \
+            --quiet \
+            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions,component=web"
+
+      - name: Resolve web service URL and revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          REVISION="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
+          test -n "$URL"
+          test -n "$REVISION"
+          echo "WEB_URL=$URL" >> "$GITHUB_ENV"
+          echo "WEB_REVISION=$REVISION" >> "$GITHUB_ENV"
+          echo "Web URL: $URL"
+          echo "Ready revision: $REVISION"
+
+      - name: Verify web shell and backend proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /healthz / /login /api/health /privacy_policy /terms /account-deletion; do
+            code="$(curl --retry 6 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/web-response -w '%{http_code}' "${WEB_URL}${path}")"
+            echo "$path -> HTTP $code"
+            test "$code" = "200" || { cat /tmp/web-response; exit 1; }
+            test -s /tmp/web-response || { echo "Empty response for $path"; exit 1; }
+          done
+          grep -F 'healthy' /tmp/web-response >/dev/null 2>&1 || true
+
+      - name: Verify web revision is Ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY="$(gcloud run revisions describe "$WEB_REVISION" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='value(status.conditions[0].status)')"
+          test "$READY" = "True"
+          gcloud run revisions describe "$WEB_REVISION" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='yaml(metadata.name,metadata.labels,status.conditions,status.imageDigest)'
+
+      - name: Report canonical-domain cutover status
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(curl -L -sS https://trackmyrmc.com/ || true)"
+          if printf '%s' "$current" | grep -F 'Track every cubic metre' >/dev/null; then
+            echo "::notice::New web service is healthy, but trackmyrmc.com still serves the previous marketing site. Domain cutover is the remaining step."
+          else
+            echo "Canonical homepage no longer matches the previous marketing shell; verify routing before declaring cutover complete."
+          fi
