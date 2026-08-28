@@ -28,7 +28,32 @@ export type OtpRequestResponse = {
   email?: string;
   message?: string;
   dev_otp?: string;
+  mfa_setup_required?: boolean;
   delivery?: { adapter: string; configured: boolean };
+};
+
+export type StaffAuthMethodResponse = {
+  status: "AUTHENTICATOR_REQUIRED" | "EMAIL_OTP_REQUIRED";
+  email: string;
+  method: "totp" | "email_otp";
+  recovery_available?: boolean;
+  message?: string;
+};
+
+export type MfaEnrollmentStartResponse = {
+  status: "MFA_ENROLLMENT_STARTED";
+  issuer: string;
+  account: string;
+  manual_key: string;
+  otpauth_uri: string;
+  qr_data_uri?: string | null;
+  expires_in: number;
+};
+
+export type MfaEnrollmentConfirmResponse = {
+  status: "MFA_ENABLED";
+  recovery_codes: string[];
+  message: string;
 };
 
 export type PlayReviewRole = "customer" | "plant_owner" | "authority" | "driver";
@@ -83,6 +108,29 @@ export async function requestStaffOtp(identifier: string) {
 
 export async function verifyStaffOtp(identifier: string, code: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/staff/verify-otp", { identifier, code });
+}
+
+export async function staffAuthMethod(identifier: string) {
+  return apiPublicPost<StaffAuthMethodResponse>("/auth/staff/mfa/method", { identifier });
+}
+
+export async function verifyStaffTotp(identifier: string, code: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/staff/mfa/verify-totp", { identifier, code });
+}
+
+export async function verifyStaffRecovery(identifier: string, recoveryCode: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/staff/mfa/verify-recovery", {
+    identifier,
+    recovery_code: recoveryCode,
+  });
+}
+
+export async function startStaffMfaEnrollment(token: string) {
+  return apiPost<MfaEnrollmentStartResponse>("/auth/staff/mfa/enroll/start", token);
+}
+
+export async function confirmStaffMfaEnrollment(token: string, code: string) {
+  return apiPost<MfaEnrollmentConfirmResponse>("/auth/staff/mfa/enroll/confirm", token, { code });
 }
 
 export async function playReviewLogin(role: PlayReviewRole, accessCode: string) {
