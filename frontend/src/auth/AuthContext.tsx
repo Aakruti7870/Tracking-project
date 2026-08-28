@@ -10,8 +10,11 @@ import {
   PlayReviewRole,
   requestOtp,
   requestStaffOtp,
+  staffAuthMethod,
   verifyOtp,
   verifyStaffOtp,
+  verifyStaffRecovery,
+  verifyStaffTotp,
 } from "@/src/api/client";
 import { stopTripLocationTracking } from "@/src/location/tripTracking";
 import { unregisterPushDevice } from "@/src/notifications/pushClient";
@@ -29,6 +32,8 @@ export type Me = {
   plant_id: string | null;
   status: string;
   kyc_status: string;
+  mfa_enabled?: boolean;
+  mfa_configured?: boolean;
 };
 
 type AuthContextValue = {
@@ -37,8 +42,11 @@ type AuthContextValue = {
   user: Me | null;
   requestOtp: typeof requestOtp;
   requestStaffOtp: typeof requestStaffOtp;
+  staffAuthMethod: typeof staffAuthMethod;
   verify: (identifier: string, code: string) => Promise<Me>;
   verifyStaff: (identifier: string, code: string) => Promise<Me>;
+  verifyStaffAuthenticator: (identifier: string, code: string) => Promise<Me>;
+  verifyStaffRecovery: (identifier: string, code: string) => Promise<Me>;
   verifyGoogle: (code: string) => Promise<Me>;
   demoLogin: (role: string) => Promise<Me>;
   verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
@@ -96,6 +104,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
+  const verifyStaffAuthenticator = async (identifier: string, code: string): Promise<Me> => {
+    const res = await verifyStaffTotp(identifier, code);
+    return acceptSession(res.access_token);
+  };
+
+  const verifyStaffRecoveryCode = async (identifier: string, code: string): Promise<Me> => {
+    const res = await verifyStaffRecovery(identifier, code);
+    return acceptSession(res.access_token);
+  };
+
   // Kept for backward compatibility and rollback safety. The normal Plant Staff
   // login UI no longer exposes Google OAuth.
   const verifyGoogle = async (code: string): Promise<Me> => {
@@ -150,8 +168,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         requestOtp,
         requestStaffOtp,
+        staffAuthMethod,
         verify,
         verifyStaff,
+        verifyStaffAuthenticator,
+        verifyStaffRecovery: verifyStaffRecoveryCode,
         verifyGoogle,
         demoLogin,
         verifyPlayReview,
