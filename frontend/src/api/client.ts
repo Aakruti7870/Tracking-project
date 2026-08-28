@@ -21,6 +21,16 @@ export type AuthSessionResponse = {
   name: string;
 };
 
+export type OtpRequestResponse = {
+  status: string;
+  channel: string;
+  expires_in?: number;
+  email?: string;
+  message?: string;
+  dev_otp?: string;
+  delivery?: { adapter: string; configured: boolean };
+};
+
 export type PlayReviewRole = "customer" | "plant_owner" | "authority" | "driver";
 
 async function handle<T>(res: Response): Promise<T> {
@@ -60,17 +70,19 @@ export async function apiPublicPost<T>(path: string, body?: any): Promise<T> {
 }
 
 export async function requestOtp(identifier: string) {
-  return apiPublicPost<{
-    status: string;
-    channel: string;
-    expires_in: number;
-    dev_otp?: string;
-    delivery: { adapter: string; configured: boolean };
-  }>("/auth/request-otp", { identifier });
+  return apiPublicPost<OtpRequestResponse>("/auth/request-otp", { identifier });
 }
 
 export async function verifyOtp(identifier: string, code: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/verify-otp", { identifier, code });
+}
+
+export async function requestStaffOtp(identifier: string) {
+  return apiPublicPost<OtpRequestResponse>("/auth/staff/request-otp", { identifier });
+}
+
+export async function verifyStaffOtp(identifier: string, code: string) {
+  return apiPublicPost<AuthSessionResponse>("/auth/staff/verify-otp", { identifier, code });
 }
 
 export async function playReviewLogin(role: PlayReviewRole, accessCode: string) {

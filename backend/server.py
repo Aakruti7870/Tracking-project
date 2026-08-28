@@ -36,9 +36,11 @@ from routers import (
     payroll_guard,
     plant_plans,
     plant_discovery,
+    plant_onboarding,
     play_review,
     public_policy,
     staff,
+    staff_auth,
     storage,
     workforce,
     workforce_reports,
@@ -114,6 +116,7 @@ async def health():
 app.include_router(public_policy.router)
 app.include_router(meta)
 app.include_router(auth.router)
+app.include_router(staff_auth.router)
 app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
@@ -161,6 +164,7 @@ app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
 app.include_router(plant_discovery.router)
+app.include_router(plant_onboarding.router)
 app.include_router(storage.router)
 
 _is_wildcard_cors = "*" in settings.CORS_ORIGINS

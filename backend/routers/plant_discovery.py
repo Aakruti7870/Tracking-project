@@ -1,4 +1,4 @@
-"""Authority review for Google-discovered RMC plant listing requests."""
+"""Authority review for Google-discovered and self-onboarded RMC plants."""
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -57,8 +57,17 @@ async def _provision_plant_owner(body: OwnerAssignmentBody) -> dict:
             raise HTTPException(409, "This email or mobile already belongs to another account")
         await users.update_one(
             {"_id": owner["_id"]},
-            {"$set": {"name": body.name.strip(), "email": email or owner.get("email"), "phone": phone or owner.get("phone")},
-             "$addToSet": {"identifier_keys": {"$each": keys}, "roles": Role.PLANT_OWNER.value}},
+            {
+                "$set": {
+                    "name": body.name.strip(),
+                    "email": email or owner.get("email"),
+                    "phone": phone or owner.get("phone"),
+                },
+                "$addToSet": {
+                    "identifier_keys": {"$each": keys},
+                    "roles": Role.PLANT_OWNER.value,
+                },
+            },
         )
         return {"id": str(owner["_id"]), "created": False}
 
@@ -87,6 +96,8 @@ def _oid(value: str):
 def _serialize(doc: dict) -> dict:
     return {
         "id": str(doc["_id"]),
+        "request_number": doc.get("request_number"),
+        "source": doc.get("source"),
         "google_place_id": doc.get("google_place_id"),
         "name": doc.get("name"),
         "address": doc.get("address"),
@@ -103,6 +114,9 @@ def _serialize(doc: dict) -> dict:
         "requested_by": doc.get("requested_by"),
         "requested_role": doc.get("requested_role"),
         "claim_requested": bool(doc.get("claim_requested")),
+        "applicant_owner_name": doc.get("applicant_owner_name"),
+        "applicant_email": doc.get("applicant_email"),
+        "applicant_mobile": doc.get("applicant_mobile"),
         "plant_id": doc.get("plant_id"),
         "reject_reason": doc.get("reject_reason"),
         "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
@@ -111,6 +125,7 @@ def _serialize(doc: dict) -> dict:
 
 @router.get("/requests")
 async def list_requests(ctx: dict = Depends(reviewer_only)):
+    del ctx
     docs = await plant_listing_requests.find({"status": "PENDING"}).sort("updated_at", -1).to_list(500)
     return {"requests": [_serialize(d) for d in docs]}
 
@@ -169,7 +184,10 @@ async def bulk_import_google_places(body: BulkGoogleImportBody, ctx: dict = Depe
             result = await plant_listing_requests.insert_one(payload)
             request_id = str(result.inserted_id)
         await write_audit(
-            ctx["user_id"], "plant_listing.bulk_import", "plant_listing_request", request_id,
+            ctx["user_id"],
+            "plant_listing.bulk_import",
+            "plant_listing_request",
+            request_id,
             {"google_place_id": place_id},
         )
         imported.append({"place_id": place_id, "request_id": request_id})
@@ -178,7 +196,7 @@ async def bulk_import_google_places(body: BulkGoogleImportBody, ctx: dict = Depe
 
 @router.post("/requests/bulk-approve")
 async def bulk_approve_listings(body: BulkApproveBody, ctx: dict = Depends(reviewer_only)):
-    """Approve reviewed requests without assigning owners; plants enter pending_setup."""
+    """Approve reviewed requests; self-onboarding carries its submitted owner details."""
     request_ids = list(dict.fromkeys(body.request_ids))
     approved = []
     skipped = []
@@ -189,6 +207,17 @@ async def bulk_approve_listings(body: BulkApproveBody, ctx: dict = Depends(revie
         except HTTPException as exc:
             skipped.append({"request_id": request_id, "reason": str(exc.detail)})
     return {"status": "COMPLETED", "approved": approved, "skipped": skipped}
+
+
+def _submitted_owner(req: dict) -> OwnerAssignmentBody | None:
+    if req.get("source") != "self_onboarding":
+        return None
+    name = str(req.get("applicant_owner_name") or "").strip()
+    email = str(req.get("applicant_email") or "").strip() or None
+    phone = str(req.get("applicant_mobile") or "").strip() or None
+    if len(name) < 2 or not (email or phone):
+        return None
+    return OwnerAssignmentBody(name=name, email=email, phone=phone)
 
 
 @router.post("/requests/{request_id}/approve")
@@ -205,17 +234,23 @@ async def approve_listing(
     if req.get("status") != "PENDING":
         raise HTTPException(409, "Only pending plant listings can be approved")
 
+    if body is None:
+        body = _submitted_owner(req)
+
     place_id = req.get("google_place_id")
-    existing = await plants.find_one({"google_place_id": place_id})
+    real_google_place = bool(place_id and not str(place_id).startswith("onboarding:"))
+    existing = await plants.find_one({"google_place_id": place_id}) if real_google_place else None
     if existing and existing.get("owner_id") and body:
         raise HTTPException(409, "Plant already has an owner; use the controlled owner-replacement flow")
+
+    if req.get("source") == "self_onboarding" and body is None:
+        raise HTTPException(422, "Self-onboarding request is missing valid Plant Owner details")
+
     now = datetime.now(timezone.utc)
     owner = await _provision_plant_owner(body) if body else None
     if existing:
         plant_id = str(existing["_id"])
     else:
-        # Google confirms the business/location, but TrackMyRMC still requires
-        # operational setup (grades/rates/owner details) before order placement.
         plant_doc = {
             "name": req.get("name"),
             "city": req.get("city"),
@@ -230,22 +265,25 @@ async def approve_listing(
             "service_area_km": 0,
             "status": "pending_setup",
             "verified": True,
-            "google_place_id": place_id,
             "google_maps_uri": req.get("google_maps_uri"),
-            "source": "google_places",
+            "source": "google_places" if real_google_place else "self_onboarding",
             "approved_by": ctx["user_id"],
             "approved_at": now,
             "created_at": now,
             "updated_at": now,
         }
+        if real_google_place:
+            plant_doc["google_place_id"] = place_id
         if owner:
             plant_doc["owner_id"] = owner["id"]
-        elif req.get("claim_requested") and req.get("requested_role") == Role.PLANT_OWNER.value:
+        elif req.get("claim_requested") and req.get("requested_role") == Role.PLANT_OWNER.value and req.get("requested_by"):
             plant_doc["owner_id"] = req.get("requested_by")
         try:
             result = await plants.insert_one(plant_doc)
             plant_id = str(result.inserted_id)
         except DuplicateKeyError:
+            if not real_google_place:
+                raise HTTPException(409, "Plant registration conflict; reload and retry")
             existing = await plants.find_one({"google_place_id": place_id})
             if not existing:
                 raise HTTPException(409, "This Google plant is already registered")
@@ -255,33 +293,43 @@ async def approve_listing(
         current_owner = existing.get("owner_id")
         if current_owner and current_owner != owner["id"]:
             raise HTTPException(409, "Plant already has a different owner")
-        await plants.update_one({"_id": existing["_id"]}, {"$set": {"owner_id": owner["id"], "updated_at": now}})
+        await plants.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"owner_id": owner["id"], "updated_at": now}},
+        )
 
     await plant_listing_requests.update_one(
         {"_id": req["_id"]},
-        {"$set": {
-            "status": "APPROVED",
-            "plant_id": plant_id,
-            "reviewed_by": ctx["user_id"],
-            "reviewed_at": now,
-            "updated_at": now,
-        }},
+        {
+            "$set": {
+                "status": "APPROVED",
+                "plant_id": plant_id,
+                "reviewed_by": ctx["user_id"],
+                "reviewed_at": now,
+                "updated_at": now,
+            }
+        },
     )
     await write_audit(
         ctx["user_id"],
         "plant_listing.approve",
         "plant_listing_request",
         request_id,
-        {"plant_id": plant_id, "google_place_id": place_id, "owner_id": owner["id"] if owner else None},
+        {"plant_id": plant_id, "google_place_id": place_id if real_google_place else None, "owner_id": owner["id"] if owner else None},
     )
     if owner:
         await write_audit(
-            ctx["user_id"], "plant_owner.assign", "plant", plant_id,
+            ctx["user_id"],
+            "plant_owner.assign",
+            "plant",
+            plant_id,
             {"owner_id": owner["id"], "account_created": owner["created"]},
         )
         await record_notification(
-            owner["id"], "plant_owner", "Plant Owner access enabled",
-            f"You can now sign in with OTP and manage {req.get('name') or 'your RMC plant'}.",
+            owner["id"],
+            "plant_owner",
+            "Plant Owner access enabled",
+            f"You can now sign in with email OTP and manage {req.get('name') or 'your RMC plant'}.",
         )
     if req.get("requested_by"):
         await record_notification(
@@ -295,10 +343,13 @@ async def approve_listing(
 
 @router.get("/unowned-plants")
 async def list_unowned_plants(ctx: dict = Depends(reviewer_only)):
-    docs = await plants.find({
-        "$or": [{"owner_id": None}, {"owner_id": {"$exists": False}}],
-        "status": {"$ne": "deleted"},
-    }).sort("name", 1).to_list(500)
+    del ctx
+    docs = await plants.find(
+        {
+            "$or": [{"owner_id": None}, {"owner_id": {"$exists": False}}],
+            "status": {"$ne": "deleted"},
+        }
+    ).sort("name", 1).to_list(500)
     return {
         "plants": [
             {
@@ -338,12 +389,17 @@ async def assign_first_owner(
         raise HTTPException(409, "Plant ownership changed concurrently; reload and retry")
 
     await write_audit(
-        ctx["user_id"], "plant_owner.assign", "plant", plant_id,
+        ctx["user_id"],
+        "plant_owner.assign",
+        "plant",
+        plant_id,
         {"owner_id": owner["id"], "account_created": owner["created"]},
     )
     await record_notification(
-        owner["id"], "plant_owner", "Plant Owner access enabled",
-        f"You can now sign in with OTP and manage {plant.get('name') or 'your RMC plant'}.",
+        owner["id"],
+        "plant_owner",
+        "Plant Owner access enabled",
+        f"You can now sign in with email OTP and manage {plant.get('name') or 'your RMC plant'}.",
     )
     return {"status": "ASSIGNED", "plant_id": plant_id, "owner_id": owner["id"]}
 
@@ -363,13 +419,15 @@ async def reject_listing(
     reason = (body.reason or "Not approved by Authority").strip()
     await plant_listing_requests.update_one(
         {"_id": req["_id"]},
-        {"$set": {
-            "status": "REJECTED",
-            "reject_reason": reason,
-            "reviewed_by": ctx["user_id"],
-            "reviewed_at": now,
-            "updated_at": now,
-        }},
+        {
+            "$set": {
+                "status": "REJECTED",
+                "reject_reason": reason,
+                "reviewed_by": ctx["user_id"],
+                "reviewed_at": now,
+                "updated_at": now,
+            }
+        },
     )
     await write_audit(
         ctx["user_id"],

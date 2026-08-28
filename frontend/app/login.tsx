@@ -17,9 +17,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
 
-import { startGoogleStaffLogin } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { roleRouteFor } from "@/src/auth/roleRoutes";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -30,11 +28,9 @@ import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const HERO = require("../assets/images/transit-mixer.jpg");
-const GOOGLE_APP_REDIRECT = "trackmyrmc://auth/google";
-
-WebBrowser.maybeCompleteAuthSession();
 
 type LoginMode = "user" | "plant";
+type LoginPhase = "enter" | "otp";
 
 type ContactAction = {
   label: string;
@@ -71,7 +67,6 @@ const CONTACT_ACTIONS: ContactAction[] = [
 ];
 
 const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
-
 const DEMO_ROLES: { role: string; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
   { role: "customer", label: "User", icon: "person-outline" },
   { role: "plant_owner", label: "Owner", icon: "business-outline" },
@@ -79,38 +74,34 @@ const DEMO_ROLES: { role: string; label: string; icon: React.ComponentProps<type
   { role: "driver", label: "Driver", icon: "car-outline" },
 ];
 
-const GOOGLE_ERRORS: Record<string, string> = {
-  account_not_provisioned: "This Google account is not registered as a TrackMyRMC plant user.",
-  account_not_ready: "This staff account is not fully assigned yet. Contact your plant administrator.",
-  account_unavailable: "This staff account is not currently available.",
-  use_mobile_login: "Customers and drivers must use User Login with mobile OTP.",
-  google_cancelled: "Google sign-in was cancelled.",
-  google_invalid_response: "Google sign-in returned an invalid response.",
-  google_invalid_state: "Google sign-in expired. Please try again.",
-  google_exchange_failed: "Google could not complete sign-in. Please try again.",
-  google_unavailable: "Google sign-in is temporarily unavailable.",
-  google_missing_identity: "Google did not return an account identity.",
-  google_identity_invalid: "Google account verification failed.",
-  google_email_unverified: "Use a Google account with a verified email address.",
-  google_email_invalid: "Google returned an invalid email address.",
-  google_retry: "Google sign-in could not finish. Please try again.",
-};
+const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { hydrating, token, user, requestOtp, verify, verifyGoogle, demoLogin } = useAuth();
+  const {
+    hydrating,
+    token,
+    user,
+    requestOtp,
+    requestStaffOtp,
+    verify,
+    verifyStaff,
+    demoLogin,
+  } = useAuth();
 
   const [mode, setMode] = useState<LoginMode>("user");
-  const [phase, setPhase] = useState<"enter" | "otp">("enter");
+  const [phase, setPhase] = useState<LoginPhase>("enter");
   const [mobile, setMobile] = useState("");
+  const [plantEmail, setPlantEmail] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
+  const [onboardingRequired, setOnboardingRequired] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
@@ -118,22 +109,28 @@ export default function Login() {
     if (!hydrating && token && user) router.replace(roleRouteFor(user.role) as any);
   }, [hydrating, token, user, router]);
 
+  const clearTimer = () => {
+    if (timer.current) clearInterval(timer.current);
+    timer.current = null;
+  };
+
   const resetEntry = (nextMode: LoginMode) => {
     setMode(nextMode);
     setPhase("enter");
     setCode("");
     setError(null);
     setCountdown(0);
-    if (timer.current) clearInterval(timer.current);
+    setOnboardingRequired(false);
+    clearTimer();
   };
 
-  const startCountdown = (secs: number) => {
-    setCountdown(secs);
-    if (timer.current) clearInterval(timer.current);
+  const startCountdown = (seconds: number) => {
+    setCountdown(seconds);
+    clearTimer();
     timer.current = setInterval(() => {
       setCountdown((current) => {
         if (current <= 1) {
-          if (timer.current) clearInterval(timer.current);
+          clearTimer();
           return 0;
         }
         return current - 1;
@@ -141,7 +138,7 @@ export default function Login() {
     }, 1000);
   };
 
-  const handleSendOtp = async () => {
+  const handleSendUserOtp = async () => {
     setError(null);
     if (mobile.length !== 10) {
       setError("Enter a valid 10-digit mobile number");
@@ -150,13 +147,13 @@ export default function Login() {
     const fullNumber = `+91${mobile}`;
     setLoading(true);
     try {
-      const res = await requestOtp(fullNumber);
-      if (res.channel !== "sms") throw { detail: "User Login requires mobile OTP" };
+      const response = await requestOtp(fullNumber);
+      if (response.channel !== "sms") throw { detail: "User Login requires mobile OTP" };
       setIdentifier(fullNumber);
       setCode("");
       setPhase("otp");
       startCountdown(30);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast("OTP sent by SMS", "success");
     } catch (e: any) {
       setError(e.detail || "Could not send OTP");
@@ -165,11 +162,43 @@ export default function Login() {
     }
   };
 
-  const handleResend = async () => {
-    if (countdown <= 0) await handleSendOtp();
+  const handleSendStaffOtp = async () => {
+    setError(null);
+    setOnboardingRequired(false);
+    const email = plantEmail.trim().toLowerCase();
+    if (!validEmail(email)) {
+      setError("Enter a valid approved email address");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await requestStaffOtp(email);
+      if (response.status === "ONBOARDING_REQUIRED") {
+        setPlantEmail(response.email || email);
+        setOnboardingRequired(true);
+        setPhase("enter");
+        setCode("");
+        clearTimer();
+        return;
+      }
+      if (response.status !== "OTP_SENT" || response.channel !== "email") {
+        throw { detail: "Plant Staff email verification could not start" };
+      }
+      setPlantEmail(email);
+      setIdentifier(email);
+      setCode("");
+      setPhase("otp");
+      startCountdown(30);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast("OTP sent to your approved email", "success");
+    } catch (e: any) {
+      setError(e.detail || "Could not send email OTP");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerify = async () => {
+  const handleVerifyUser = async () => {
     setError(null);
     if (code.trim().length !== 6) {
       setError("Enter the 6-digit OTP");
@@ -178,47 +207,41 @@ export default function Login() {
     setLoading(true);
     try {
       const me = await verify(identifier, code.trim());
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast(`Welcome, ${me.name}`, "success");
       router.replace(roleRouteFor(me.role) as any);
     } catch (e: any) {
       setError(e.detail || "Invalid OTP");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleVerifyStaff = async () => {
     setError(null);
+    if (code.trim().length !== 6) {
+      setError("Enter the 6-digit OTP");
+      return;
+    }
     setLoading(true);
     try {
-      const { authorization_url } = await startGoogleStaffLogin();
-      const result = await WebBrowser.openAuthSessionAsync(authorization_url, GOOGLE_APP_REDIRECT);
-      if (result.type === "cancel" || result.type === "dismiss") return;
-      if (result.type !== "success" || !("url" in result) || !result.url) {
-        throw { detail: "Google sign-in did not complete" };
-      }
-
-      const parsed = Linking.parse(result.url);
-      const oauthError = parsed.queryParams?.error;
-      if (oauthError) {
-        const key = String(oauthError);
-        throw { detail: GOOGLE_ERRORS[key] || "Google sign-in failed" };
-      }
-      const exchangeCode = parsed.queryParams?.code;
-      if (!exchangeCode) throw { detail: "Google sign-in code was not returned" };
-
-      const me = await verifyGoogle(String(exchangeCode));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const me = await verifyStaff(identifier, code.trim());
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast(`Welcome, ${me.name}`, "success");
       router.replace(roleRouteFor(me.role) as any);
     } catch (e: any) {
-      setError(e.detail || "Google sign-in failed");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError(e.detail || "Invalid or expired email OTP");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const resendCurrentOtp = async () => {
+    if (countdown > 0) return;
+    if (mode === "user") await handleSendUserOtp();
+    else await handleSendStaffOtp();
   };
 
   const handleDemoLogin = async (role: string) => {
@@ -226,18 +249,18 @@ export default function Login() {
     setLoading(true);
     try {
       const me = await demoLogin(role);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast(`Welcome, ${me.name}`, "success");
       router.replace(roleRouteFor(me.role) as any);
     } catch (e: any) {
       setError(e.detail || "Demo login is unavailable");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
     }
   };
 
-  const openExternal = async (url: string) => {    try {
+  const openExternal = async (url: string) => {
+    try {
       await Linking.openURL(url);
     } catch {
       toast("Unable to open this link on your device", "error");
@@ -248,34 +271,106 @@ export default function Login() {
   const ACCOUNT_DELETION_URL = "https://trackmyrmc.com/account-deletion";
 
   const confirmAccountDeletion = () => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync();
     const title = "Delete your TrackMyRMC account?";
     const body =
-      "You are about to open the TrackMyRMC account-deletion portal. On the next page you will verify with a captcha and confirm your mobile number or email, and then your account and personal profile data will be deleted permanently. This cannot be undone.\n\nBusiness records (orders, challans, invoices) that are legally required may be retained in anonymized form.\n\nProceed to the deletion portal?";
-    const proceed = () => {
-      void openExternal(ACCOUNT_DELETION_URL);
-    };
+      "You are about to open the TrackMyRMC account-deletion portal. You will verify ownership before deletion. Personal profile data is deleted permanently; legally required business records may be retained in anonymized form.";
+    const proceed = () => { void openExternal(ACCOUNT_DELETION_URL); };
     if (Platform.OS === "web") {
-      // React Native Alert.alert is a no-op on RN Web; fall back to the browser
-      // confirm dialog so pre-login account deletion is still gated by an
-      // explicit user confirmation before we open the deletion portal.
-      const ok =
-        typeof window !== "undefined" &&
-        typeof window.confirm === "function" &&
-        window.confirm(`${title}\n\n${body}`);
+      const ok = typeof window !== "undefined" && typeof window.confirm === "function" && window.confirm(`${title}\n\n${body}`);
       if (ok) proceed();
       return;
     }
-    Alert.alert(
-      title,
-      body,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Continue", style: "destructive", onPress: proceed },
-      ],
-      { cancelable: true },
-    );
+    Alert.alert(title, body, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Continue", style: "destructive", onPress: proceed },
+    ]);
   };
+
+  const openOnboarding = () => {
+    router.push({
+      pathname: "/plant-onboarding" as any,
+      params: { email: plantEmail.trim().toLowerCase() },
+    } as any);
+  };
+
+  const otpPanel = mode === "user" ? (
+    <View style={styles.formGap}>
+      <AppText variant="heading">Verify OTP</AppText>
+      <AppText variant="bodyMuted">OTP sent to +91 {mobile}</AppText>
+      <Input
+        testID="login-otp-input"
+        label="One-time password"
+        value={code}
+        onChangeText={(text) => {
+          setCode(text.replace(/[^0-9]/g, "").slice(0, 6));
+          setError(null);
+        }}
+        placeholder="••••••"
+        keyboardType="number-pad"
+        maxLength={6}
+        center
+        autoFocus
+        error={error}
+      />
+      <Button
+        testID="login-verify-button"
+        label="Verify & Login"
+        onPress={handleVerifyUser}
+        loading={loading}
+        disabled={code.length !== 6}
+        icon={<Ionicons name="lock-open-outline" size={18} color={colors.onBrand} />}
+      />
+      <View style={styles.resendRow}>
+        <Pressable onPress={() => { setPhase("enter"); setCode(""); setError(null); clearTimer(); }}>
+          <AppText variant="label" color={colors.brand}>← Change number</AppText>
+        </Pressable>
+        <Pressable testID="login-resend-otp" onPress={resendCurrentOtp} disabled={countdown > 0}>
+          <AppText variant="label" color={countdown > 0 ? colors.onSurfaceTertiary : colors.brand}>
+            {countdown > 0 ? `Resend in ${countdown}s` : "Resend OTP"}
+          </AppText>
+        </Pressable>
+      </View>
+    </View>
+  ) : (
+    <View style={styles.formGap}>
+      <AppText variant="heading">Verify Email OTP</AppText>
+      <AppText variant="bodyMuted">OTP sent to {plantEmail}</AppText>
+      <Input
+        testID="login-plant-otp-input"
+        label="One-time password"
+        value={code}
+        onChangeText={(text) => {
+          setCode(text.replace(/[^0-9]/g, "").slice(0, 6));
+          setError(null);
+        }}
+        placeholder="••••••"
+        keyboardType="number-pad"
+        maxLength={6}
+        center
+        autoFocus
+        error={error}
+      />
+      <Button
+        testID="login-plant-verify-button"
+        label="Verify & Login"
+        onPress={handleVerifyStaff}
+        loading={loading}
+        disabled={code.length !== 6}
+        icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />}
+      />
+      <View style={styles.resendRow}>
+        <Pressable onPress={() => { setPhase("enter"); setCode(""); setError(null); clearTimer(); }}>
+          <AppText variant="label" color={colors.brand}>← Change email</AppText>
+        </Pressable>
+        <Pressable testID="login-plant-resend-otp" onPress={resendCurrentOtp} disabled={countdown > 0}>
+          <AppText variant="label" color={countdown > 0 ? colors.onSurfaceTertiary : colors.brand}>
+            {countdown > 0 ? `Resend in ${countdown}s` : "Resend OTP"}
+          </AppText>
+        </Pressable>
+      </View>
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -306,10 +401,7 @@ export default function Login() {
               onPress={() => resetEntry("user")}
               style={[styles.segment, mode === "user" && { backgroundColor: colors.brand }]}
             >
-              <AppText
-                style={styles.segmentLabel}
-                color={mode === "user" ? colors.onBrand : colors.onSurfaceTertiary}
-              >
+              <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onBrand : colors.onSurfaceTertiary}>
                 USER LOGIN
               </AppText>
             </Pressable>
@@ -318,133 +410,110 @@ export default function Login() {
               onPress={() => resetEntry("plant")}
               style={[styles.segment, mode === "plant" && { backgroundColor: colors.brand }]}
             >
-              <AppText
-                style={styles.segmentLabel}
-                color={mode === "plant" ? colors.onBrand : colors.onSurfaceTertiary}
-              >
-                PLANT USER LOGIN
+              <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onBrand : colors.onSurfaceTertiary}>
+                PLANT STAFF LOGIN
               </AppText>
             </Pressable>
           </View>
 
-          {mode === "user" ? (
-            phase === "enter" ? (
-              <View style={styles.formGap}>
-                <AppText variant="heading">Mobile Login</AppText>
-                <View
-                  style={[
-                    styles.phoneInputWrap,
-                    {
-                      borderColor: error ? colors.error : colors.border,
-                      backgroundColor: colors.surfaceSecondary,
-                    },
-                  ]}
-                >
-                  <View style={[styles.prefix, { borderRightColor: colors.border }]}>
-                    <AppText style={styles.prefixText}>+91</AppText>
-                  </View>
-                  <TextInput
-                    testID="login-mobile-input"
-                    value={mobile}
-                    onChangeText={(text) => {
-                      setMobile(text.replace(/\D/g, "").slice(0, 10));
-                      setError(null);
-                    }}
-                    placeholder="10-digit mobile number"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    keyboardType="number-pad"
-                    maxLength={10}
-                    autoFocus
-                    style={[styles.phoneInput, { color: colors.onSurface }]}
-                  />
-                </View>
-                {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
-                <Button
-                  testID="login-send-otp-button"
-                  label="Send OTP"
-                  onPress={handleSendOtp}
-                  loading={loading}
-                  disabled={mobile.length !== 10}
-                  icon={<Ionicons name="phone-portrait-outline" size={18} color={colors.onBrand} />}
-                />
-              </View>
-            ) : (
-              <View style={styles.formGap}>
-                <AppText variant="heading">Verify OTP</AppText>
-                <AppText variant="bodyMuted">OTP sent to +91 {mobile}</AppText>
-                <Input
-                  testID="login-otp-input"
-                  label="One-time password"
-                  value={code}
-                  onChangeText={(text) => {
-                    setCode(text.replace(/[^0-9]/g, "").slice(0, 6));
-                    setError(null);
-                  }}
-                  placeholder="••••••"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  center
-                  autoFocus
-                  error={error}
-                />
-                <Button
-                  testID="login-verify-button"
-                  label="Verify & Login"
-                  onPress={handleVerify}
-                  loading={loading}
-                  disabled={code.length !== 6}
-                  icon={<Ionicons name="lock-open-outline" size={18} color={colors.onBrand} />}
-                />
-                <View style={styles.resendRow}>
-                  <Pressable
-                    testID="login-change-identifier"
-                    onPress={() => {
-                      setPhase("enter");
-                      setCode("");
-                      setError(null);
-                    }}
-                  >
-                    <AppText variant="label" color={colors.brand}>← Change number</AppText>
-                  </Pressable>
-                  <Pressable testID="login-resend-otp" onPress={handleResend} disabled={countdown > 0}>
-                    <AppText variant="label" color={countdown > 0 ? colors.onSurfaceTertiary : colors.brand}>
-                      {countdown > 0 ? `Resend in ${countdown}s` : "Resend OTP"}
-                    </AppText>
-                  </Pressable>
-                </View>
-              </View>
-            )
-          ) : (
+          {phase === "otp" ? otpPanel : mode === "user" ? (
             <View style={styles.formGap}>
-              <AppText variant="heading">Plant User Login</AppText>
-              <Pressable
-                testID="login-google-button"
-                accessibilityRole="button"
-                onPress={handleGoogleLogin}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.googleButton,
-                  {
-                    borderColor: colors.border,
-                    backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
-                    opacity: loading ? 0.65 : 1,
-                  },
+              <AppText variant="heading">Mobile Login</AppText>
+              <View
+                style={[
+                  styles.phoneInputWrap,
+                  { borderColor: error ? colors.error : colors.border, backgroundColor: colors.surfaceSecondary },
                 ]}
               >
-                <View style={styles.googleMark}>
-                  <AppText style={styles.googleLetter}>G</AppText>
+                <View style={[styles.prefix, { borderRightColor: colors.border }]}>
+                  <AppText style={styles.prefixText}>+91</AppText>
                 </View>
-                <AppText style={styles.googleButtonText}>Continue with Google</AppText>
-              </Pressable>
+                <TextInput
+                  testID="login-mobile-input"
+                  value={mobile}
+                  onChangeText={(text) => {
+                    setMobile(text.replace(/\D/g, "").slice(0, 10));
+                    setError(null);
+                  }}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  style={[styles.phoneInput, { color: colors.onSurface }]}
+                />
+              </View>
               {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
+              <Button
+                testID="login-send-otp-button"
+                label="Send OTP"
+                onPress={handleSendUserOtp}
+                loading={loading}
+                disabled={mobile.length !== 10}
+                icon={<Ionicons name="phone-portrait-outline" size={18} color={colors.onBrand} />}
+              />
+            </View>
+          ) : (
+            <View style={styles.formGap}>
+              <View style={{ gap: spacing.xs }}>
+                <AppText variant="heading">Plant Staff Login</AppText>
+                <AppText variant="bodyMuted">
+                  Use the email approved for your TrackMyRMC Plant Owner or staff account.
+                </AppText>
+              </View>
+              <Input
+                testID="login-plant-email-input"
+                label="Email address"
+                value={plantEmail}
+                onChangeText={(text) => {
+                  setPlantEmail(text.trimStart().toLowerCase());
+                  setError(null);
+                  setOnboardingRequired(false);
+                }}
+                placeholder="name@company.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                error={error}
+              />
+              <Button
+                testID="login-plant-send-otp"
+                label="Generate OTP"
+                onPress={handleSendStaffOtp}
+                loading={loading}
+                disabled={!validEmail(plantEmail)}
+                icon={<Ionicons name="mail-outline" size={18} color={colors.onBrand} />}
+              />
+
+              {onboardingRequired ? (
+                <View
+                  testID="login-onboarding-banner"
+                  style={[styles.onboardingCard, { borderColor: colors.brand + "55", backgroundColor: colors.brandSoft }]}
+                >
+                  <View style={[styles.onboardingIcon, { backgroundColor: colors.surface }]}>
+                    <Ionicons name="business-outline" size={22} color={colors.brand} />
+                  </View>
+                  <View style={{ gap: spacing.xs }}>
+                    <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }}>
+                      Welcome to TrackMyRMC
+                    </AppText>
+                    <AppText variant="caption">
+                      This email is not currently associated with an approved TrackMyRMC plant account. If you are a Plant Owner or partner, submit your plant for onboarding.
+                    </AppText>
+                  </View>
+                  <Button
+                    testID="login-get-onboard"
+                    label="Get Onboard"
+                    onPress={openOnboarding}
+                    icon={<Ionicons name="arrow-forward-outline" size={18} color={colors.onBrand} />}
+                  />
+                </View>
+              ) : null}
             </View>
           )}
 
           {DEMO_LOGIN_ENABLED ? (
             <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-              <AppText variant="label" style={styles.demoTitle}>
-                Demo access (Google Play review)
-              </AppText>
+              <AppText variant="label" style={styles.demoTitle}>Demo access (Google Play review)</AppText>
               <View style={styles.demoGrid}>
                 {DEMO_ROLES.map((item) => (
                   <Pressable
@@ -473,49 +542,29 @@ export default function Login() {
             <View style={styles.legalCardsRow}>
               <Pressable
                 testID="login-privacy-card"
-                accessibilityRole="link"
-                accessibilityLabel="Privacy Policy"
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  void openExternal(PRIVACY_POLICY_URL);
-                }}
-                style={[
-                  styles.legalCard,
-                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
-                ]}
+                onPress={() => { void Haptics.selectionAsync(); void openExternal(PRIVACY_POLICY_URL); }}
+                style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
               >
                 <View style={[styles.legalCardIcon, { backgroundColor: colors.brand + "1A" }]}>
-                  <Ionicons name="shield-checkmark-outline" size={22} color={colors.brand} />
+                  <Ionicons name="shield-checkmark-outline" size={21} color={colors.brand} />
                 </View>
                 <View style={styles.legalCardBody}>
                   <AppText style={styles.legalCardTitle}>Privacy Policy</AppText>
-                  <AppText style={styles.legalCardSub} numberOfLines={2}>
-                    How TrackMyRMC uses your data
-                  </AppText>
+                  <AppText style={styles.legalCardSub}>How TrackMyRMC uses your data</AppText>
                 </View>
-                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
               </Pressable>
-
               <Pressable
                 testID="login-delete-account-card"
-                accessibilityRole="button"
-                accessibilityLabel="Delete Account"
                 onPress={confirmAccountDeletion}
-                style={[
-                  styles.legalCard,
-                  { borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
-                ]}
+                style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
               >
                 <View style={[styles.legalCardIcon, { backgroundColor: "#E45B5B22" }]}>
-                  <Ionicons name="trash-outline" size={22} color="#E45B5B" />
+                  <Ionicons name="trash-outline" size={21} color="#E45B5B" />
                 </View>
                 <View style={styles.legalCardBody}>
                   <AppText style={styles.legalCardTitle}>Delete Account</AppText>
-                  <AppText style={styles.legalCardSub} numberOfLines={2}>
-                    Erase your account without signing in
-                  </AppText>
+                  <AppText style={styles.legalCardSub}>Erase your account without signing in</AppText>
                 </View>
-                <Ionicons name="open-outline" size={16} color={colors.onSurface} />
               </Pressable>
             </View>
 
@@ -537,16 +586,10 @@ export default function Login() {
               Powered by <AppText variant="caption" style={styles.goldETech}>GOLD e TECH</AppText>
             </AppText>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.contactRow}
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contactRow}>
               {CONTACT_ACTIONS.map((action) => (
                 <Pressable
                   key={action.label}
-                  accessibilityRole="link"
-                  accessibilityLabel={`${action.label}: ${action.detail}`}
                   onPress={() => openExternal(action.url)}
                   style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
                 >
@@ -614,9 +657,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.25,
     textAlign: "center",
   },
-  formGap: {
-    gap: spacing.lg,
-  },
+  formGap: { gap: spacing.lg },
   phoneInputWrap: {
     flexDirection: "row",
     minHeight: 56,
@@ -631,44 +672,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  prefixText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-  },
+  prefixText: { fontFamily: fonts.semibold, fontSize: fontSize.base },
   phoneInput: {
     flex: 1,
     minHeight: 56,
     paddingHorizontal: spacing.md,
     fontFamily: fonts.medium,
-    fontSize: fontSize.base,
-  },
-  googleButton: {
-    minHeight: 56,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-  },
-  googleMark: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(127,127,127,0.28)",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-  },
-  googleLetter: {
-    color: "#4285F4",
-    fontFamily: fonts.displayBold,
-    fontSize: 17,
-  },
-  googleButtonText: {
-    fontFamily: fonts.semibold,
     fontSize: fontSize.base,
   },
   resendRow: {
@@ -677,9 +686,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.md,
   },
-  legal: {
-    marginTop: spacing["2xl"],
-    paddingTop: spacing.lg,
+  onboardingCard: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  onboardingIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   demoBox: {
     marginTop: spacing.xl,
@@ -688,9 +706,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  demoTitle: {
-    textAlign: "center",
-  },
+  demoTitle: { textAlign: "center" },
   demoGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -710,21 +726,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
-  demoChipLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-  },  legalRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  legalCardsRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
+  demoChipLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  legal: { marginTop: spacing["2xl"], paddingTop: spacing.lg },
+  legalCardsRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md },
   legalCard: {
     flex: 1,
     minHeight: 76,
@@ -733,8 +737,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
+    padding: spacing.sm,
   },
   legalCardIcon: {
     width: 40,
@@ -743,53 +746,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  legalCardBody: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  legalCardTitle: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-  },
-  legalCardSub: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    opacity: 0.72,
-  },
-  poweredBy: {
-    marginTop: spacing.lg,
-  },
-  goldETech: {
-    fontFamily: fonts.semibold,
-    letterSpacing: 0.4,
-  },
-  contactRow: {
+  legalCardBody: { flex: 1, minWidth: 0, gap: 2 },
+  legalCardTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  legalCardSub: { fontFamily: fonts.regular, fontSize: 11, opacity: 0.72 },
+  legalRow: {
     flexDirection: "row",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
     gap: spacing.sm,
-    paddingTop: spacing.lg,
-    paddingHorizontal: 1,
   },
+  poweredBy: { marginTop: spacing.lg },
+  goldETech: { fontFamily: fonts.bold },
+  contactRow: { gap: spacing.sm, paddingTop: spacing.lg, paddingBottom: spacing.sm },
   contactAction: {
-    width: 116,
-    minHeight: 78,
+    width: 122,
+    minHeight: 76,
     borderWidth: 1,
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
-    paddingVertical: spacing.sm,
     gap: 3,
+    paddingHorizontal: spacing.sm,
   },
-  contactLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-  },
-  contactDetail: {
-    fontFamily: fonts.regular,
-    fontSize: 9,
-    opacity: 0.72,
-    maxWidth: 104,
-  },
+  contactLabel: { fontFamily: fonts.semibold, fontSize: 12 },
+  contactDetail: { fontFamily: fonts.regular, fontSize: 10, opacity: 0.72 },
 });

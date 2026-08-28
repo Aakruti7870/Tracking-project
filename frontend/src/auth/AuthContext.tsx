@@ -9,7 +9,9 @@ import {
   playReviewLogin,
   PlayReviewRole,
   requestOtp,
+  requestStaffOtp,
   verifyOtp,
+  verifyStaffOtp,
 } from "@/src/api/client";
 import { stopTripLocationTracking } from "@/src/location/tripTracking";
 import { unregisterPushDevice } from "@/src/notifications/pushClient";
@@ -34,7 +36,9 @@ type AuthContextValue = {
   token: string | null;
   user: Me | null;
   requestOtp: typeof requestOtp;
+  requestStaffOtp: typeof requestStaffOtp;
   verify: (identifier: string, code: string) => Promise<Me>;
+  verifyStaff: (identifier: string, code: string) => Promise<Me>;
   verifyGoogle: (code: string) => Promise<Me>;
   demoLogin: (role: string) => Promise<Me>;
   verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
@@ -87,6 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
+  const verifyStaff = async (identifier: string, code: string): Promise<Me> => {
+    const res = await verifyStaffOtp(identifier, code);
+    return acceptSession(res.access_token);
+  };
+
+  // Kept for backward compatibility and rollback safety. The normal Plant Staff
+  // login UI no longer exposes Google OAuth.
   const verifyGoogle = async (code: string): Promise<Me> => {
     const res = await exchangeGoogleStaffCode(code);
     return acceptSession(res.access_token);
@@ -138,7 +149,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         user,
         requestOtp,
+        requestStaffOtp,
         verify,
+        verifyStaff,
         verifyGoogle,
         demoLogin,
         verifyPlayReview,

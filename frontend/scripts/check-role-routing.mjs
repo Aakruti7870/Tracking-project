@@ -8,6 +8,7 @@ const root = path.resolve(here, "..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 const roleRoutes = read("src/auth/roleRoutes.ts");
 const login = read("app/login.tsx");
+const onboarding = read("app/plant-onboarding.tsx");
 const index = read("app/index.tsx");
 
 const expectedRoutes = {
@@ -37,15 +38,27 @@ for (const [role, route] of Object.entries(expectedRoutes)) {
 
 const directRoleRouteCount = login.split("router.replace(roleRouteFor(me.role) as any)").length - 1;
 if (directRoleRouteCount < 2) {
-  failures.push("Both mobile OTP and Google staff login must route directly using me.role");
+  failures.push("Both mobile OTP and Plant Staff email OTP must route directly using me.role");
 }
 
 if (!login.includes('testID="login-user-tab"') || !login.includes('testID="login-plant-tab"')) {
-  failures.push("Login must expose separate User Login and Plant User Login tabs");
+  failures.push("Login must expose separate User Login and Plant Staff Login tabs");
 }
 
-if (!login.includes('testID="login-mobile-input"') || !login.includes('testID="login-google-button"')) {
-  failures.push("Login must keep mobile OTP and Google staff entry points distinct");
+if (!login.includes('testID="login-mobile-input"')) {
+  failures.push("User Login must keep the mobile OTP input");
+}
+
+if (!login.includes('testID="login-plant-email-input"') || !login.includes('testID="login-plant-send-otp"')) {
+  failures.push("Plant Staff Login must expose approved-email OTP entry");
+}
+
+if (!login.includes('testID="login-get-onboard"') || !onboarding.includes('testID="onboarding-submit"')) {
+  failures.push("Unknown Plant Staff email must have a working onboarding route");
+}
+
+if (login.includes('testID="login-google-button"') || login.includes("Continue with Google") || login.includes("startGoogleStaffLogin")) {
+  failures.push("Direct Google/Gmail login must not be exposed on Plant Staff Login");
 }
 
 if (!login.includes('const fullNumber = `+91${mobile}`')) {
@@ -56,7 +69,7 @@ if (login.includes("Dev mode — OTP auto-filled") || login.includes("One login 
   failures.push("Login must not expose development or legacy instruction text");
 }
 
-if (login.includes("router.replace(\"/\")")) {
+if (login.includes('router.replace("/")')) {
   failures.push("Login must not route successful authentication through /");
 }
 
@@ -68,10 +81,14 @@ if (!index.includes("roleRouteFor(user.role)")) {
   failures.push("Cold-start routing must use the shared role route helper");
 }
 
+if (!onboarding.includes("Use Current Location") || !onboarding.includes("/plant-onboarding/places")) {
+  failures.push("Plant onboarding must support current GPS and server-side location search");
+}
+
 if (failures.length) {
   console.error("Auth routing regression check failed:");
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
 
-console.log("Auth routing regression check passed for all 13 roles and both login flows.");
+console.log("Auth routing regression check passed for all 13 roles, both OTP flows and Plant Partner onboarding.");
