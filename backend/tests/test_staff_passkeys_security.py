@@ -25,16 +25,21 @@ def test_passkey_origins_are_explicit_and_never_wildcard(monkeypatch):
     assert settings.PASSKEY_WEB_ORIGIN == "https://trackmyrmc.com"
 
 
-def test_android_origin_is_derived_from_exact_play_signing_fingerprint(monkeypatch):
+def test_android_origin_is_derived_but_not_trusted_by_browser_flow(monkeypatch):
     fingerprint = ":".join(["01"] * 32)
     monkeypatch.setenv("PLAY_SIGNING_SHA256", fingerprint)
     origin = staff_passkeys._android_apk_origin()
     assert origin is not None
     assert origin.startswith("android:apk-key-hash:")
     assert origin != "android:apk-key-hash:*"
+
+    # The current passkey ceremony runs in the system browser on the canonical
+    # HTTPS RP. The Android fingerprint is used for Digital Asset Links and
+    # future native Credential Manager support; it must not widen WebAuthn
+    # assertion-origin trust for the browser ceremony.
     origins = staff_passkeys._allowed_origins()
-    assert origins[0] == "https://trackmyrmc.com"
-    assert origins[1] == origin
+    assert origins == ["https://trackmyrmc.com"]
+    assert origin not in origins
 
 
 def test_invalid_play_fingerprint_never_widens_origin_trust(monkeypatch):
