@@ -121,6 +121,12 @@ def _handoff_digest(code: str) -> str:
 
 
 def _android_apk_origin() -> str | None:
+    """Derive the exact native-app origin for diagnostics/future native use.
+
+    The current system-browser flow deliberately does not trust this origin;
+    verification is restricted to PASSKEY_WEB_ORIGIN until a native Credential
+    Manager implementation is explicitly introduced and reviewed.
+    """
     fingerprint = os.getenv("PLAY_SIGNING_SHA256", "").strip().replace(":", "")
     if len(fingerprint) != 64:
         return None
@@ -133,11 +139,8 @@ def _android_apk_origin() -> str | None:
 
 
 def _allowed_origins() -> list[str]:
-    origins = [settings.PASSKEY_WEB_ORIGIN]
-    android_origin = _android_apk_origin()
-    if android_origin:
-        origins.append(android_origin)
-    return origins
+    # Least privilege: the current ceremony is browser-only on the canonical RP.
+    return [settings.PASSKEY_WEB_ORIGIN]
 
 
 def _ceremony_url(flow: Literal["authenticate", "register"], request_id: str) -> str:
