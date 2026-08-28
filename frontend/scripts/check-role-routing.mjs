@@ -54,7 +54,7 @@ if (!login.includes('testID="login-plant-email-input"') || !login.includes('test
   failures.push("Plant Staff Login must start from the approved work email");
 }
 
-if (!login.includes('testID="login-plant-authenticator-input"') || !login.includes('testID="login-use-recovery"')) {
+if (!login.includes('"login-plant-authenticator-input"') || !login.includes('testID="login-use-recovery"')) {
   failures.push("Plant Staff Login must expose Authenticator verification and recovery fallback");
 }
 
