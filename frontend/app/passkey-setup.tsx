@@ -30,13 +30,11 @@ export default function PasskeySetup() {
       router.replace("/login" as any);
       return;
     }
-    if (params.registered === "1") {
-      setRegistered(true);
-      void refreshMe();
-    }
-  }, [params.registered, refreshMe, router, token, user]);
+    if (params.registered === "1") setRegistered(true);
+  }, [params.registered, router, token, user]);
 
-  const continueToDashboard = () => {
+  const continueToDashboard = async () => {
+    await refreshMe();
     if (user) router.replace(roleRouteFor(user.role) as any);
   };
 
@@ -113,7 +111,7 @@ export default function PasskeySetup() {
               icon={<Ionicons name="finger-print-outline" size={20} color={colors.onBrand} />}
             />
             {error ? <AppText variant="caption" center color={colors.error}>{error}</AppText> : null}
-            <Pressable testID="passkey-setup-skip" onPress={continueToDashboard} style={styles.linkButton}>
+            <Pressable testID="passkey-setup-skip" onPress={() => { void continueToDashboard(); }} style={styles.linkButton}>
               <AppText variant="label" center color={colors.brand}>Use Authenticator for now</AppText>
             </Pressable>
           </>
@@ -128,7 +126,7 @@ export default function PasskeySetup() {
             <Button
               testID="passkey-setup-continue"
               label="Continue to Dashboard"
-              onPress={continueToDashboard}
+              onPress={() => { void continueToDashboard(); }}
               icon={<Ionicons name="arrow-forward-outline" size={18} color={colors.onBrand} />}
             />
           </>
