@@ -48,14 +48,10 @@ def _valid_https_url(url: str) -> bool:
 class Settings:
     VALID_ENVIRONMENTS = {"development", "test", "preview", "production"}
 
-    # Never infer development mode. A deployment that forgets APP_ENV must fail.
     APP_ENV: str = _required("APP_ENV").lower()
-
-    # Mongo
     MONGO_URL: str = _required("MONGO_URL")
     DB_NAME: str = _required("DB_NAME")
 
-    # Auth / OTP
     JWT_SECRET: str = os.environ.get("JWT_SECRET", "").strip()
     JWT_ALGORITHM: str = "HS256"
     OTP_PEPPER: str = os.environ.get("OTP_PEPPER", "").strip()
@@ -67,16 +63,17 @@ class Settings:
     SESSION_TTL_SECONDS: int = int(os.environ.get("SESSION_TTL_SECONDS", 604800))
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
 
-    # Google Play review access. Google requires reusable credentials that bypass
-    # normal OTP / third-party sign-in. This endpoint is disabled unless the
-    # deployment explicitly enables it and supplies a strong server-side code.
+    # Plant Staff Authenticator MFA. Optional at process start so production can
+    # roll out the code before the Cloud Run secret is attached. MFA endpoints
+    # fail closed until a 32+ character key is configured.
+    MFA_ENCRYPTION_KEY: str = os.environ.get("MFA_ENCRYPTION_KEY", "").strip()
+    MFA_ISSUER: str = os.environ.get("MFA_ISSUER", "TrackMyRMC").strip() or "TrackMyRMC"
+
     PLAY_REVIEW_ACCESS_ENABLED: bool = os.environ.get(
         "PLAY_REVIEW_ACCESS_ENABLED", "false"
     ).lower() == "true"
     PLAY_REVIEW_ACCESS_CODE: str = os.environ.get("PLAY_REVIEW_ACCESS_CODE", "").strip()
 
-    # Plant/staff Google OAuth. The client secret stays server-side; the Android
-    # app receives only a short-lived one-time exchange code after Google login.
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
     GOOGLE_OAUTH_CLIENT_SECRET: str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
     GOOGLE_OAUTH_REDIRECT_URI: str = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
@@ -84,7 +81,6 @@ class Settings:
         "GOOGLE_OAUTH_APP_REDIRECT_URI", "trackmyrmc://auth/google"
     ).strip()
 
-    # HTTP security
     CORS_ORIGINS: list[str] = _csv("CORS_ORIGINS")
 
     def __init__(self) -> None:
@@ -98,12 +94,16 @@ class Settings:
                 "PLAY_REVIEW_ACCESS_CODE must contain at least 10 characters when reviewer access is enabled"
             )
 
+        if self.MFA_ENCRYPTION_KEY and len(self.MFA_ENCRYPTION_KEY) < 32:
+            raise RuntimeError("MFA_ENCRYPTION_KEY must contain at least 32 characters when configured")
+
         if self.is_dev:
-            # Keep local/test/preview usable without weakening production.
             if not self.JWT_SECRET:
                 self.JWT_SECRET = "dev-insecure-change-me"
             if not self.OTP_PEPPER:
                 self.OTP_PEPPER = "dev-insecure-pepper"
+            if not self.MFA_ENCRYPTION_KEY:
+                self.MFA_ENCRYPTION_KEY = "dev-insecure-mfa-key-change-me-1234567890"
             if not self.CORS_ORIGINS:
                 self.CORS_ORIGINS = ["*"]
             return
