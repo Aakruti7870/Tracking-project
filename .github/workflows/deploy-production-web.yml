@@ -82,7 +82,7 @@ jobs:
             --source frontend \
             --platform managed \
             --port 8080 \
-            --allow-unauthenticated \
+            --no-invoker-iam-check \
             --cpu 1 \
             --memory 512Mi \
             --min-instances 0 \
