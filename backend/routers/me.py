@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from config import settings
 from database import kyc_profiles
 from roles import ROLE_LABELS
 from security import current_user
@@ -11,6 +12,7 @@ router = APIRouter(prefix="/api", tags=["me"])
 async def me(ctx: dict = Depends(current_user)):
     user = ctx["user"]
     kyc = await kyc_profiles.find_one({"user_id": ctx["user_id"], "purpose": "CUSTOMER"})
+    mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
     return {
         "id": ctx["user_id"],
         "name": user.get("name"),
@@ -22,4 +24,6 @@ async def me(ctx: dict = Depends(current_user)):
         "plant_id": ctx.get("plant_id"),
         "status": user.get("status", "active"),
         "kyc_status": (kyc or {}).get("status", "NOT_STARTED"),
+        "mfa_enabled": bool(mfa.get("enabled") and mfa.get("totp_secret")),
+        "mfa_configured": bool(settings.MFA_ENCRYPTION_KEY and len(settings.MFA_ENCRYPTION_KEY) >= 32),
     }
