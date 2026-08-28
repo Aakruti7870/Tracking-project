@@ -1,6 +1,14 @@
 name: Deploy Production Cloud Run
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/**
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/deploy-production-cloud-run.yml
   workflow_dispatch:
     inputs:
       candidate_ref:
@@ -30,14 +38,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || '224495133432' }}
       SERVICE: ${{ inputs.service || 'tracking-preview-api' }}
       REGION: ${{ inputs.region || 'asia-south1' }}
     steps:
-      - name: Checkout candidate
+      - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_ref || 'main' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_ref || github.sha }}
           fetch-depth: 0
 
       - name: Verify deployment configuration
@@ -45,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${PROJECT_ID:-}" || {
-            echo "::error::Repository variable GCP_PROJECT_ID is required."
+            echo "::error::Google Cloud project is not configured."
             exit 1
           }
           test -f Dockerfile
