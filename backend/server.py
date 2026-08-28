@@ -42,6 +42,7 @@ from routers import (
     staff,
     staff_auth,
     staff_mfa,
+    staff_passkeys,
     storage,
     workforce,
     workforce_reports,
@@ -69,7 +70,10 @@ async def android_asset_links():
     if not fingerprint:
         return JSONResponse(status_code=503, content={"detail": "App Link verification is not configured"})
     return [{
-        "relation": ["delegate_permission/common.handle_all_urls"],
+        "relation": [
+            "delegate_permission/common.handle_all_urls",
+            "delegate_permission/common.get_login_creds",
+        ],
         "target": {
             "namespace": "android_app",
             "package_name": "com.trackmyrmc.concreteking",
@@ -117,6 +121,7 @@ app.include_router(meta)
 app.include_router(auth.router)
 app.include_router(staff_auth.router)
 app.include_router(staff_mfa.router)
+app.include_router(staff_passkeys.router)
 app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
