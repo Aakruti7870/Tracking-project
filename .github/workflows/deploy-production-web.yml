@@ -1,4 +1,4 @@
-name: Deploy Production Web
+name: Deploy Current Production Web
 
 on:
   push:
@@ -8,44 +8,51 @@ on:
       - frontend/**
       - .github/workflows/deploy-production-web.yml
   workflow_dispatch:
-    inputs:
-      candidate_ref:
-        description: Branch, tag, or SHA to deploy
-        required: false
-        default: main
-      service:
-        description: Cloud Run web service name
-        required: false
-        default: tracking-web
-      region:
-        description: Google Cloud region
-        required: false
-        default: asia-south1
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: production-web-deploy
+  group: current-production-web-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build, deploy, and verify production web
+    name: Build, deploy, and verify current production web
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'tracking-project-preview' }}
-      SERVICE: ${{ inputs.service || 'tracking-web' }}
-      REGION: ${{ inputs.region || 'asia-south1' }}
+      # This is the single current production GCP project. The project ID is
+      # historical/immutable; do not redirect this workflow to another project.
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-web
+      REGION: asia-south1
+      PRODUCTION_HOST: trackmyrmc.com
 
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout main production candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_ref || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           fetch-depth: 0
+
+      - name: Enforce single production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PROJECT_ID" = "tracking-project-preview"
+          test "$SERVICE" = "tracking-web"
+          test "$REGION" = "asia-south1"
+          git fetch origin main --no-tags --prune
+          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main || {
+            echo "::error::Production deployment is allowed only for commits already on main."
+            exit 1
+          }
+          echo "Production candidate: $(git rev-parse HEAD)"
+          echo "Pinned project: $PROJECT_ID"
+          echo "Pinned service: $SERVICE"
+          echo "Pinned region: $REGION"
 
       - name: Verify web deployment inputs
         shell: bash
@@ -55,10 +62,6 @@ jobs:
           test -f frontend/nginx.conf
           grep -F 'output": "single"' frontend/app.json >/dev/null
           grep -F 'EXPO_PUBLIC_BACKEND_URL=https://trackmyrmc.com' frontend/Dockerfile >/dev/null
-          echo "Candidate SHA: $(git rev-parse HEAD)"
-          echo "Project: $PROJECT_ID"
-          echo "Service: $SERVICE"
-          echo "Region: $REGION"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -69,16 +72,25 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy current Expo web app
+      - name: Verify pinned Google Cloud target exists
         shell: bash
         run: |
           set -euo pipefail
           gcloud config set project "$PROJECT_ID"
+          ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -n1)"
+          test -n "$ACTIVE_ACCOUNT"
+          echo "Active account: $ACTIVE_ACCOUNT"
+          gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='yaml(metadata.name,status.url,status.latestReadyRevisionName)'
+
+      - name: Deploy current Expo web app
+        shell: bash
+        run: |
+          set -euo pipefail
           SHA="$(git rev-parse HEAD)"
           SHORT_SHA="${SHA:0:12}"
-          # Do not mutate Cloud Run IAM here. The deploy identity can build/deploy
-          # revisions but intentionally does not have run.services.setIamPolicy.
-          # Public invocation is a separate one-time production cutover step.
           gcloud run deploy "$SERVICE" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
@@ -90,7 +102,7 @@ jobs:
             --min-instances 0 \
             --max-instances 5 \
             --quiet \
-            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions,component=web"
+            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions,component=web,deployment-tier=production"
 
       - name: Resolve web service URL and revision
         shell: bash
@@ -119,31 +131,24 @@ jobs:
             --region "$REGION" \
             --format='yaml(metadata.name,metadata.labels,status.conditions,status.imageDigest)'
 
-      - name: Probe web shell when public invocation is enabled
+      - name: Verify current production Cloud Run routes
         shell: bash
         run: |
           set -euo pipefail
-          health_code="$(curl --max-time 20 -L -sS -o /tmp/web-response -w '%{http_code}' "${WEB_URL}/healthz" || true)"
-          echo "/healthz -> HTTP ${health_code:-request-failed}"
-          if [ "$health_code" != "200" ]; then
-            echo "::warning::tracking-web revision is Ready, but public invocation is not enabled yet. HTTP verification is deferred to the domain/public-access cutover step."
-            exit 0
-          fi
-
           for path in / /login /api/health /privacy_policy /terms /account-deletion; do
-            code="$(curl --retry 4 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/web-response -w '%{http_code}' "${WEB_URL}${path}")"
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/web-response -w '%{http_code}' "${WEB_URL}${path}")"
             echo "$path -> HTTP $code"
             test "$code" = "200" || { cat /tmp/web-response; exit 1; }
             test -s /tmp/web-response || { echo "Empty response for $path"; exit 1; }
           done
 
-      - name: Report canonical-domain cutover status
+      - name: Verify canonical production domain
         shell: bash
         run: |
           set -euo pipefail
-          current="$(curl -L -sS https://trackmyrmc.com/ || true)"
-          if printf '%s' "$current" | grep -F 'Track every cubic metre' >/dev/null; then
-            echo "::notice::tracking-web is deployed and Ready; trackmyrmc.com still serves the previous site. Public access/domain cutover remains intentionally separate."
-          else
-            echo "Canonical homepage no longer matches the previous marketing shell; verify routing before declaring cutover complete."
-          fi
+          for path in / /login /api/health /privacy_policy /terms /account-deletion; do
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/domain-response -w '%{http_code}' "https://${PRODUCTION_HOST}${path}")"
+            echo "https://${PRODUCTION_HOST}${path} -> HTTP $code"
+            test "$code" = "200" || { cat /tmp/domain-response; exit 1; }
+          done
+          grep -F 'healthy' <(curl --retry 5 --retry-all-errors --retry-delay 2 -sS "https://${PRODUCTION_HOST}/api/health") >/dev/null
