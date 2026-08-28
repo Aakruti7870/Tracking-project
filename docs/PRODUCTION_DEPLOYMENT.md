@@ -8,27 +8,27 @@ This repository separates validation from production deployment.
 
 ## Production deployment
 
-`Deploy Production Cloud Run` is the guarded production deployment workflow. It is intentionally manual (`workflow_dispatch`) and:
+`Deploy Production Cloud Run` is the guarded production deployment workflow. It runs automatically when backend deployment files are merged to `main`, and it can also be started manually with `workflow_dispatch`.
 
-1. checks out the requested candidate (default `main`),
+It:
+
+1. checks out the exact merged SHA (or requested manual candidate),
 2. authenticates to Google Cloud with GitHub OIDC / Workload Identity Federation,
 3. deploys the repository Dockerfile to the configured Cloud Run service,
 4. verifies `/health`, `/api/health`, `/privacy_policy`, `/terms`, and `/account-deletion`,
-5. confirms the Cloud Run service is Ready,
-6. probes the canonical `trackmyrmc.com` URLs separately so a domain-routing problem is visible.
+5. confirms the deployed Cloud Run revision is Ready,
+6. probes the canonical `trackmyrmc.com` URLs separately so domain-routing drift is visible.
 
-### Required repository configuration
-
-Repository variable:
-
-- `GCP_PROJECT_ID` — Google Cloud project containing the production Cloud Run service.
-
-GitHub Actions secrets:
+### Required GitHub Actions secrets
 
 - `GCP_WORKLOAD_IDENTITY_PROVIDER` — full Workload Identity Provider resource name.
 - `GCP_SERVICE_ACCOUNT` — deployment service-account email.
 
-The deployment service account needs the permissions required for Cloud Run source deployment / Cloud Build and to act as the runtime service account where applicable.
+The deployment service account needs permissions for Cloud Run source deployment / Cloud Build and to act as the runtime service account where applicable.
+
+### Google Cloud project
+
+The workflow defaults to Google Cloud project number `224495133432`, which is the project number in the currently certified Tracking-project Cloud Run endpoint. If the deployment target changes, set repository variable `GCP_PROJECT_ID` to override it.
 
 ### Default deployment target
 
@@ -39,6 +39,6 @@ Both can be overridden in the manual workflow form if the production service use
 
 ## Domain routing
 
-A successful Cloud Run deployment does not by itself prove that `https://trackmyrmc.com` is routed to that service. Domain mapping, external HTTP(S) load balancer, Cloudflare, or another website origin can continue to serve older content.
+A successful Cloud Run deployment does not by itself prove that `https://trackmyrmc.com` is routed to that service. Domain mapping, an external HTTP(S) load balancer, Cloudflare, or another website origin can continue to serve older content.
 
-The workflow therefore treats the canonical-domain probes as diagnostic and keeps them separate from Cloud Run deployment success. If Cloud Run serves the new routes while `trackmyrmc.com` does not, fix the domain/load-balancer/CDN origin routing rather than changing application code.
+The workflow therefore treats canonical-domain probes as diagnostic and keeps them separate from Cloud Run deployment success. If Cloud Run serves the new routes while `trackmyrmc.com` does not, fix the domain/load-balancer/CDN origin routing rather than changing application code.
