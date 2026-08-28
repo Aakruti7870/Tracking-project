@@ -98,7 +98,7 @@ export default function MfaSetup() {
 
   const finish = async () => {
     await refreshMe();
-    if (user) router.replace(roleRouteFor(user.role) as any);
+    router.replace("/passkey-setup" as any);
   };
 
   if (recoveryCodes) {
@@ -119,7 +119,7 @@ export default function MfaSetup() {
           </View>
 
           <Button label="Share / Save Recovery Codes" onPress={shareRecoveryCodes} icon={<Ionicons name="share-outline" size={18} color={colors.onBrand} />} />
-          <Button label="I Saved Them — Continue" onPress={finish} icon={<Ionicons name="arrow-forward-outline" size={18} color={colors.onBrand} />} />
+          <Button label="I Saved Them — Add Passkey" onPress={finish} icon={<Ionicons name="finger-print-outline" size={18} color={colors.onBrand} />} />
           <AppText variant="caption" center>Keep recovery codes outside the phone when possible. Each code is invalidated after one use.</AppText>
         </ScrollView>
       </View>

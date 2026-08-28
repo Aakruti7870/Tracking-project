@@ -10,6 +10,9 @@ const roleRoutes = read("src/auth/roleRoutes.ts");
 const login = read("app/login.tsx");
 const onboarding = read("app/plant-onboarding.tsx");
 const mfaSetup = read("app/mfa-setup.tsx");
+const passkeySetup = read("app/passkey-setup.tsx");
+const passkeyCeremony = read("app/passkey-ceremony.tsx");
+const webauthnClient = read("src/auth/webauthn.ts");
 const index = read("app/index.tsx");
 
 const expectedRoutes = {
@@ -54,12 +57,36 @@ if (!login.includes('testID="login-plant-email-input"') || !login.includes('test
   failures.push("Plant Staff Login must start from the approved work email");
 }
 
+if (!login.includes('testID="login-plant-passkey"') || !login.includes('testID="login-use-authenticator"')) {
+  failures.push("Plant Staff Login must prefer passkey verification and keep Authenticator fallback");
+}
+
+if (!login.includes("startStaffPasskeyAuthentication") || !login.includes("completeStaffPasskey")) {
+  failures.push("Plant Staff passkey login must use the one-time WebAuthn handoff flow");
+}
+
 if (!login.includes('"login-plant-authenticator-input"') || !login.includes('testID="login-use-recovery"')) {
   failures.push("Plant Staff Login must expose Authenticator verification and recovery fallback");
 }
 
 if (!mfaSetup.includes('testID="mfa-setup-code"') || !mfaSetup.includes('testID="mfa-setup-confirm"')) {
   failures.push("First-time Plant Staff login must include Authenticator enrollment confirmation");
+}
+
+if (!mfaSetup.includes("Add Passkey") || !passkeySetup.includes('testID="passkey-setup-totp"') || !passkeySetup.includes('testID="passkey-setup-create"')) {
+  failures.push("Passkey enrollment must follow Authenticator setup and require fresh TOTP confirmation");
+}
+
+if (!passkeyCeremony.includes("getBrowserPasskey") || !passkeyCeremony.includes("createBrowserPasskey") || !passkeyCeremony.includes("trackmyrmc://auth/passkey")) {
+  failures.push("Canonical browser WebAuthn ceremony and secure app return must remain wired");
+}
+
+if (!webauthnClient.includes("navigator.credentials") || !webauthnClient.includes("PublicKeyCredential")) {
+  failures.push("Passkey client must use the browser WebAuthn credential API");
+}
+
+if (webauthnClient.includes("react-native-passkey") || webauthnClient.includes("@simplewebauthn/browser")) {
+  failures.push("Passkey client must not silently add an unreviewed frontend credential dependency");
 }
 
 if (!login.includes('testID="login-get-onboard"') || !onboarding.includes('testID="onboarding-submit"')) {
@@ -100,4 +127,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Auth routing regression check passed for all 13 roles, mobile OTP, Plant Staff Authenticator MFA and onboarding.");
+console.log("Auth routing regression check passed for all 13 roles, mobile OTP, Plant Staff Passkey + Authenticator MFA, recovery and onboarding.");

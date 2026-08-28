@@ -13,6 +13,10 @@ async def me(ctx: dict = Depends(current_user)):
     user = ctx["user"]
     kyc = await kyc_profiles.find_one({"user_id": ctx["user_id"], "purpose": "CUSTOMER"})
     mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
+    passkeys = mfa.get("passkeys") if isinstance(mfa.get("passkeys"), list) else []
+    active_passkeys = [
+        item for item in passkeys if isinstance(item, dict) and item.get("active", True)
+    ]
     return {
         "id": ctx["user_id"],
         "name": user.get("name"),
@@ -26,4 +30,6 @@ async def me(ctx: dict = Depends(current_user)):
         "kyc_status": (kyc or {}).get("status", "NOT_STARTED"),
         "mfa_enabled": bool(mfa.get("enabled") and mfa.get("totp_secret")),
         "mfa_configured": bool(settings.MFA_ENCRYPTION_KEY and len(settings.MFA_ENCRYPTION_KEY) >= 32),
+        "passkey_enabled": bool(active_passkeys),
+        "passkey_count": len(active_passkeys),
     }

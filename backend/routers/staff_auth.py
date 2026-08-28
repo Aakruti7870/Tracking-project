@@ -2,8 +2,8 @@
 
 Email OTP remains the safe first-login/bootstrap path. Once an approved Plant
 Staff account activates Authenticator App MFA, email OTP can no longer issue a
-normal session; the staff MFA router becomes the login authority instead.
-Customer/Driver mobile OTP is untouched.
+normal session; phishing-resistant passkey or Authenticator verification becomes
+the login authority instead. Customer/Driver mobile OTP is untouched.
 """
 from datetime import timedelta
 
@@ -54,6 +54,12 @@ def _staff_role_allowed(role: str | None) -> bool:
 def _staff_mfa_enabled(user: dict) -> bool:
     mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
     return bool(mfa.get("enabled") and mfa.get("totp_secret"))
+
+
+def _staff_passkey_enabled(user: dict) -> bool:
+    mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
+    passkeys = mfa.get("passkeys") if isinstance(mfa.get("passkeys"), list) else []
+    return any(isinstance(item, dict) and item.get("active", True) for item in passkeys)
 
 
 async def _issue_mfa_bootstrap_session(user: dict):
@@ -175,11 +181,17 @@ async def request_staff_otp(body: RequestOtpBody):
     _assert_account_available(user)
 
     if _staff_mfa_enabled(user):
+        passkey_available = _staff_passkey_enabled(user)
         return {
             "status": "AUTHENTICATOR_REQUIRED",
-            "channel": "totp",
+            "channel": "passkey" if passkey_available else "totp",
             "email": value,
-            "message": "Enter the 6-digit code from your Authenticator App.",
+            "passkey_available": passkey_available,
+            "message": (
+                "Use your passkey, or choose Authenticator as a fallback."
+                if passkey_available
+                else "Enter the 6-digit code from your Authenticator App."
+            ),
         }
     return await _issue_email_challenge(value)
 
@@ -195,7 +207,7 @@ async def verify_staff_otp(body: VerifyOtpBody):
         raise HTTPException(403, "This email is not approved for Plant Staff access")
     _assert_account_available(user)
     if _staff_mfa_enabled(user):
-        raise HTTPException(403, "Authenticator App verification is required for this account")
+        raise HTTPException(403, "Passkey or Authenticator verification is required for this account")
 
     key = identifier_key(value)
     doc = await otps.find_one(
