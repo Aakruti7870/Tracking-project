@@ -1,4 +1,4 @@
-name: Deploy Production Cloud Run
+name: Deploy Current Production Backend
 
 on:
   push:
@@ -10,59 +10,59 @@ on:
       - .dockerignore
       - .github/workflows/deploy-production-cloud-run.yml
   workflow_dispatch:
-    inputs:
-      candidate_ref:
-        description: Branch, tag, or SHA to deploy
-        required: false
-        default: main
-      service:
-        description: Cloud Run service name
-        required: false
-        default: tracking-preview-api
-      region:
-        description: Google Cloud region
-        required: false
-        default: asia-south1
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: production-cloud-run-deploy
+  group: current-production-backend-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build, deploy, and verify production backend
+    name: Build, deploy, and verify current production backend
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'tracking-project-preview' }}
-      SERVICE: ${{ inputs.service || 'tracking-preview-api' }}
-      REGION: ${{ inputs.region || 'asia-south1' }}
+      # This is the single current production GCP project. The project ID and
+      # service name are historical/immutable identifiers for the live stack.
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+      PRODUCTION_HOST: trackmyrmc.com
+
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout main production candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_ref || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           fetch-depth: 0
+
+      - name: Enforce single production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PROJECT_ID" = "tracking-project-preview"
+          test "$SERVICE" = "tracking-preview-api"
+          test "$REGION" = "asia-south1"
+          git fetch origin main --no-tags --prune
+          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main || {
+            echo "::error::Production deployment is allowed only for commits already on main."
+            exit 1
+          }
+          echo "Production candidate: $(git rev-parse HEAD)"
+          echo "Pinned project: $PROJECT_ID"
+          echo "Pinned service: $SERVICE"
+          echo "Pinned region: $REGION"
 
       - name: Verify deployment configuration
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${PROJECT_ID:-}" || {
-            echo "::error::Google Cloud project is not configured."
-            exit 1
-          }
           test -f Dockerfile
           grep -F 'COPY backend/ /app/' Dockerfile >/dev/null
           grep -F 'uvicorn server:app' Dockerfile >/dev/null
-          echo "Candidate SHA: $(git rev-parse HEAD)"
-          echo "Project: $PROJECT_ID"
-          echo "Service: $SERVICE"
-          echo "Region: $REGION"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -73,7 +73,7 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Verify active Google Cloud identity and target service
+      - name: Verify pinned Google Cloud target exists
         shell: bash
         run: |
           set -euo pipefail
@@ -84,7 +84,7 @@ jobs:
           gcloud run services describe "$SERVICE" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
-            --format='yaml(metadata.name,status.url,status.latestReadyRevisionName)' | tee /tmp/service-before.yaml
+            --format='yaml(metadata.name,status.url,status.latestReadyRevisionName)'
 
       - name: Deploy candidate from repository Dockerfile
         shell: bash
@@ -98,7 +98,7 @@ jobs:
             --source . \
             --platform managed \
             --quiet \
-            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions"
+            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions,component=backend,deployment-tier=production"
 
       - name: Resolve deployed service URL and revision
         shell: bash
@@ -113,7 +113,7 @@ jobs:
           echo "Deployed URL: $URL"
           echo "Ready revision: $REVISION"
 
-      - name: Verify health and public policy routes
+      - name: Verify production backend routes
         shell: bash
         run: |
           set -euo pipefail
@@ -142,19 +142,11 @@ jobs:
             --region "$REGION" \
             --format='yaml(metadata.name,metadata.labels,status.conditions,status.imageDigest)'
 
-      - name: Probe canonical public host
+      - name: Verify canonical production API
         shell: bash
         run: |
           set -euo pipefail
-          echo "Cloud Run is verified above. Probing trackmyrmc.com separately for routing drift."
-          failed=0
-          for path in /privacy_policy /terms /account-deletion; do
-            code="$(curl -L --max-redirs 5 -sS -o /tmp/domain-response -w '%{http_code}' "https://trackmyrmc.com${path}" || true)"
-            echo "https://trackmyrmc.com${path} -> HTTP ${code:-request-failed}"
-            if [ "$code" != "200" ]; then
-              failed=1
-            fi
-          done
-          if [ "$failed" -ne 0 ]; then
-            echo "::warning::Cloud Run deployed correctly, but one or more canonical-domain routes are not HTTP 200. Check DNS/load-balancer/CDN/origin routing for trackmyrmc.com."
-          fi
+          code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/domain-response -w '%{http_code}' "https://${PRODUCTION_HOST}/api/health")"
+          echo "https://${PRODUCTION_HOST}/api/health -> HTTP $code"
+          test "$code" = "200" || { cat /tmp/domain-response; exit 1; }
+          grep -F 'healthy' /tmp/domain-response >/dev/null || { cat /tmp/domain-response; exit 1; }
