@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           test -f frontend/Dockerfile
           test -f frontend/nginx.conf
-          grep -F 'output\": \"single\"' frontend/app.json >/dev/null
+          grep -F 'output": "single"' frontend/app.json >/dev/null
           grep -F 'EXPO_PUBLIC_BACKEND_URL=https://trackmyrmc.com' frontend/Dockerfile >/dev/null
 
       - name: Authenticate to Google Cloud
