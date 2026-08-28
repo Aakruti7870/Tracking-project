@@ -6,6 +6,7 @@ import {
   apiPost,
   demoLogin as apiDemoLogin,
   exchangeGoogleStaffCode,
+  exchangeStaffPasskeyHandoff,
   playReviewLogin,
   PlayReviewRole,
   requestOtp,
@@ -34,6 +35,8 @@ export type Me = {
   kyc_status: string;
   mfa_enabled?: boolean;
   mfa_configured?: boolean;
+  passkey_enabled?: boolean;
+  passkey_count?: number;
 };
 
 type AuthContextValue = {
@@ -47,6 +50,7 @@ type AuthContextValue = {
   verifyStaff: (identifier: string, code: string) => Promise<Me>;
   verifyStaffAuthenticator: (identifier: string, code: string) => Promise<Me>;
   verifyStaffRecovery: (identifier: string, code: string) => Promise<Me>;
+  completeStaffPasskey: (handoffCode: string) => Promise<Me>;
   verifyGoogle: (code: string) => Promise<Me>;
   demoLogin: (role: string) => Promise<Me>;
   verifyPlayReview: (role: PlayReviewRole, accessCode: string) => Promise<Me>;
@@ -114,6 +118,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
+  const completeStaffPasskey = async (handoffCode: string): Promise<Me> => {
+    const res = await exchangeStaffPasskeyHandoff(handoffCode);
+    return acceptSession(res.access_token);
+  };
+
   // Kept for backward compatibility and rollback safety. The normal Plant Staff
   // login UI no longer exposes Google OAuth.
   const verifyGoogle = async (code: string): Promise<Me> => {
@@ -173,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyStaff,
         verifyStaffAuthenticator,
         verifyStaffRecovery: verifyStaffRecoveryCode,
+        completeStaffPasskey,
         verifyGoogle,
         demoLogin,
         verifyPlayReview,
