@@ -1,7 +1,9 @@
 """Authenticated object-storage helpers and upload/serve routes.
 
-Production uses the configured remote object store. CI/development may opt into
-STORAGE_MODE=local for deterministic tests without external credentials.
+Production supports Google Cloud Storage with Cloud Run application-default
+credentials. The legacy Emergent remote object store remains available for
+compatibility, while CI/development may opt into STORAGE_MODE=local for
+deterministic tests without external credentials.
 
 POD uploads are bound to an authenticated driver + active trip and persisted in
 Mongo metadata for object-level authorization. File downloads require the
@@ -30,6 +32,7 @@ STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https
 STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 STORAGE_MODE = os.environ.get("STORAGE_MODE", "remote").strip().lower()
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "").strip()
 LOCAL_STORAGE_DIR = Path(os.environ.get("LOCAL_STORAGE_DIR", "/tmp/trackmyrmc-storage"))
 APP_NAME = "trackmyrmc"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -40,15 +43,31 @@ ALLOWED_IMAGE_FORMATS = {
 }
 
 _storage_key = None
+_gcs_client = None
+_gcs_bucket = None
 
 
 def init_storage():
-    global _storage_key
+    global _storage_key, _gcs_client, _gcs_bucket
     if STORAGE_MODE == "local":
         if not settings.is_dev:
             raise RuntimeError("Local object storage is development/test only")
         LOCAL_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         return "local"
+
+    if STORAGE_MODE == "gcs":
+        if not GCS_BUCKET:
+            raise RuntimeError("GCS_BUCKET is not configured")
+        if _gcs_bucket is not None:
+            return _gcs_bucket
+        try:
+            from google.cloud import storage as gcs_storage
+        except ImportError as exc:
+            raise RuntimeError("Google Cloud Storage client is not installed") from exc
+        _gcs_client = gcs_storage.Client()
+        _gcs_bucket = _gcs_client.bucket(GCS_BUCKET)
+        return _gcs_bucket
+
     if STORAGE_MODE != "remote":
         raise RuntimeError("Unsupported STORAGE_MODE")
     if _storage_key:
@@ -87,6 +106,16 @@ def _put(path: str, data: bytes, content_type: str) -> dict:
         destination.write_bytes(data)
         return {"path": path, "content_type": content_type}
 
+    if STORAGE_MODE == "gcs":
+        bucket = init_storage()
+        blob = bucket.blob(path)
+        blob.upload_from_string(
+            data,
+            content_type=content_type,
+            if_generation_match=0,
+        )
+        return {"path": path, "content_type": content_type, "bucket": GCS_BUCKET}
+
     key = init_storage()
     resp = requests.put(
         f"{STORAGE_URL}/objects/{path}",
@@ -115,6 +144,13 @@ def _get(path: str) -> tuple[bytes, str]:
         if not source.is_file():
             raise FileNotFoundError(path)
         return source.read_bytes(), mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+
+    if STORAGE_MODE == "gcs":
+        bucket = init_storage()
+        blob = bucket.blob(path)
+        blob.reload()
+        content_type = blob.content_type or mimetypes.guess_type(path)[0] or "application/octet-stream"
+        return blob.download_as_bytes(), content_type
 
     key = init_storage()
     resp = requests.get(
