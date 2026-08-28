@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_ref:
-        description: Branch, tag, or SHA to validate
+        description: Branch, tag or SHA to validate
         required: true
         default: main
   push:
@@ -52,14 +52,24 @@ jobs:
         with:
           ref: ${{ inputs.candidate_ref }}
 
-      - name: Checkout current PR 42 candidate
+      - name: Checkout exact pushed main candidate
         if: github.event_name == 'push'
         uses: actions/checkout@v4
         with:
-          ref: feat/login-auth-rebuild
+          ref: ${{ github.sha }}
 
       - name: Record exact candidate SHA
-        run: git rev-parse HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "Candidate SHA: $actual"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            test "$actual" = "${{ github.sha }}" || {
+              echo "Candidate checkout drifted away from the pushed main SHA"
+              exit 1
+            }
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
