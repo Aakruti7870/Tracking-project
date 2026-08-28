@@ -29,6 +29,7 @@ jobs:
       SERVICE: tracking-web
       REGION: asia-south1
       PRODUCTION_HOST: trackmyrmc.com
+      WWW_HOST: www.trackmyrmc.com
 
     steps:
       - name: Checkout main production candidate
@@ -62,6 +63,7 @@ jobs:
           test -f frontend/nginx.conf
           grep -F 'output": "single"' frontend/app.json >/dev/null
           grep -F 'EXPO_PUBLIC_BACKEND_URL=https://trackmyrmc.com' frontend/Dockerfile >/dev/null
+          grep -F '<Redirect href="/login"' frontend/app/index.tsx >/dev/null
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -131,24 +133,80 @@ jobs:
             --region "$REGION" \
             --format='yaml(metadata.name,metadata.labels,status.conditions,status.imageDigest)'
 
-      - name: Verify current production Cloud Run routes
+      - name: Verify current production Cloud Run routes are the new Expo UI
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /login /api/health /privacy_policy /terms /account-deletion; do
-            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/web-response -w '%{http_code}' "${WEB_URL}${path}")"
-            echo "$path -> HTTP $code"
-            test "$code" = "200" || { cat /tmp/web-response; exit 1; }
-            test -s /tmp/web-response || { echo "Empty response for $path"; exit 1; }
+          assert_fresh_expo() {
+            local url="$1"
+            local out="$2"
+            local code
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o "$out" -w '%{http_code}' "$url")"
+            echo "$url -> HTTP $code"
+            test "$code" = "200" || { cat "$out"; exit 1; }
+            test -s "$out" || { echo "Empty response for $url"; exit 1; }
+            grep -F '_expo/static/' "$out" >/dev/null || {
+              echo "Expected current Expo web shell was not found at $url"
+              head -c 1200 "$out" || true
+              exit 1
+            }
+            if grep -Eqi 'Built for every pour|Ready-Mix Concrete Tracking & RMC Plant Discovery' "$out"; then
+              echo "Legacy Concrete King landing content detected at $url"
+              exit 1
+            fi
+          }
+
+          for path in / /login /privacy_policy /terms /account-deletion /passkey-ceremony /passkey-setup; do
+            assert_fresh_expo "${WEB_URL}${path}" /tmp/web-response
           done
 
-      - name: Verify canonical production domain
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
+            "${WEB_URL}/api/health" >/tmp/web-api-health.json
+          grep -F 'healthy' /tmp/web-api-health.json >/dev/null
+
+      - name: Diagnose public host routing
+        shell: bash
+        run: |
+          set +e
+          echo "Cloud Run domain mappings (best effort):"
+          gcloud run domain-mappings list --project "$PROJECT_ID" --region "$REGION" \
+            --format='table(metadata.name,status.conditions[0].status,status.resourceRecords)' 2>&1 || true
+          echo "External HTTPS URL maps (best effort):"
+          gcloud compute url-maps list --project "$PROJECT_ID" \
+            --format='table(name,defaultService)' 2>&1 || true
+          set -e
+
+      - name: Verify canonical and www production routes are fresh
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /login /api/health /privacy_policy /terms /account-deletion; do
-            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/domain-response -w '%{http_code}' "https://${PRODUCTION_HOST}${path}")"
-            echo "https://${PRODUCTION_HOST}${path} -> HTTP $code"
-            test "$code" = "200" || { cat /tmp/domain-response; exit 1; }
+          assert_fresh_expo() {
+            local url="$1"
+            local out="$2"
+            local code effective
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o "$out" -w '%{http_code}' "$url")"
+            effective="$(curl --retry 3 --retry-all-errors --retry-delay 1 -L -sS -o /dev/null -w '%{url_effective}' "$url")"
+            echo "$url -> HTTP $code -> $effective"
+            test "$code" = "200" || { cat "$out"; exit 1; }
+            grep -F '_expo/static/' "$out" >/dev/null || {
+              echo "Expected current Expo web shell was not found at $url"
+              head -c 1200 "$out" || true
+              exit 1
+            }
+            if grep -Eqi 'Built for every pour|Ready-Mix Concrete Tracking & RMC Plant Discovery' "$out"; then
+              echo "Legacy Concrete King landing content detected at $url"
+              exit 1
+            fi
+          }
+
+          for path in / /login /privacy_policy /terms /account-deletion /passkey-ceremony /passkey-setup; do
+            assert_fresh_expo "https://${PRODUCTION_HOST}${path}" /tmp/domain-response
           done
-          grep -F 'healthy' <(curl --retry 5 --retry-all-errors --retry-delay 2 -sS "https://${PRODUCTION_HOST}/api/health") >/dev/null
+
+          for path in / /login; do
+            assert_fresh_expo "https://${WWW_HOST}${path}" /tmp/www-response
+          done
+
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
+            "https://${PRODUCTION_HOST}/api/health" >/tmp/domain-health.json
+          grep -F 'healthy' /tmp/domain-health.json >/dev/null

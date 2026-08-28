@@ -49,6 +49,9 @@ jobs:
       - name: Checkout exact commit
         uses: actions/checkout@v4
 
+      - name: Verify fresh production release invariants
+        run: node frontend/scripts/check-fresh-production-release.mjs
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

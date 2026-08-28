@@ -30,8 +30,8 @@ const android = expo.android || {};
 const permissions = new Set(android.permissions || []);
 const blocked = new Set(android.blockedPermissions || []);
 
-expect(expo.version === '2.0.22', 'Expo version must be 2.0.22 for vc80.');
-expect(android.versionCode === 80, 'Android versionCode must be 80.');
+expect(expo.version === '2.0.23', 'Expo version must be 2.0.23 for vc81.');
+expect(android.versionCode === 81, 'Android versionCode must be 81.');
 expect(android.package === 'com.trackmyrmc.concreteking', 'Android package identity changed unexpectedly.');
 
 for (const permission of [
@@ -139,4 +139,4 @@ expectIncludes(pod, 'Platform.OS === "ios"', 'Android Gallery must avoid broad m
 expectIncludes(pod, 'launchImageLibraryAsync', 'POD Gallery must remain a user-initiated picker flow.');
 
 if (process.exitCode) process.exit(process.exitCode);
-console.log('Google Play policy readiness assertions passed for TrackMyRMC v2.0.22 / vc80.');
+console.log('Google Play policy readiness assertions passed for TrackMyRMC v2.0.23 / vc81.');

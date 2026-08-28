@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 import { storage } from "@/src/utils/storage";
 import {
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const acceptSession = async (accessToken: string): Promise<Me> => {
+  const acceptSession = useCallback(async (accessToken: string): Promise<Me> => {
     const stored = await storage.secureSet(TOKEN_KEY, accessToken);
     if (!stored) throw new Error("Unable to securely store login session");
     try {
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       throw error;
     }
-  };
+  }, []);
 
   const verify = async (identifier: string, code: string): Promise<Me> => {
     const res = await verifyOtp(identifier, code);
@@ -118,10 +118,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return acceptSession(res.access_token);
   };
 
-  const completeStaffPasskey = async (handoffCode: string): Promise<Me> => {
+  const completeStaffPasskey = useCallback(async (handoffCode: string): Promise<Me> => {
     const res = await exchangeStaffPasskeyHandoff(handoffCode);
     return acceptSession(res.access_token);
-  };
+  }, [acceptSession]);
 
   // Kept for backward compatibility and rollback safety. The normal Plant Staff
   // login UI no longer exposes Google OAuth.

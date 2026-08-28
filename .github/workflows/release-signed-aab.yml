@@ -6,8 +6,9 @@ name: Release Signed AAB
 #   ANDROID_KEYSTORE_PASSWORD    - keystore password
 #   ANDROID_STORE_PASSWORD       - key store password (usually same as ANDROID_KEYSTORE_PASSWORD)
 #   ANDROID_KEY_ALIAS            - alias inside the keystore (e.g. "concreteking")
-# Optional repo variable:
-#   PREVIEW_BACKEND_URL          - production API base URL baked into the release JS bundle
+#
+# Production release builds are intentionally pinned to https://trackmyrmc.com.
+# Do not bake a preview, legacy, or api.* hostname into a Play candidate.
 
 on:
   workflow_dispatch:
@@ -17,6 +18,8 @@ on:
         required: false
         default: main
   push:
+    branches:
+      - "release/signed-aab-v*"
     tags:
       - "v*"
 
@@ -34,7 +37,7 @@ jobs:
     timeout-minutes: 45
     env:
       CI: "1"
-      EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.trackmyrmc.com' }}
+      EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +54,17 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Verify canonical production backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
+            "${EXPO_PUBLIC_BACKEND_URL}/api/health" >/tmp/production-health.json
+          grep -F 'healthy' /tmp/production-health.json >/dev/null
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
+            "${EXPO_PUBLIC_BACKEND_URL}/.well-known/assetlinks.json" >/tmp/assetlinks.json
+          grep -F 'com.trackmyrmc.concreteking' /tmp/assetlinks.json >/dev/null
 
       - name: Verify required secrets are configured
         run: |
@@ -97,7 +111,6 @@ jobs:
           TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
           TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
           EOF
-          # Insert signingConfigs.release + link into buildTypes.release if not present.
           python3 - <<'PY'
           import re, pathlib
           gradle = pathlib.Path("app/build.gradle")
@@ -117,9 +130,7 @@ jobs:
                   }
               }
               """
-              # Insert signingConfigs block just before buildTypes
               text2 = re.sub(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              # Link release build type to the release signingConfig
               text2 = re.sub(
                   r'(buildTypes\s*\{[^{}]*release\s*\{[^{}]*?)(signingConfig\s+signingConfigs\.\w+)',
                   r'\1signingConfig signingConfigs.release',
@@ -151,20 +162,31 @@ jobs:
           echo "Size: $size bytes"
           echo "SHA-256: $sha"
           echo "aab_sha=$sha" >> "$GITHUB_OUTPUT" || true
-          # bundletool signature check
+
           curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
-          # Confirm application ID + versionCode inside the bundle manifest.
           unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="80"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.22"' /tmp/aab-manifest.xml
+          grep -F 'android:versionCode="81"' /tmp/aab-manifest.xml
+          grep -F 'android:versionName="2.0.23"' /tmp/aab-manifest.xml
+
+          bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
+          test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
+          unzip -p "$aab" "$bundle_entry" >/tmp/index.android.bundle
+          grep -F 'https://trackmyrmc.com' /tmp/index.android.bundle >/dev/null || {
+            echo "Canonical production origin is not baked into the Android bundle"
+            exit 1
+          }
+          if grep -F 'https://api.trackmyrmc.com' /tmp/index.android.bundle >/dev/null; then
+            echo "Legacy api.trackmyrmc.com origin detected in Android release bundle"
+            exit 1
+          fi
 
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.22-vc80-signed-aab
+          name: trackmyrmc-v2.0.23-vc81-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
