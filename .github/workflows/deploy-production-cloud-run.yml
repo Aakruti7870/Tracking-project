@@ -1,0 +1,156 @@
+name: Deploy Production Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Branch, tag, or SHA to deploy
+        required: false
+        default: main
+      service:
+        description: Cloud Run service name
+        required: false
+        default: tracking-preview-api
+      region:
+        description: Google Cloud region
+        required: false
+        default: asia-south1
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-cloud-run-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, deploy, and verify production backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      SERVICE: ${{ inputs.service || 'tracking-preview-api' }}
+      REGION: ${{ inputs.region || 'asia-south1' }}
+      EXPECTED_PUBLIC_URL: https://tracking-preview-api-224495133432.asia-south1.run.app
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_ref || 'main' }}
+          fetch-depth: 0
+
+      - name: Verify deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PROJECT_ID:-}" || {
+            echo "::error::Repository variable GCP_PROJECT_ID is required."
+            exit 1
+          }
+          test -f Dockerfile
+          grep -F 'COPY backend/ /app/' Dockerfile >/dev/null
+          grep -F 'uvicorn server:app' Dockerfile >/dev/null
+          echo "Candidate SHA: $(git rev-parse HEAD)"
+          echo "Project: $PROJECT_ID"
+          echo "Service: $SERVICE"
+          echo "Region: $REGION"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify active Google Cloud identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROJECT_ID"
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          gcloud run services describe "$SERVICE" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format='value(metadata.name,status.url)' | tee /tmp/service-before.txt
+
+      - name: Build immutable container in Cloud Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/trackmyrmc/${SERVICE}:${SHA}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          gcloud builds submit \
+            --project "$PROJECT_ID" \
+            --tag "$IMAGE" \
+            .
+
+      - name: Deploy Cloud Run revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="${SHA:0:12}"
+          gcloud run deploy "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --image "$IMAGE" \
+            --platform managed \
+            --quiet \
+            --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions"
+
+      - name: Resolve deployed service URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          test -n "$URL"
+          echo "DEPLOYED_URL=$URL" >> "$GITHUB_ENV"
+          echo "Deployed URL: $URL"
+
+      - name: Verify health and public policy routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /health /api/health /privacy_policy /terms /account-deletion; do
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -o /tmp/response -w '%{http_code}' "${DEPLOYED_URL}${path}")"
+            echo "$path -> HTTP $code"
+            case "$path" in
+              /health|/api/health)
+                test "$code" = "200" || { cat /tmp/response; exit 1; }
+                grep -F 'healthy' /tmp/response >/dev/null || { cat /tmp/response; exit 1; }
+                ;;
+              *)
+                test "$code" = "200" || { cat /tmp/response; exit 1; }
+                ;;
+            esac
+          done
+
+      - name: Verify revision became ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run revisions list \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --service "$SERVICE" \
+            --limit 3 \
+            --format='table(metadata.name,status.conditions[0].status,status.conditions[0].type,metadata.labels.source-sha)'
+          READY="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.conditions[0].status)')"
+          test "$READY" = "True"
+
+      - name: Verify canonical public host separately
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "The Cloud Run deployment is verified above."
+          echo "Now probing trackmyrmc.com to detect whether domain routing has been updated."
+          for path in /privacy_policy /terms /account-deletion; do
+            code="$(curl -L --max-redirs 5 -sS -o /tmp/domain-response -w '%{http_code}' "https://trackmyrmc.com${path}" || true)"
+            echo "https://trackmyrmc.com${path} -> HTTP ${code:-request-failed}"
+          done
+          echo "Canonical-host probes are informational; domain/load-balancer mapping is managed outside this workflow."
