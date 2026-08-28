@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, View, ViewStyle } from "react-native";
+import { Platform, StyleSheet, View, ViewStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -8,10 +8,9 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 import { AppText } from "./AppText";
 
 /**
- * Map adapter placeholder. The real Google Maps layer (react-native-maps +
- * Directions/Places) plugs in here once an API key is configured. Until then
- * we render a clean, on-brand map surface so the flow is never broken — and we
- * explicitly mark the integration as NOT CONFIGURED rather than faking a map.
+ * Map adapter placeholder. Native Android can use the configured Google Maps
+ * integration, while web intentionally presents a clear Android-app fallback
+ * until an interactive browser map is implemented.
  */
 export function MapPlaceholder({
   pins = 0,
@@ -28,6 +27,9 @@ export function MapPlaceholder({
 
   const grid = colors.isDark ? "rgba(204,255,0,0.06)" : "rgba(18,18,18,0.05)";
   const mapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY;
+  const isWeb = Platform.OS === "web";
+  const mapAvailable = isWeb || mapsConfigured;
+  const statusLabel = isWeb ? "Android app map" : mapsConfigured ? "Live map" : "Maps: not configured";
 
   return (
     <View style={[styles.wrap, { borderColor: colors.border }, style]}>
@@ -55,9 +57,13 @@ export function MapPlaceholder({
       </View>
 
       <View style={[styles.chip, { backgroundColor: colors.surface + "CC", borderColor: colors.border }]}>
-        <Ionicons name={mapsConfigured ? "map-outline" : "warning-outline"} size={12} color={mapsConfigured ? colors.brand : colors.warning} />
+        <Ionicons
+          name={mapAvailable ? "map-outline" : "warning-outline"}
+          size={12}
+          color={mapAvailable ? colors.brand : colors.warning}
+        />
         <AppText style={{ fontFamily: fonts.medium, fontSize: 10, color: colors.onSurfaceTertiary }}>
-          {mapsConfigured ? "Live map" : "Maps: not configured"}
+          {statusLabel}
         </AppText>
       </View>
     </View>
