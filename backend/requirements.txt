@@ -51,7 +51,7 @@ iniconfig==2.3.0
 isort==8.0.1
 Jinja2==3.1.6
 jiter==0.16.0
-jmespath==1.1.0
+jmespath==1.0.1
 jq==1.12.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
@@ -81,7 +81,7 @@ protobuf==5.29.6
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycodestyle==2.14.0
-pycparser==3.0
+pycparser==2.23
 pydantic==2.13.4
 pydantic_core==2.46.4
 pyflakes==3.4.0
@@ -97,6 +97,7 @@ python-jose==3.5.0
 python-multipart==0.0.32
 pytokens==0.4.1
 PyYAML==6.0.3
+qrcode==8.2
 referencing==0.37.0
 regex==2026.7.19
 requests==2.34.2
