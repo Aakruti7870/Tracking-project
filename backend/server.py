@@ -23,6 +23,7 @@ from routers import (
     driver,
     finance_ops,
     hr_master,
+    kyc_recovery,
     loads,
     maps,
     master_data,
@@ -121,6 +122,7 @@ app.include_router(owner.router)
 app.include_router(plant_plans.router)
 app.include_router(driver.router)
 app.include_router(staff.router)
+app.include_router(kyc_recovery.router)
 app.include_router(operator_ops.router)
 app.include_router(master_data.router)
 # The compatibility guard must be registered before finance_ops so the old
