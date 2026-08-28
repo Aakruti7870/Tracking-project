@@ -93,7 +93,10 @@ def issue_jwt(user_id: str, sid: str, role: str) -> tuple[str, datetime]:
     return token, expires
 
 
-async def current_user(request: Request, authorization: str = Header(default="")) -> dict:
+async def current_user(
+    request: Request = None,
+    authorization: str = Header(default=""),
+) -> dict:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Bearer token required")
     try:
@@ -112,11 +115,15 @@ async def current_user(request: Request, authorization: str = Header(default="")
     if not session or as_aware(session["expires_at"]) <= utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or revoked")
 
-    if session.get("mfa_bootstrap_only") and request.url.path not in MFA_BOOTSTRAP_ALLOWED_PATHS:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Authenticator App setup is required before this Plant Staff session can access the app",
-        )
+    if session.get("mfa_bootstrap_only"):
+        # Normal FastAPI requests provide Request automatically. Direct/internal
+        # calls remain compatible for regular sessions, but a bootstrap session
+        # without request context must fail closed instead of bypassing MFA.
+        if request is None or request.url.path not in MFA_BOOTSTRAP_ALLOWED_PATHS:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Authenticator App setup is required before this Plant Staff session can access the app",
+            )
 
     user = await users.find_one({"_id": _oid(payload["sub"])})
     if not user:
