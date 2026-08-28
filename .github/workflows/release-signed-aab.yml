@@ -2,10 +2,14 @@ name: Release Signed AAB
 
 # Produces a Google Play upload-signed .aab for com.trackmyrmc.concreteking.
 # Required GitHub Actions secrets (Repo -> Settings -> Secrets and variables -> Actions):
-#   ANDROID_KEYSTORE_BASE64      - base64 of the upload keystore .jks / .p12
-#   ANDROID_KEYSTORE_PASSWORD    - keystore password
-#   ANDROID_STORE_PASSWORD       - key store password (usually same as ANDROID_KEYSTORE_PASSWORD)
-#   ANDROID_KEY_ALIAS            - alias inside the keystore (e.g. "concreteking")
+#   ANDROID_KEYSTORE_BASE64      - base64 of the ORIGINAL Google Play upload keystore .jks / .p12
+#   ANDROID_KEYSTORE_PASSWORD    - key password
+#   ANDROID_STORE_PASSWORD       - keystore password
+#   ANDROID_KEY_ALIAS            - alias inside the keystore
+#
+# IMPORTANT: Google Play currently requires the upload certificate SHA-1 below.
+# The workflow fails before Gradle if a different keystore is configured, and verifies
+# the final AAB signer again after the bundle is built.
 #
 # Production release builds are intentionally pinned to https://trackmyrmc.com.
 # Do not bake a preview, legacy, or api.* hostname into a Play candidate.
@@ -39,6 +43,7 @@ jobs:
       CI: "1"
       EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,6 +101,34 @@ jobs:
           printf "%s" "$KEYSTORE_B64" | base64 -d > upload-keystore.jks
           test -s upload-keystore.jks
           echo "keystore size: $(stat -c%s upload-keystore.jks) bytes"
+
+      - name: Verify Google Play upload certificate before build
+        working-directory: frontend/android/app
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          actual_sha1="$(keytool -list -v \
+            -keystore upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" 2>/dev/null \
+            | awk -F': ' '/SHA1:/{print $2; exit}' \
+            | tr '[:lower:]' '[:upper:]')"
+
+          if [ -z "$actual_sha1" ]; then
+            echo "::error::Could not read SHA-1 from configured Android upload keystore/alias."
+            exit 1
+          fi
+
+          echo "Configured upload certificate SHA1: $actual_sha1"
+          echo "Google Play expected certificate SHA1: $EXPECTED_PLAY_UPLOAD_SHA1"
+          if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "::error::WRONG GOOGLE PLAY UPLOAD KEY. Refusing to build AAB. Expected $EXPECTED_PLAY_UPLOAD_SHA1 but configured keystore is $actual_sha1"
+            exit 1
+          fi
+
+          echo "Google Play upload certificate verified."
 
       - name: Wire release signingConfig into build.gradle
         working-directory: frontend/android
@@ -163,13 +196,27 @@ jobs:
           echo "SHA-256: $sha"
           echo "aab_sha=$sha" >> "$GITHUB_OUTPUT" || true
 
+          signer_sha1="$(keytool -printcert -jarfile "$aab" 2>/dev/null \
+            | awk -F': ' '/SHA1:/{print $2; exit}' \
+            | tr '[:lower:]' '[:upper:]')"
+          if [ -z "$signer_sha1" ]; then
+            echo "::error::Unable to read signing certificate from generated AAB."
+            exit 1
+          fi
+          echo "Generated AAB signer SHA1: $signer_sha1"
+          if [ "$signer_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "::error::Generated AAB is signed by the wrong certificate. Expected $EXPECTED_PLAY_UPLOAD_SHA1 but got $signer_sha1"
+            exit 1
+          fi
+          echo "Generated AAB signing certificate matches Google Play."
+
           curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
           unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="81"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.23"' /tmp/aab-manifest.xml
+          grep -F 'android:versionCode="82"' /tmp/aab-manifest.xml
+          grep -F 'android:versionName="2.0.24"' /tmp/aab-manifest.xml
 
           bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
           test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
@@ -186,7 +233,7 @@ jobs:
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.23-vc81-signed-aab
+          name: trackmyrmc-v2.0.24-vc82-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
