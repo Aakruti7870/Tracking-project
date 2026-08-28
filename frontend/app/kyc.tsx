@@ -18,10 +18,10 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const STATE_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; title: string; body: string; tone: "success" | "warning" | "error" | "info" }> = {
   VERIFIED: { icon: "shield-checkmark", title: "KYC Verified", body: "You can place orders using the app.", tone: "success" },
-  IN_PROGRESS: { icon: "phone-portrait-outline", title: "Complete DigiLocker", body: "Finish consent in DigiLocker, then return here and refresh.", tone: "warning" },
+  IN_PROGRESS: { icon: "phone-portrait-outline", title: "Complete DigiLocker", body: "Finish consent in DigiLocker. If you cancelled or closed it, you can safely restart the verification.", tone: "warning" },
   PENDING: { icon: "hourglass-outline", title: "Authority review pending", body: "DigiLocker consent succeeded. An Authority will review your KYC.", tone: "warning" },
   REJECTED: { icon: "close-circle", title: "Verification rejected", body: "Something didn't match. Please retry.", tone: "error" },
-  REQUIRES_REVERIFICATION: { icon: "refresh", title: "Re-verification required", body: "Please re-submit your KYC to continue.", tone: "warning" },
+  REQUIRES_REVERIFICATION: { icon: "refresh", title: "Re-verification required", body: "Please start DigiLocker again to continue.", tone: "warning" },
   NOT_STARTED: { icon: "id-card-outline", title: "Verify your identity", body: "Complete KYC to unlock live concrete ordering.", tone: "info" },
 };
 
@@ -31,21 +31,28 @@ const STEPS = [
   "Get verified and start ordering instantly",
 ];
 
+type KycStatusResponse = {
+  status: string;
+  provider?: string;
+  refresh_failed?: boolean;
+};
+
 export default function KycScreen() {
   const { colors, scheme } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, refreshMe } = useAuth();
-  const { data, loading, error, reload } = useGet<{ status: string }>("/customer/kyc");
+  const { data, loading, error, refetch } = useGet<KycStatusResponse>("/customer/kyc");
   const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active") reload();
+      if (next === "active") refetch();
     });
     return () => subscription.remove();
-  }, [reload]);
+  }, [refetch]);
 
   const status = data?.status || "NOT_STARTED";
   const meta = STATE_META[status] || STATE_META.NOT_STARTED;
@@ -62,7 +69,7 @@ export default function KycScreen() {
       toast("Opening DigiLocker securely", "success");
       await Linking.openURL(result.authorization_url);
       await refreshMe();
-      reload();
+      await refetch();
     } catch (e: any) {
       toast(e.detail || "Could not start KYC", "error");
     } finally {
@@ -70,9 +77,33 @@ export default function KycScreen() {
     }
   };
 
-  const waiting = status === "IN_PROGRESS" || status === "PENDING";
-  const ctaLabel = status === "NOT_STARTED" ? "Continue with DigiLocker" : waiting ? "Refresh Status" : status === "VERIFIED" ? "Back to Home" : "Retry DigiLocker";
-  const onCta = status === "VERIFIED" ? () => router.back() : waiting ? () => reload() : startKyc;
+  const refreshStatus = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+      toast("KYC status checked", "success");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const ctaLabel =
+    status === "NOT_STARTED"
+      ? "Continue with DigiLocker"
+      : status === "IN_PROGRESS"
+      ? "Restart DigiLocker"
+      : status === "PENDING"
+      ? "Refresh Status"
+      : status === "VERIFIED"
+      ? "Back to Home"
+      : "Retry DigiLocker";
+
+  const onCta =
+    status === "VERIFIED"
+      ? () => router.back()
+      : status === "PENDING"
+      ? refreshStatus
+      : startKyc;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -106,6 +137,15 @@ export default function KycScreen() {
               ) : null}
             </Card>
 
+            {data?.refresh_failed ? (
+              <Card style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, borderColor: colors.warning + "66" }}>
+                <Ionicons name="warning-outline" size={18} color={colors.warning} />
+                <AppText variant="caption" style={{ flex: 1 }}>
+                  DigiLocker status could not be refreshed right now. Your KYC is not rejected. You can safely restart DigiLocker.
+                </AppText>
+              </Card>
+            ) : null}
+
             {status !== "VERIFIED" ? (
               <View style={{ gap: spacing.md }}>
                 <AppText variant="heading">How it works</AppText>
@@ -128,7 +168,11 @@ export default function KycScreen() {
 
             {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
 
-            <Button testID="kyc-cta" label={ctaLabel} onPress={onCta} loading={submitting} />
+            <Button testID="kyc-cta" label={ctaLabel} onPress={onCta} loading={submitting || (status === "PENDING" && refreshing)} />
+
+            {status === "IN_PROGRESS" ? (
+              <Button testID="kyc-refresh" label="Refresh Status" variant="outline" onPress={refreshStatus} loading={refreshing} />
+            ) : null}
           </>
         )}
       </ScrollView>
