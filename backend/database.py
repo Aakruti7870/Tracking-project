@@ -42,6 +42,9 @@ class BaseDocument(BaseModel):
 users = db.users
 sessions = db.sessions
 otps = db.otps
+webauthn_requests = db.webauthn_requests
+webauthn_challenges = db.webauthn_challenges
+passkey_handoffs = db.passkey_handoffs
 audit_logs = db.audit_logs
 notifications = db.notifications
 counters = db.counters
@@ -121,6 +124,11 @@ async def ensure_indexes() -> None:
         partialFilterExpression={"consumed": False},
         name="one_active_otp_per_identifier",
     )
+    await webauthn_requests.create_index("expires_at", expireAfterSeconds=0)
+    await webauthn_requests.create_index([("user_id", 1), ("purpose", 1), ("created_at", -1)])
+    await webauthn_challenges.create_index("expires_at", expireAfterSeconds=0)
+    await webauthn_challenges.create_index([("user_id", 1), ("purpose", 1), ("created_at", -1)])
+    await passkey_handoffs.create_index("expires_at", expireAfterSeconds=0)
     await users.create_index("identifier_keys", unique=True, name="unique_login_identifier")
     await users.create_index([("plant_id", 1), ("primary_role", 1), ("status", 1)])
     await account_deletion_requests.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
