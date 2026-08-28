@@ -81,7 +81,6 @@ export default function KycScreen() {
     setRefreshing(true);
     try {
       await refetch();
-      toast("KYC status checked", "success");
     } finally {
       setRefreshing(false);
     }
