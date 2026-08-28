@@ -54,7 +54,7 @@ from routers.staff_mfa import (
     _mfa_doc,
     _mfa_enabled,
     _record_failure,
-    _reset_failures,
+    _record_success,
     _resolve_staff,
     _verify_totp,
 )
@@ -166,7 +166,7 @@ async def _verify_credential_management_totp(user: dict, actor_code: str) -> Non
     if not _verify_totp(secret, actor_code):
         await _record_failure(user)
         raise HTTPException(400, "Authenticator code did not match")
-    await _reset_failures(user)
+    await _record_success(user)
 
 
 async def _create_request(
