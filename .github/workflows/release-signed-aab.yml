@@ -1,14 +1,14 @@
 name: Release Signed AAB
 
 # Produces a Google Play upload-signed .aab for com.trackmyrmc.concreteking.
-# Required GitHub Actions secrets (Repo -> Settings -> Secrets and variables -> Actions):
-#   ANDROID_KEYSTORE_BASE64      - base64 of the upload keystore .jks / .p12
-#   ANDROID_KEYSTORE_PASSWORD    - keystore password
-#   ANDROID_STORE_PASSWORD       - key store password (usually same as ANDROID_KEYSTORE_PASSWORD)
-#   ANDROID_KEY_ALIAS            - alias inside the keystore (e.g. "concreteking")
+# The workflow MUST prove that the configured upload key matches the certificate
+# registered in Google Play before it builds or publishes an artifact.
 #
-# Production release builds are intentionally pinned to https://trackmyrmc.com.
-# Do not bake a preview, legacy, or api.* hostname into a Play candidate.
+# Required GitHub Actions secrets:
+#   ANDROID_KEYSTORE_BASE64
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_STORE_PASSWORD
+#   ANDROID_KEY_ALIAS
 
 on:
   workflow_dispatch:
@@ -20,6 +20,7 @@ on:
   push:
     branches:
       - "release/signed-aab-v*"
+      - "fix/vc81-play-upload-cert-gate-20260829"
     tags:
       - "v*"
 
@@ -32,13 +33,20 @@ concurrency:
 
 jobs:
   build-signed-aab:
-    name: Build signed release AAB
+    name: Build Play-verified signed release AAB
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       CI: "1"
+      NODE_ENV: production
       EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+
+      # Historical Google Play upload certificate for com.trackmyrmc.concreteking.
+      EXPECTED_PLAY_UPLOAD_MD5: "86:CA:AD:71:31:E2:5A:00:A4:12:A8:84:9B:FF:B1:AB"
+      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
+      EXPECTED_PLAY_UPLOAD_SHA256: "2D:C2:82:9A:A7:E3:DA:02:93:8A:7B:E2:AC:E6:4B:8C:6F:DE:27:1D:C7:00:96:85:18:8C:15:5F:DA:11:35:F4"
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,8 +74,10 @@ jobs:
             "${EXPO_PUBLIC_BACKEND_URL}/.well-known/assetlinks.json" >/tmp/assetlinks.json
           grep -F 'com.trackmyrmc.concreteking' /tmp/assetlinks.json >/dev/null
 
-      - name: Verify required secrets are configured
+      - name: Verify required signing secrets exist
+        shell: bash
         run: |
+          set -euo pipefail
           missing=()
           [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || missing+=("ANDROID_KEYSTORE_BASE64")
           [ -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || missing+=("ANDROID_KEYSTORE_PASSWORD")
@@ -75,7 +85,6 @@ jobs:
           [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ] || missing+=("ANDROID_KEY_ALIAS")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Missing required signing secrets: ${missing[*]}"
-            echo "Add them at: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
 
@@ -87,7 +96,7 @@ jobs:
         working-directory: frontend
         run: npx expo prebuild --platform android --clean --no-install
 
-      - name: Restore upload keystore
+      - name: Restore Play upload keystore
         working-directory: frontend/android/app
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -95,84 +104,239 @@ jobs:
           set -euo pipefail
           printf "%s" "$KEYSTORE_B64" | base64 -d > upload-keystore.jks
           test -s upload-keystore.jks
-          echo "keystore size: $(stat -c%s upload-keystore.jks) bytes"
+          echo "Keystore restored ($(stat -c%s upload-keystore.jks) bytes)."
 
-      - name: Wire release signingConfig into build.gradle
-        working-directory: frontend/android
+      - name: Prove Play upload certificate and private key before build
+        working-directory: frontend/android/app
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD_A: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD_B: ${{ secrets.ANDROID_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          cat >> gradle.properties <<EOF
-          TRACKMYRMC_UPLOAD_STORE_FILE=upload-keystore.jks
-          TRACKMYRMC_UPLOAD_STORE_PASSWORD=${STORE_PASSWORD}
-          TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
-          TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
-          EOF
-          python3 - <<'PY'
-          import re, pathlib
-          gradle = pathlib.Path("app/build.gradle")
-          text = gradle.read_text()
-          if "TRACKMYRMC_UPLOAD_STORE_FILE" in text:
-              print("signingConfig already wired, skipping")
-          else:
-              signing_block = """
-              signingConfigs {
-                  release {
-                      if (project.hasProperty('TRACKMYRMC_UPLOAD_STORE_FILE')) {
-                          storeFile file(TRACKMYRMC_UPLOAD_STORE_FILE)
-                          storePassword TRACKMYRMC_UPLOAD_STORE_PASSWORD
-                          keyAlias TRACKMYRMC_UPLOAD_KEY_ALIAS
-                          keyPassword TRACKMYRMC_UPLOAD_KEY_PASSWORD
-                      }
-                  }
-              }
-              """
-              text2 = re.sub(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              text2 = re.sub(
-                  r'(buildTypes\s*\{[^{}]*release\s*\{[^{}]*?)(signingConfig\s+signingConfigs\.\w+)',
-                  r'\1signingConfig signingConfigs.release',
-                  text2,
-                  count=1,
-                  flags=re.DOTALL,
-              )
-              if text2 == text:
-                  raise SystemExit("failed to patch app/build.gradle with release signingConfig")
-              gradle.write_text(text2)
-              print("signingConfig wired into app/build.gradle")
-          PY
 
-      - name: Build signed release AAB
-        working-directory: frontend/android
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+          key_info="$(keytool -list -v \
+            -keystore upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS")"
+          printf '%s\n' "$key_info" | grep -q 'Entry type: PrivateKeyEntry'
 
-      - name: Verify signed AAB
+          keytool -exportcert \
+            -keystore upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -file /tmp/play-upload-cert.der >/dev/null
+
+          actual_md5="$(openssl x509 -inform DER -in /tmp/play-upload-cert.der -noout -fingerprint -md5 | cut -d= -f2 | tr -d '\r')"
+          actual_sha1="$(openssl x509 -inform DER -in /tmp/play-upload-cert.der -noout -fingerprint -sha1 | cut -d= -f2 | tr -d '\r')"
+          actual_sha256="$(openssl x509 -inform DER -in /tmp/play-upload-cert.der -noout -fingerprint -sha256 | cut -d= -f2 | tr -d '\r')"
+
+          echo "Keystore MD5:     $actual_md5"
+          echo "Keystore SHA-1:   $actual_sha1"
+          echo "Keystore SHA-256: $actual_sha256"
+
+          [ "$actual_md5" = "$EXPECTED_PLAY_UPLOAD_MD5" ] || {
+            echo "ERROR: configured keystore MD5 does not match Google Play."
+            exit 1
+          }
+          [ "$actual_sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" ] || {
+            echo "ERROR: configured keystore SHA-1 does not match Google Play."
+            exit 1
+          }
+          [ "$actual_sha256" = "$EXPECTED_PLAY_UPLOAD_SHA256" ] || {
+            echo "ERROR: configured keystore SHA-256 does not match Google Play."
+            exit 1
+          }
+
+          # Prove that the configured alias has a usable private key before
+          # spending time compiling the Android app.
+          mkdir -p /tmp/trackmyrmc-sign-preflight
+          printf 'TrackMyRMC Play signing preflight\n' > /tmp/trackmyrmc-sign-preflight/payload.txt
+          jar --create --file /tmp/sign-base.jar -C /tmp/trackmyrmc-sign-preflight payload.txt
+
+          cp /tmp/sign-base.jar /tmp/sign-a.jar
+          if jarsigner \
+              -keystore upload-keystore.jks \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD_A" \
+              /tmp/sign-a.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "TRACKMYRMC_KEY_PASSWORD_MODE=KEY_SECRET" >> "$GITHUB_ENV"
+            echo "Private-key signing preflight: PASS."
+          else
+            cp /tmp/sign-base.jar /tmp/sign-b.jar
+            if jarsigner \
+                -keystore upload-keystore.jks \
+                -storepass "$STORE_PASSWORD" \
+                -keypass "$KEY_PASSWORD_B" \
+                /tmp/sign-b.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+              echo "TRACKMYRMC_KEY_PASSWORD_MODE=STORE_SECRET" >> "$GITHUB_ENV"
+              echo "Private-key signing preflight: PASS (store password is also key password)."
+            else
+              echo "ERROR: certificate matches Play, but configured private-key password cannot sign."
+              exit 1
+            fi
+          fi
+
+      - name: Remove Expo debug signing from release build
         working-directory: frontend/android
         run: |
           set -euo pipefail
-          aab='app/build/outputs/bundle/release/app-release.aab'
-          test -s "$aab"
-          size=$(stat -c%s "$aab")
-          sha=$(sha256sum "$aab" | awk '{print $1}')
-          echo "AAB: $aab"
-          echo "Size: $size bytes"
-          echo "SHA-256: $sha"
-          echo "aab_sha=$sha" >> "$GITHUB_OUTPUT" || true
+          python3 - <<'PY'
+          import pathlib
+          import re
 
-          curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
+          gradle = pathlib.Path("app/build.gradle")
+          text = gradle.read_text()
+
+          def block_bounds(src: str, keyword_start: int):
+              open_brace = src.find("{", keyword_start)
+              if open_brace < 0:
+                  raise SystemExit("opening brace not found")
+              depth = 0
+              for i in range(open_brace, len(src)):
+                  if src[i] == "{":
+                      depth += 1
+                  elif src[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return open_brace, i
+              raise SystemExit("unterminated Gradle block")
+
+          build_types_match = re.search(r"\bbuildTypes\s*\{", text)
+          if not build_types_match:
+              raise SystemExit("buildTypes block not found")
+
+          bt_open, bt_close = block_bounds(text, build_types_match.start())
+          bt_body = text[bt_open + 1:bt_close]
+          release_match = re.search(r"\brelease\s*\{", bt_body)
+          if not release_match:
+              raise SystemExit("release buildType not found")
+
+          release_abs = bt_open + 1 + release_match.start()
+          rel_open, rel_close = block_bounds(text, release_abs)
+          release_body = text[rel_open + 1:rel_close]
+
+          # Expo prebuild may put `signingConfig signingConfigs.debug` in release.
+          # Build the bundle unsigned, then sign it only after the Play key has
+          # passed certificate verification.
+          release_body = re.sub(
+              r"^\s*signingConfig\s+signingConfigs\.\w+\s*$",
+              "",
+              release_body,
+              flags=re.MULTILINE,
+          )
+          text = text[:rel_open + 1] + release_body + text[rel_close:]
+          gradle.write_text(text)
+
+          verify = gradle.read_text()
+          build_types_match = re.search(r"\bbuildTypes\s*\{", verify)
+          bt_open, bt_close = block_bounds(verify, build_types_match.start())
+          bt_body = verify[bt_open + 1:bt_close]
+          release_match = re.search(r"\brelease\s*\{", bt_body)
+          rel_open, rel_close = block_bounds(verify, bt_open + 1 + release_match.start())
+          final_release = verify[rel_open + 1:rel_close]
+          if re.search(r"\bsigningConfig\b", final_release):
+              raise SystemExit("release buildType still contains a signingConfig")
+
+          print("Release build is unsigned; Expo debug signing has been removed.")
+          PY
+
+          printf '\norg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8\n' >> gradle.properties
+
+      - name: Build unsigned release AAB
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Sign AAB with verified Play upload private key
+        working-directory: frontend/android
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          aab="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n1)"
+          test -n "$aab"
+          test -s "$aab"
+
+          if [ "$TRACKMYRMC_KEY_PASSWORD_MODE" = "KEY_SECRET" ]; then
+            KEY_PASSWORD="$KEY_PASSWORD_SECRET"
+          elif [ "$TRACKMYRMC_KEY_PASSWORD_MODE" = "STORE_SECRET" ]; then
+            KEY_PASSWORD="$STORE_PASSWORD"
+          else
+            echo "ERROR: signing preflight mode missing."
+            exit 1
+          fi
+
+          jarsigner \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            -keystore app/upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            "$aab" "$KEY_ALIAS"
+
+          jarsigner -verify "$aab" >/dev/null
+          echo "AAB JAR signature verification: PASS."
+
+      - name: Verify final AAB certificate, bundle and identity
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          aab="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n1)"
+          test -s "$aab"
+
+          # Verify the certificate actually embedded in the final AAB, not merely
+          # the keystore used earlier in the job.
+          cert_output="$(keytool -printcert -jarfile "$aab")"
+          printf '%s\n' "$cert_output" > /tmp/final-aab-cert.txt
+
+          final_sha1="$(printf '%s\n' "$cert_output" | sed -n 's/^[[:space:]]*SHA1: //p' | head -n1 | tr -d '\r')"
+          final_sha256="$(printf '%s\n' "$cert_output" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n1 | tr -d '\r')"
+
+          echo "FINAL AAB SHA-1:   $final_sha1"
+          echo "FINAL AAB SHA-256: $final_sha256"
+
+          [ "$final_sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" ] || {
+            echo "ERROR: final AAB SHA-1 mismatch; refusing to publish artifact."
+            cat /tmp/final-aab-cert.txt
+            exit 1
+          }
+          [ "$final_sha256" = "$EXPECTED_PLAY_UPLOAD_SHA256" ] || {
+            echo "ERROR: final AAB SHA-256 mismatch; refusing to publish artifact."
+            exit 1
+          }
+
+          if printf '%s\n' "$cert_output" | grep -Fq 'CN=Android Debug'; then
+            echo "ERROR: Android Debug certificate detected in final release AAB."
+            exit 1
+          fi
+
+          size="$(stat -c%s "$aab")"
+          file_sha="$(sha256sum "$aab" | awk '{print $1}')"
+          echo "AAB file: $aab"
+          echo "AAB size: $size bytes"
+          echo "AAB file SHA-256: $file_sha"
+
+          curl -sSL -o /tmp/bundletool.jar \
+            https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
-          unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
+
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
           grep -F 'android:versionCode="81"' /tmp/aab-manifest.xml
           grep -F 'android:versionName="2.0.23"' /tmp/aab-manifest.xml
 
-          bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
-          test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
+          bundle_entry="$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)"
+          test -n "$bundle_entry" || {
+            echo "Android JS bundle not found in AAB"
+            exit 1
+          }
           unzip -p "$aab" "$bundle_entry" >/tmp/index.android.bundle
           grep -F 'https://trackmyrmc.com' /tmp/index.android.bundle >/dev/null || {
             echo "Canonical production origin is not baked into the Android bundle"
@@ -183,10 +347,12 @@ jobs:
             exit 1
           fi
 
-      - name: Upload signed AAB artifact
+          echo "FINAL PLAY-UPLOAD CERTIFICATE: EXACT MATCH."
+
+      - name: Upload verified Play-signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.23-vc81-signed-aab
-          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          name: trackmyrmc-v2.0.23-vc81-PLAY-UPLOAD-SIGNED-aab
+          path: frontend/android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
