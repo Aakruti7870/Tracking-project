@@ -1,15 +1,13 @@
 """High-assurance Plant Staff passkey/WebAuthn ceremonies.
 
-Passkeys are an additional phishing-resistant login method on top of the existing
-approved-staff + TOTP foundation. Registration is authorized only by a recent
-strong Plant Staff session (TOTP or an existing passkey). Authentication always
-requires WebAuthn user verification and issues the normal TrackMyRMC session only
-after a one-time handoff is exchanged.
+Passkeys are a phishing-resistant login method layered on the approved-staff +
+TOTP foundation. Authentication requires WebAuthn user verification. Creating or
+removing a passkey additionally requires a fresh Authenticator code, so a stolen
+session or compromised passkey cannot silently change credential ownership.
 
-The mobile app deliberately runs the WebAuthn ceremony in the system browser on
-https://trackmyrmc.com. That keeps the relying-party origin exact and auditable,
-while Android still presents the device's passkey/biometric/PIN UI. No JWT is
-placed in a URL and all browser handoffs are single-use, short-lived capabilities.
+The mobile app runs the WebAuthn ceremony in the system browser on the canonical
+https://trackmyrmc.com origin. No JWT is placed in a URL; all browser capabilities
+and login handoffs are random, single-use and short-lived.
 """
 from __future__ import annotations
 
@@ -35,10 +33,7 @@ from webauthn import (
     verify_registration_response,
 )
 from webauthn.helpers import bytes_to_base64url
-from webauthn.helpers.exceptions import (
-    InvalidAuthenticationResponse,
-    InvalidRegistrationResponse,
-)
+from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidRegistrationResponse
 from webauthn.helpers.structs import (
     AttestationConveyancePreference,
     AuthenticatorAttachment,
@@ -53,8 +48,17 @@ from config import settings
 from database import passkey_handoffs, users, webauthn_challenges, webauthn_requests
 from routers.auth import _assert_account_available, _issue_session
 from routers.staff_auth import _staff_role_allowed
-from routers.staff_mfa import _mfa_enabled, _resolve_staff
-from security import as_aware, current_user, utcnow
+from routers.staff_mfa import (
+    _assert_not_locked,
+    _decrypt_secret,
+    _mfa_doc,
+    _mfa_enabled,
+    _record_failure,
+    _reset_failures,
+    _resolve_staff,
+    _verify_totp,
+)
+from security import current_user, utcnow
 
 router = APIRouter(prefix="/api/auth/staff/passkey", tags=["staff-passkey"])
 
@@ -62,7 +66,6 @@ CHALLENGE_TTL_SECONDS = 180
 REQUEST_TTL_SECONDS = 90
 HANDOFF_TTL_SECONDS = 60
 MAX_PASSKEYS_PER_USER = 5
-STRONG_ENROLLMENT_METHODS = {"staff_totp", "staff_passkey"}
 
 
 class AuthenticationStartBody(BaseModel):
@@ -80,6 +83,7 @@ class CeremonyVerifyBody(RequestBody):
 
 
 class RegistrationStartBody(BaseModel):
+    actor_code: str = Field(min_length=6, max_length=8)
     return_mode: Literal["app", "web"] = "app"
 
 
@@ -89,6 +93,7 @@ class HandoffBody(BaseModel):
 
 class RemovePasskeyBody(BaseModel):
     credential_id: str = Field(min_length=16, max_length=1024)
+    actor_code: str = Field(min_length=6, max_length=8)
 
 
 def _active_passkeys(user: dict) -> list[dict]:
@@ -116,11 +121,6 @@ def _handoff_digest(code: str) -> str:
 
 
 def _android_apk_origin() -> str | None:
-    """Return the exact Android WebAuthn origin for the Play signing cert.
-
-    Native Credential Manager may be enabled later without changing the server
-    trust model. Invalid/missing fingerprints are never converted to a wildcard.
-    """
     fingerprint = os.getenv("PLAY_SIGNING_SHA256", "").strip().replace(":", "")
     if len(fingerprint) != 64:
         return None
@@ -141,20 +141,8 @@ def _allowed_origins() -> list[str]:
 
 
 def _ceremony_url(flow: Literal["authenticate", "register"], request_id: str) -> str:
-    # Put the capability in the fragment so browsers do not send it in the HTTP
-    # request line, Referer header, reverse-proxy logs, or analytics URLs.
+    # Fragment values are not sent in HTTP request lines or Referer headers.
     return f"{settings.PASSKEY_WEB_ORIGIN}/passkey-ceremony#flow={flow}&request_id={request_id}"
-
-
-def _require_strong_enrollment_session(ctx: dict) -> None:
-    session = ctx.get("session") or {}
-    if session.get("mfa_bootstrap_only"):
-        raise HTTPException(403, "Complete Authenticator setup before creating a passkey")
-    if session.get("auth_method") not in STRONG_ENROLLMENT_METHODS:
-        raise HTTPException(
-            403,
-            "Verify with your Authenticator or an existing passkey before changing passkeys",
-        )
 
 
 def _credential_id_from_response(credential: dict[str, Any]) -> str:
@@ -162,6 +150,23 @@ def _credential_id_from_response(credential: dict[str, Any]) -> str:
     if not isinstance(value, str) or len(value) < 16:
         raise HTTPException(400, "Passkey response did not contain a valid credential id")
     return value
+
+
+async def _verify_credential_management_totp(user: dict, actor_code: str) -> None:
+    """Require a fresh TOTP before passkey registration/removal.
+
+    This deliberately makes TOTP the credential-management authority even when
+    passkeys are the preferred login method. Existing MFA lockout protections are
+    reused so brute-force attempts cannot bypass the established controls.
+    """
+    if not _mfa_enabled(user):
+        raise HTTPException(403, "Activate Authenticator security before managing passkeys")
+    _assert_not_locked(user)
+    secret = _decrypt_secret(_mfa_doc(user).get("totp_secret", ""))
+    if not _verify_totp(secret, actor_code):
+        await _record_failure(user)
+        raise HTTPException(400, "Authenticator code did not match")
+    await _reset_failures(user)
 
 
 async def _create_request(
@@ -193,11 +198,7 @@ async def _create_request(
 
 async def _load_request(request_id: str, purpose: str) -> dict:
     doc = await webauthn_requests.find_one(
-        {
-            "_id": request_id,
-            "purpose": purpose,
-            "expires_at": {"$gt": utcnow()},
-        }
+        {"_id": request_id, "purpose": purpose, "expires_at": {"$gt": utcnow()}}
     )
     if not doc:
         raise HTTPException(400, "Passkey request expired or is no longer valid")
@@ -221,12 +222,7 @@ async def _store_challenge(request_doc: dict, challenge: str, purpose: str) -> s
     return ceremony_id
 
 
-async def _consume_challenge(
-    *,
-    ceremony_id: str,
-    request_doc: dict,
-    purpose: str,
-) -> dict:
+async def _consume_challenge(*, ceremony_id: str, request_doc: dict, purpose: str) -> dict:
     challenge = await webauthn_challenges.find_one_and_delete(
         {
             "_id": ceremony_id,
@@ -279,9 +275,7 @@ async def start_authentication(body: AuthenticationStartBody):
     if not _mfa_enabled(user) or not passkeys:
         raise HTTPException(409, "No passkey is registered for this Plant Staff account")
     request = await _create_request(
-        user_id=str(user["_id"]),
-        purpose="authenticate",
-        return_mode=body.return_mode,
+        user_id=str(user["_id"]), purpose="authenticate", return_mode=body.return_mode
     )
     await write_audit(
         str(user["_id"]),
@@ -318,10 +312,9 @@ async def authentication_options(body: RequestBody):
         timeout=CHALLENGE_TTL_SECONDS * 1000,
     )
     payload = json.loads(options_to_json(options))
-    ceremony_id = await _store_challenge(
+    payload["ceremony_id"] = await _store_challenge(
         request_doc, payload["challenge"], "authenticate"
     )
-    payload["ceremony_id"] = ceremony_id
     return payload
 
 
@@ -329,9 +322,7 @@ async def authentication_options(body: RequestBody):
 async def verify_authentication(body: CeremonyVerifyBody):
     request_doc = await _load_request(body.request_id, "authenticate")
     challenge_doc = await _consume_challenge(
-        ceremony_id=body.ceremony_id,
-        request_doc=request_doc,
-        purpose="authenticate",
+        ceremony_id=body.ceremony_id, request_doc=request_doc, purpose="authenticate"
     )
     try:
         user = await users.find_one({"_id": ObjectId(request_doc["user_id"])})
@@ -373,9 +364,7 @@ async def verify_authentication(body: CeremonyVerifyBody):
     updated = await users.find_one_and_update(
         {
             "_id": user["_id"],
-            "mfa.passkeys": {
-                "$elemMatch": {"credential_id": credential_id, "active": {"$ne": False}}
-            },
+            "mfa.passkeys": {"$elemMatch": {"credential_id": credential_id, "active": {"$ne": False}}},
         },
         {
             "$set": {
@@ -418,10 +407,7 @@ async def verify_authentication(body: CeremonyVerifyBody):
 @router.post("/exchange")
 async def exchange_handoff(body: HandoffBody):
     handoff = await passkey_handoffs.find_one_and_delete(
-        {
-            "_id": _handoff_digest(body.code),
-            "expires_at": {"$gt": utcnow()},
-        }
+        {"_id": _handoff_digest(body.code), "expires_at": {"$gt": utcnow()}}
     )
     if not handoff:
         raise HTTPException(400, "Passkey handoff expired or was already used")
@@ -438,24 +424,18 @@ async def exchange_handoff(body: HandoffBody):
 
 
 @router.post("/register/start")
-async def start_registration(
-    body: RegistrationStartBody,
-    ctx: dict = Depends(current_user),
-):
+async def start_registration(body: RegistrationStartBody, ctx: dict = Depends(current_user)):
     user = ctx["user"]
     if not _staff_role_allowed(ctx.get("role")):
         raise HTTPException(403, "Passkey enrollment is available only to Plant Staff accounts")
     if not _mfa_enabled(user):
         raise HTTPException(403, "Activate Authenticator security before creating a passkey")
-    _require_strong_enrollment_session(ctx)
+    await _verify_credential_management_totp(user, body.actor_code)
     if len(_active_passkeys(user)) >= MAX_PASSKEYS_PER_USER:
         raise HTTPException(409, f"Maximum of {MAX_PASSKEYS_PER_USER} passkeys already registered")
 
     request = await _create_request(
-        user_id=str(user["_id"]),
-        purpose="register",
-        return_mode=body.return_mode,
-        sid=ctx["sid"],
+        user_id=str(user["_id"]), purpose="register", return_mode=body.return_mode, sid=ctx["sid"]
     )
     await write_audit(
         str(user["_id"]),
@@ -482,8 +462,7 @@ async def registration_options(body: RequestBody):
 
     handle = _passkey_user_handle(user)
     if not handle:
-        raw_handle = secrets.token_bytes(32)
-        handle = bytes_to_base64url(raw_handle)
+        handle = bytes_to_base64url(secrets.token_bytes(32))
         claimed = await users.find_one_and_update(
             {
                 "_id": user["_id"],
@@ -525,8 +504,7 @@ async def registration_options(body: RequestBody):
         timeout=CHALLENGE_TTL_SECONDS * 1000,
     )
     payload = json.loads(options_to_json(options))
-    ceremony_id = await _store_challenge(request_doc, payload["challenge"], "register")
-    payload["ceremony_id"] = ceremony_id
+    payload["ceremony_id"] = await _store_challenge(request_doc, payload["challenge"], "register")
     return payload
 
 
@@ -534,9 +512,7 @@ async def registration_options(body: RequestBody):
 async def verify_registration(body: CeremonyVerifyBody):
     request_doc = await _load_request(body.request_id, "register")
     challenge_doc = await _consume_challenge(
-        ceremony_id=body.ceremony_id,
-        request_doc=request_doc,
-        purpose="register",
+        ceremony_id=body.ceremony_id, request_doc=request_doc, purpose="register"
     )
     try:
         user = await users.find_one({"_id": ObjectId(request_doc["user_id"])})
@@ -546,8 +522,6 @@ async def verify_registration(body: CeremonyVerifyBody):
         raise HTTPException(403, "Passkey enrollment is unavailable")
     _assert_account_available(user)
 
-    # Registration authorization is a short-lived capability minted only from a
-    # strong session. It is invalidated before the new credential is persisted.
     deleted = await webauthn_requests.find_one_and_delete(
         {"_id": request_doc["_id"], "user_id": request_doc["user_id"], "purpose": "register"}
     )
@@ -574,8 +548,7 @@ async def verify_registration(body: CeremonyVerifyBody):
 
     credential_id = bytes_to_base64url(verified.credential_id)
     conflict = await users.find_one(
-        {"_id": {"$ne": user["_id"]}, "mfa.passkeys.credential_id": credential_id},
-        {"_id": 1},
+        {"_id": {"$ne": user["_id"]}, "mfa.passkeys.credential_id": credential_id}, {"_id": 1}
     )
     if conflict:
         raise HTTPException(409, "This passkey is already registered to another account")
@@ -600,11 +573,7 @@ async def verify_registration(body: CeremonyVerifyBody):
         "last_used_at": None,
     }
     updated = await users.find_one_and_update(
-        {
-            "_id": user["_id"],
-            "mfa.enabled": True,
-            "mfa.passkeys.credential_id": {"$ne": credential_id},
-        },
+        {"_id": user["_id"], "mfa.enabled": True, "mfa.passkeys.credential_id": {"$ne": credential_id}},
         {"$push": {"mfa.passkeys": passkey}},
         return_document=ReturnDocument.AFTER,
     )
@@ -616,10 +585,7 @@ async def verify_registration(body: CeremonyVerifyBody):
         "auth.passkey_registered",
         "user",
         str(user["_id"]),
-        {
-            "credential_device_type": passkey["credential_device_type"],
-            "backed_up": passkey["backed_up"],
-        },
+        {"credential_device_type": passkey["credential_device_type"], "backed_up": passkey["backed_up"]},
     )
     return {
         "status": "PASSKEY_REGISTERED",
@@ -629,27 +595,16 @@ async def verify_registration(body: CeremonyVerifyBody):
 
 
 @router.post("/remove")
-async def remove_passkey(
-    body: RemovePasskeyBody,
-    ctx: dict = Depends(current_user),
-):
+async def remove_passkey(body: RemovePasskeyBody, ctx: dict = Depends(current_user)):
     user = ctx["user"]
     if not _staff_role_allowed(ctx.get("role")) or not _mfa_enabled(user):
         raise HTTPException(403, "Passkey settings are unavailable")
-    _require_strong_enrollment_session(ctx)
+    await _verify_credential_management_totp(user, body.actor_code)
     result = await users.update_one(
-        {
-            "_id": user["_id"],
-            "mfa.passkeys.credential_id": body.credential_id,
-        },
+        {"_id": user["_id"], "mfa.passkeys.credential_id": body.credential_id},
         {"$pull": {"mfa.passkeys": {"credential_id": body.credential_id}}},
     )
     if not result.modified_count:
         raise HTTPException(404, "Passkey not found")
-    await write_audit(
-        str(user["_id"]),
-        "auth.passkey_removed",
-        "user",
-        str(user["_id"]),
-    )
+    await write_audit(str(user["_id"]), "auth.passkey_removed", "user", str(user["_id"]))
     return {"status": "PASSKEY_REMOVED"}
