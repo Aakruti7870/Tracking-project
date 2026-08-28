@@ -41,6 +41,7 @@ from routers import (
     public_policy,
     staff,
     staff_auth,
+    staff_mfa,
     storage,
     workforce,
     workforce_reports,
@@ -55,7 +56,7 @@ logger = logging.getLogger("trackmyrmc")
 
 app = FastAPI(
     title="TrackMyRMC API",
-    version="2.0.3",
+    version="2.0.4",
     docs_url="/docs" if settings.is_dev else None,
     redoc_url="/redoc" if settings.is_dev else None,
     openapi_url="/openapi.json" if settings.is_dev else None,
@@ -79,8 +80,6 @@ async def android_asset_links():
 
 @app.get("/kyc/return", response_class=HTMLResponse, include_in_schema=False)
 async def kyc_return():
-    # Android App Links open the installed app before this fallback is served.
-    # This page remains useful when consent finishes in a browser without the app.
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Return to TrackMyRMC</title></head>
@@ -117,6 +116,7 @@ app.include_router(public_policy.router)
 app.include_router(meta)
 app.include_router(auth.router)
 app.include_router(staff_auth.router)
+app.include_router(staff_mfa.router)
 app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
@@ -128,21 +128,14 @@ app.include_router(staff.router)
 app.include_router(kyc_recovery.router)
 app.include_router(operator_ops.router)
 app.include_router(master_data.router)
-# The compatibility guard must be registered before finance_ops so the old
-# direct payroll mutation route fails closed under the new approval lifecycle.
 app.include_router(payroll_guard.router)
 app.include_router(finance_ops.router)
 app.include_router(business_ui.router)
 app.include_router(hr_master.router)
-# Geofence-aware attendance must win before the original workforce punch routes.
 app.include_router(workforce_roster.attendance_router)
 app.include_router(workforce.router)
 app.include_router(workforce_roster.router)
 
-# Preserve the PR33 concurrency-safe endpoint functions as the route owners while
-# adding PR37's closed-period guard as an authenticated router dependency. This
-# keeps the existing concurrency regression contract intact and still blocks all
-# three payroll mutations whenever a month is CLOSED or CLOSING.
 payroll_period_guard_access = require_role(Role.PLANT_OWNER.value, Role.ACCOUNTANT.value)
 
 

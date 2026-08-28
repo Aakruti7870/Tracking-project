@@ -1,8 +1,9 @@
-"""Plant Owner and staff email-OTP authentication.
+"""Plant Owner and staff email-OTP bootstrap authentication.
 
-This route intentionally reuses the hardened OTP/session primitives without
-changing Customer/Driver mobile OTP or deleting the legacy Google OAuth backend.
-The mobile app no longer needs Google OAuth as the Plant Staff entry point.
+Email OTP remains the safe first-login/bootstrap path. Once an approved Plant
+Staff account activates Authenticator App MFA, email OTP can no longer issue a
+normal session; the staff MFA router becomes the login authority instead.
+Customer/Driver mobile OTP is untouched.
 """
 from datetime import timedelta
 
@@ -10,13 +11,24 @@ from fastapi import APIRouter, HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from audit import write_audit
 from config import settings
-from database import otps
+from database import otps, sessions
 from models import RequestOtpBody, VerifyOtpBody
 from notifications import delivery, provider_status
 from roles import Role
 from routers.auth import _assert_account_available, _find_login_user, _issue_session
-from security import as_aware, generate_code, identifier_key, normalize_identifier, otp_digest, utcnow, verify_code
+from security import (
+    as_aware,
+    generate_code,
+    identifier_key,
+    issue_jwt,
+    new_session_id,
+    normalize_identifier,
+    otp_digest,
+    utcnow,
+    verify_code,
+)
 
 router = APIRouter(prefix="/api/auth/staff", tags=["staff-auth"])
 
@@ -37,6 +49,47 @@ STAFF_EMAIL_ROLES = {
 
 def _staff_role_allowed(role: str | None) -> bool:
     return role in STAFF_EMAIL_ROLES
+
+
+def _staff_mfa_enabled(user: dict) -> bool:
+    mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
+    return bool(mfa.get("enabled") and mfa.get("totp_secret"))
+
+
+async def _issue_mfa_bootstrap_session(user: dict):
+    """Issue a session that can only reach /me + MFA enrollment until TOTP is confirmed."""
+    _assert_account_available(user)
+    role = user.get("primary_role")
+    sid = new_session_id()
+    token, full_expires = issue_jwt(str(user["_id"]), sid, role)
+    bootstrap_expires = utcnow() + timedelta(minutes=15)
+    await sessions.insert_one(
+        {
+            "_id": sid,
+            "user_id": str(user["_id"]),
+            "role": role,
+            "revoked": False,
+            "mfa_bootstrap_only": True,
+            "created_at": utcnow(),
+            "expires_at": bootstrap_expires,
+            "post_mfa_expires_at": full_expires,
+        }
+    )
+    await write_audit(
+        str(user["_id"]),
+        "auth.mfa_bootstrap_login",
+        "session",
+        sid,
+        {"login_method": "staff_email_otp_bootstrap"},
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_at": bootstrap_expires.isoformat(),
+        "role": role,
+        "name": user.get("name"),
+        "mfa_setup_required": True,
+    }
 
 
 async def _issue_email_challenge(value: str) -> dict:
@@ -94,6 +147,7 @@ async def _issue_email_challenge(value: str) -> dict:
         "channel": "email",
         "expires_in": settings.OTP_TTL_SECONDS,
         "delivery": provider_status(),
+        "mfa_setup_required": True,
     }
     if settings.is_dev and settings.DEBUG_OTP:
         response["dev_otp"] = code
@@ -119,6 +173,14 @@ async def request_staff_otp(body: RequestOtpBody):
     if not _staff_role_allowed(role):
         raise HTTPException(403, "This account cannot use Plant Staff Login")
     _assert_account_available(user)
+
+    if _staff_mfa_enabled(user):
+        return {
+            "status": "AUTHENTICATOR_REQUIRED",
+            "channel": "totp",
+            "email": value,
+            "message": "Enter the 6-digit code from your Authenticator App.",
+        }
     return await _issue_email_challenge(value)
 
 
@@ -127,6 +189,13 @@ async def verify_staff_otp(body: VerifyOtpBody):
     channel, value = normalize_identifier(body.identifier)
     if channel != "email":
         raise HTTPException(422, "Plant Staff Login requires a valid email address")
+
+    user = await _find_login_user(channel, value)
+    if not user or not _staff_role_allowed(user.get("primary_role")):
+        raise HTTPException(403, "This email is not approved for Plant Staff access")
+    _assert_account_available(user)
+    if _staff_mfa_enabled(user):
+        raise HTTPException(403, "Authenticator App verification is required for this account")
 
     key = identifier_key(value)
     doc = await otps.find_one(
@@ -171,8 +240,6 @@ async def verify_staff_otp(body: VerifyOtpBody):
     if not consumed:
         raise HTTPException(400, "Invalid or expired code")
 
-    user = await _find_login_user(channel, value)
-    if not user or not _staff_role_allowed(user.get("primary_role")):
-        raise HTTPException(403, "This email is not approved for Plant Staff access")
-
-    return await _issue_session(user, "staff_email_otp")
+    if settings.MFA_ENCRYPTION_KEY and len(settings.MFA_ENCRYPTION_KEY) >= 32:
+        return await _issue_mfa_bootstrap_session(user)
+    return await _issue_session(user, "staff_email_otp_bootstrap")

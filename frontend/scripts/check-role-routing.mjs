@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 const roleRoutes = read("src/auth/roleRoutes.ts");
 const login = read("app/login.tsx");
 const onboarding = read("app/plant-onboarding.tsx");
+const mfaSetup = read("app/mfa-setup.tsx");
 const index = read("app/index.tsx");
 
 const expectedRoutes = {
@@ -38,7 +39,7 @@ for (const [role, route] of Object.entries(expectedRoutes)) {
 
 const directRoleRouteCount = login.split("router.replace(roleRouteFor(me.role) as any)").length - 1;
 if (directRoleRouteCount < 2) {
-  failures.push("Both mobile OTP and Plant Staff email OTP must route directly using me.role");
+  failures.push("Successful login flows must route using the server-provided me.role");
 }
 
 if (!login.includes('testID="login-user-tab"') || !login.includes('testID="login-plant-tab"')) {
@@ -50,7 +51,15 @@ if (!login.includes('testID="login-mobile-input"')) {
 }
 
 if (!login.includes('testID="login-plant-email-input"') || !login.includes('testID="login-plant-send-otp"')) {
-  failures.push("Plant Staff Login must expose approved-email OTP entry");
+  failures.push("Plant Staff Login must start from the approved work email");
+}
+
+if (!login.includes('"login-plant-authenticator-input"') || !login.includes('testID="login-use-recovery"')) {
+  failures.push("Plant Staff Login must expose Authenticator verification and recovery fallback");
+}
+
+if (!mfaSetup.includes('testID="mfa-setup-code"') || !mfaSetup.includes('testID="mfa-setup-confirm"')) {
+  failures.push("First-time Plant Staff login must include Authenticator enrollment confirmation");
 }
 
 if (!login.includes('testID="login-get-onboard"') || !onboarding.includes('testID="onboarding-submit"')) {
@@ -77,8 +86,8 @@ if (!login.includes("if (!hydrating && token && user)")) {
   failures.push("Login must redirect an already authenticated session");
 }
 
-if (!index.includes("roleRouteFor(user.role)")) {
-  failures.push("Cold-start routing must use the shared role route helper");
+if (!index.includes("roleRouteFor(user.role)") || !index.includes('href="/mfa-setup"')) {
+  failures.push("Cold-start routing must enforce MFA setup before role routing for eligible staff");
 }
 
 if (!onboarding.includes("Use Current Location") || !onboarding.includes("/plant-onboarding/places")) {
@@ -91,4 +100,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Auth routing regression check passed for all 13 roles, both OTP flows and Plant Partner onboarding.");
+console.log("Auth routing regression check passed for all 13 roles, mobile OTP, Plant Staff Authenticator MFA and onboarding.");

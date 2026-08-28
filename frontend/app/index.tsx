@@ -21,6 +21,10 @@ export default function Index() {
     return <Redirect href="/login" />;
   }
 
+  if (user.mfa_configured && !user.mfa_enabled && user.role !== "customer" && user.role !== "driver") {
+    return <Redirect href="/mfa-setup" />;
+  }
+
   return <Redirect href={roleRouteFor(user.role) as any} />;
 }
 
