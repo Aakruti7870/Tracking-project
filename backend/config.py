@@ -69,6 +69,17 @@ class Settings:
     MFA_ENCRYPTION_KEY: str = os.environ.get("MFA_ENCRYPTION_KEY", "").strip()
     MFA_ISSUER: str = os.environ.get("MFA_ISSUER", "TrackMyRMC").strip() or "TrackMyRMC"
 
+    # Plant Staff passkeys/WebAuthn. These are public relying-party identifiers,
+    # not secrets. Production defaults are intentionally pinned to TrackMyRMC's
+    # canonical HTTPS origin so a deployment cannot silently trust arbitrary
+    # hosts. Native Android verification additionally derives the exact app
+    # origin from PLAY_SIGNING_SHA256 at request time.
+    PASSKEY_RP_ID: str = os.environ.get("PASSKEY_RP_ID", "trackmyrmc.com").strip().lower()
+    PASSKEY_RP_NAME: str = os.environ.get("PASSKEY_RP_NAME", "TrackMyRMC").strip() or "TrackMyRMC"
+    PASSKEY_WEB_ORIGIN: str = os.environ.get(
+        "PASSKEY_WEB_ORIGIN", "https://trackmyrmc.com"
+    ).strip().rstrip("/")
+
     PLAY_REVIEW_ACCESS_ENABLED: bool = os.environ.get(
         "PLAY_REVIEW_ACCESS_ENABLED", "false"
     ).lower() == "true"
@@ -123,6 +134,13 @@ class Settings:
         ):
             raise RuntimeError(
                 "Production CORS_ORIGINS must contain explicit HTTPS origins only; wildcards, paths and query strings are forbidden"
+            )
+
+        if self.PASSKEY_RP_ID != "trackmyrmc.com":
+            raise RuntimeError("PASSKEY_RP_ID must be trackmyrmc.com in production")
+        if self.PASSKEY_WEB_ORIGIN != "https://trackmyrmc.com":
+            raise RuntimeError(
+                "PASSKEY_WEB_ORIGIN must be https://trackmyrmc.com in production"
             )
 
         google_values = (
