@@ -450,7 +450,7 @@ export default function Login() {
           <AppText variant="caption" style={{ flex: 1 }}>Approved staff use Authenticator App security. New approved staff verify email once to activate it.</AppText>
         </View>
         {onboardingRequired ? (
-          <View testID="login-onboarding-banner" style={[styles.onboardingCard, { borderColor: colors.brand + "55", backgroundColor: colors.brandSoft }]}>
+          <View testID="login-onboarding-banner" style={[styles.onboardingCard, { borderColor: colors.brand + "55", backgroundColor: colors.brandSoft }]}> 
             <View style={[styles.onboardingIcon, { backgroundColor: colors.surface }]}><Ionicons name="business-outline" size={22} color={colors.brand} /></View>
             <View style={{ gap: spacing.xs }}>
               <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }}>Welcome to TrackMyRMC</AppText>
@@ -470,18 +470,18 @@ export default function Login() {
         <View style={styles.hero}>
           <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="contain" />
           <LinearGradient pointerEvents="none" colors={["rgba(5,24,20,0.78)", "rgba(5,24,20,0.12)", colors.surface]} locations={[0, 0.62, 1]} style={StyleSheet.absoluteFill} />
-          <View style={[styles.brandWrap, { paddingTop: insets.top + spacing.lg }]}>
+          <View style={[styles.brandWrap, { paddingTop: insets.top + spacing.lg }]}> 
             <AppText style={styles.brand} color="#FFFFFF">TRACK MY RMC</AppText>
             <AppText style={styles.brandSub} color="rgba(255,255,255,0.78)">Secure access for concrete operations</AppText>
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={[styles.segmented, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brand }]}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+          <View style={[styles.segmented, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brand }]}> 
               <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onBrand : colors.onSurfaceTertiary}>USER LOGIN</AppText>
             </Pressable>
-            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brand }]}>
+            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brand }]}> 
               <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onBrand : colors.onSurfaceTertiary}>PLANT STAFF LOGIN</AppText>
             </Pressable>
           </View>
@@ -489,10 +489,10 @@ export default function Login() {
           {renderForm()}
 
           {DEMO_LOGIN_ENABLED ? (
-            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
               <AppText variant="label" style={styles.demoTitle}>Demo access (Google Play review)</AppText>
               <View style={styles.demoGrid}>{DEMO_ROLES.map((item) => (
-                <Pressable key={item.role} testID={`demo-login-${item.role}`} disabled={loading} onPress={() => handleDemoLogin(item.role)} style={({ pressed }) => [styles.demoChip, { borderColor: colors.border, backgroundColor: pressed ? colors.brand + "1A" : colors.surface, opacity: loading ? 0.6 : 1 }]}>
+                <Pressable key={item.role} testID={`demo-login-${item.role}`} disabled={loading} onPress={() => handleDemoLogin(item.role)} style={({ pressed }) => [styles.demoChip, { borderColor: colors.border, backgroundColor: pressed ? colors.brand + "1A" : colors.surface, opacity: loading ? 0.6 : 1 }]}> 
                   <Ionicons name={item.icon} size={18} color={colors.brand} /><AppText style={styles.demoChipLabel}>{item.label}</AppText>
                 </Pressable>
               ))}</View>
@@ -501,25 +501,25 @@ export default function Login() {
 
           <View style={styles.legal}>
             <View style={styles.legalCardsRow}>
-              <Pressable testID="login-privacy-card" onPress={() => { void Haptics.selectionAsync(); void openExternal(PRIVACY_POLICY_URL); }} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <Pressable testID="login-privacy-card" onPress={() => { void Haptics.selectionAsync(); void openExternal(PRIVACY_POLICY_URL); }} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
                 <View style={[styles.legalCardIcon, { backgroundColor: colors.brand + "1A" }]}><Ionicons name="shield-checkmark-outline" size={21} color={colors.brand} /></View>
                 <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Privacy Policy</AppText><AppText style={styles.legalCardSub}>How TrackMyRMC uses your data</AppText></View>
               </Pressable>
-              <Pressable testID="login-delete-account-card" onPress={confirmAccountDeletion} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <Pressable testID="login-delete-account-card" onPress={confirmAccountDeletion} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
                 <View style={[styles.legalCardIcon, { backgroundColor: "#E45B5B22" }]}><Ionicons name="trash-outline" size={21} color="#E45B5B" /></View>
                 <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Delete Account</AppText><AppText style={styles.legalCardSub}>Erase your account without signing in</AppText></View>
               </Pressable>
             </View>
 
-            <View style={styles.legalRow}>
-              <Pressable onPress={() => router.push("/privacy")}><AppText variant="caption" color={colors.brand}>Privacy Policy</AppText></Pressable><AppText variant="caption">·</AppText>
-              <Pressable onPress={() => router.push("/account-deletion-public")}><AppText variant="caption" color={colors.brand}>Delete Account</AppText></Pressable><AppText variant="caption">·</AppText>
-              <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)}><AppText variant="caption" color={colors.brand}>App Review Access</AppText></Pressable>
+            <View style={styles.reviewRow}>
+              <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)}>
+                <AppText variant="caption" color={colors.brand}>App Review Access</AppText>
+              </Pressable>
             </View>
 
             <AppText variant="caption" center style={styles.poweredBy}>Powered by <AppText variant="caption" style={styles.goldETech}>GOLD e TECH</AppText></AppText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contactRow}>{CONTACT_ACTIONS.map((action) => (
-              <Pressable key={action.label} onPress={() => openExternal(action.url)} style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <Pressable key={action.label} onPress={() => openExternal(action.url)} style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
                 <Ionicons name={action.icon} size={20} color={colors.brand} /><AppText style={styles.contactLabel}>{action.label}</AppText><AppText style={styles.contactDetail} numberOfLines={1}>{action.detail}</AppText>
               </Pressable>
             ))}</ScrollView>
@@ -563,7 +563,7 @@ const styles = StyleSheet.create({
   legalCardBody: { flex: 1, minWidth: 0, gap: 2 },
   legalCardTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   legalCardSub: { fontFamily: fonts.regular, fontSize: 11, opacity: 0.72 },
-  legalRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: spacing.sm },
+  reviewRow: { alignItems: "center", justifyContent: "center", minHeight: 32 },
   poweredBy: { marginTop: spacing.lg },
   goldETech: { fontFamily: fonts.bold },
   contactRow: { gap: spacing.sm, paddingTop: spacing.lg, paddingBottom: spacing.sm },

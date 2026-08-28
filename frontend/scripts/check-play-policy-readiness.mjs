@@ -104,15 +104,35 @@ expectIncludes(reviewFixture, 'play_review_fixture', 'Reviewer accounts must use
 expect(!reviewFixture.includes('PLAY_REVIEW_ACCESS_CODE'), 'Reviewer fixture must never contain the access secret.');
 
 const privacy = read('frontend/app/privacy.tsx');
-const deletion = read('frontend/app/account-deletion-public.tsx');
+const privacyAlias = read('frontend/app/privacy_policy.tsx');
+const deletion = read('frontend/app/account-deletion.tsx');
+const deletionAlias = read('frontend/app/account-deletion-public.tsx');
+const terms = read('frontend/app/terms.tsx');
+const kycReturn = read('frontend/app/kyc/return.tsx');
+const nginx = read('frontend/nginx.conf');
 const publicPolicy = read('backend/routers/public_policy.py');
 const server = read('backend/server.py');
-expectIncludes(privacy, 'even when the app is closed or not in use', 'In-app privacy policy must disclose background location.');
+
+expectIncludes(privacy, 'even when the app is closed or not in use', 'Privacy policy must disclose background location.');
 expectIncludes(privacy, 'support@goldetech.com', 'Privacy policy must identify a support/privacy contact.');
-expectIncludes(deletion, 'request deletion without signing in', 'In-app public deletion flow must remain available outside an authenticated session.');
-expectIncludes(publicPolicy, '@router.get("/privacy"', 'Public privacy web resource is missing.');
-expectIncludes(publicPolicy, '@router.get("/delete-account"', 'Public account-deletion web resource is missing.');
-expectIncludes(server, 'app.include_router(public_policy.router)', 'Public privacy/deletion router is not registered.');
+expectIncludes(privacyAlias, 'export { default } from "./privacy"', 'Canonical /privacy_policy frontend route is missing.');
+expectIncludes(deletion, 'request deletion without signing in', 'Public deletion flow must remain available outside an authenticated session.');
+expectIncludes(deletion, 'apiPublicPost("/account-deletion/public-request"', 'Public deletion page must submit through the verified backend endpoint.');
+expectIncludes(deletionAlias, 'export { default } from "./account-deletion"', 'Legacy deletion route must resolve to the canonical frontend screen.');
+expectIncludes(terms, 'Terms & Conditions', 'Frontend terms route is missing.');
+expectIncludes(kycReturn, 'KYC consent received', 'Frontend KYC return page is missing.');
+expectIncludes(kycReturn, 'Open TrackMyRMC App', 'KYC browser return must provide an app-open action.');
+expect(!nginx.includes('health|privacy_policy|terms|account-deletion|kyc/return'), 'Human-facing legal/KYC routes must not be proxied to backend legacy HTML.');
+expectIncludes(nginx, 'location = /.well-known/assetlinks.json', 'Android asset links must remain backend-owned.');
+expectIncludes(publicPolicy, '@router.get("/privacy"', 'Backend policy fallback must remain available for compatibility.');
+expectIncludes(publicPolicy, '@router.get("/delete-account"', 'Backend account-deletion fallback must remain available for compatibility.');
+expectIncludes(server, 'app.include_router(public_policy.router)', 'Backend compatibility policy router is not registered.');
+
+const privacyLabels = (login.match(/>Privacy Policy</g) || []).length;
+const deletionLabels = (login.match(/>Delete Account</g) || []).length;
+expect(privacyLabels === 1, `Login must show Privacy Policy once, found ${privacyLabels}.`);
+expect(deletionLabels === 1, `Login must show Delete Account once, found ${deletionLabels}.`);
+expect(!login.includes('router.push("/account-deletion-public")'), 'Login must not render a duplicate legacy Delete Account link.');
 
 const pod = read('frontend/app/pod/[id].tsx');
 expectIncludes(pod, 'Platform.OS === "ios"', 'Android Gallery must avoid broad media-library permission.');
