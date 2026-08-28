@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || '224495133432' }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'tracking-project-preview' }}
       SERVICE: ${{ inputs.service || 'tracking-preview-api' }}
       REGION: ${{ inputs.region || 'asia-south1' }}
     steps:
