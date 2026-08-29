@@ -61,9 +61,13 @@ jobs:
           set -euo pipefail
           test -f frontend/Dockerfile
           test -f frontend/nginx.conf
+          test -f frontend/legacy-service-worker.js
           grep -F 'output": "single"' frontend/app.json >/dev/null
           grep -F 'EXPO_PUBLIC_BACKEND_URL=https://trackmyrmc.com' frontend/Dockerfile >/dev/null
           grep -F '<Redirect href="/login"' frontend/app/index.tsx >/dev/null
+          grep -F 'trackmyrmc-legacy-web-cache-reset-v1' frontend/app/+html.tsx >/dev/null
+          grep -F 'location = /service-worker.js' frontend/nginx.conf >/dev/null
+          grep -F 'legacy-service-worker.js /usr/share/nginx/html/service-worker.js' frontend/Dockerfile >/dev/null
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -156,9 +160,41 @@ jobs:
             fi
           }
 
+          assert_no_store() {
+            local url="$1"
+            local headers
+            headers="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -D - -o /dev/null "$url" | tr -d '\r')"
+            echo "$headers"
+            echo "$headers" | grep -Eqi '^cache-control:.*no-store' || {
+              echo "Expected no-store cache policy at $url"
+              exit 1
+            }
+          }
+
+          assert_retirement_worker() {
+            local base="$1"
+            local body="/tmp/legacy-worker.js"
+            local headers="/tmp/legacy-worker.headers"
+            local code
+            code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -D "$headers" -o "$body" -w '%{http_code}' "${base}/service-worker.js")"
+            echo "${base}/service-worker.js -> HTTP $code"
+            test "$code" = "200" || { cat "$headers"; exit 1; }
+            grep -F 'registration.unregister' "$body" >/dev/null || {
+              echo "Expected legacy worker retirement shim at ${base}/service-worker.js"
+              exit 1
+            }
+            tr -d '\r' < "$headers" | grep -Eqi '^cache-control:.*no-store' || {
+              echo "Expected no-store cache policy for ${base}/service-worker.js"
+              exit 1
+            }
+          }
+
           for path in / /login /privacy_policy /terms /account-deletion /passkey-ceremony /passkey-setup; do
             assert_fresh_expo "${WEB_URL}${path}" /tmp/web-response
           done
+
+          assert_no_store "${WEB_URL}/login"
+          assert_retirement_worker "$WEB_URL"
 
           curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
             "${WEB_URL}/api/health" >/tmp/web-api-health.json
@@ -199,6 +235,17 @@ jobs:
             fi
           }
 
+          assert_public_cache_policy() {
+            local url="$1"
+            local headers
+            headers="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -D - -o /dev/null "$url" | tr -d '\r')"
+            echo "$headers"
+            echo "$headers" | grep -Eqi '^cache-control:.*no-store' || {
+              echo "Expected canonical no-store policy at $url"
+              exit 1
+            }
+          }
+
           for path in / /login /privacy_policy /terms /account-deletion /passkey-ceremony /passkey-setup; do
             assert_fresh_expo "https://${PRODUCTION_HOST}${path}" /tmp/domain-response
           done
@@ -206,6 +253,12 @@ jobs:
           for path in / /login; do
             assert_fresh_expo "https://${WWW_HOST}${path}" /tmp/www-response
           done
+
+          assert_public_cache_policy "https://${PRODUCTION_HOST}/login"
+
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
+            "https://${PRODUCTION_HOST}/service-worker.js" >/tmp/domain-worker.js
+          grep -F 'registration.unregister' /tmp/domain-worker.js >/dev/null
 
           curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
             "https://${PRODUCTION_HOST}/api/health" >/tmp/domain-health.json
