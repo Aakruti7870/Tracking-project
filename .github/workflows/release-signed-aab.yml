@@ -209,7 +209,10 @@ jobs:
             -sigalg SHA256withRSA \
             -digestalg SHA-256 \
             "$aab" "$KEY_ALIAS"
-          jarsigner -verify -strict -certs "$aab"
+          # The Google Play upload certificate is intentionally self-signed; do not use
+          # jarsigner -strict here because PKIX trust-chain validation is not applicable.
+          # The next step fail-closes on the exact expected SHA-1 and bundletool validity.
+          jarsigner -verify -certs "$aab"
           echo "AAB explicitly signed with configured upload private key."
 
       - name: Verify signed AAB
