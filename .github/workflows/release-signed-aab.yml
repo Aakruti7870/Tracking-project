@@ -51,7 +51,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Verify canonical production backend
         shell: bash
