@@ -96,7 +96,11 @@ for (const role of ['customer', 'plant_owner', 'authority', 'driver']) {
   expectIncludes(reviewScreen, `role: "${role}"`, `Review screen is missing ${role}.`);
   expectIncludes(reviewRouter, role, `Reviewer backend is missing ${role}.`);
 }
-expectIncludes(login, 'App Review Access', 'Reviewer access must be discoverable from sign-in.');
+expectIncludes(login, 'testID="login-review-access"', 'Reviewer access control must be present on sign-in.');
+expectIncludes(login, 'router.push("/review-access"', 'Reviewer access control must route directly from sign-in to the reviewer login screen.');
+expectIncludes(login, 'REVIEW APP', 'Reviewer access must remain visibly labeled on sign-in.');
+expectIncludes(reviewScreen, 'Review access code', 'Reviewer login must require the reusable credential supplied through Google Play Console.');
+expectIncludes(reviewScreen, 'no OTP or Google account required', 'Reviewer login must clearly explain that normal OTP/Google authentication is bypassed for review.');
 expectIncludes(reviewRouter, 'PLAY_REVIEW_ACCESS_ENABLED', 'Reviewer access must be deployment-gated.');
 expectIncludes(reviewRouter, 'compare_digest', 'Reviewer access code comparison must be constant-time.');
 expectIncludes(config, 'PLAY_REVIEW_ACCESS_CODE', 'Reviewer access code must be configured server-side.');
