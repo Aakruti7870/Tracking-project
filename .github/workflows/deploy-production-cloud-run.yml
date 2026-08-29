@@ -31,6 +31,10 @@ jobs:
       SERVICE: tracking-preview-api
       REGION: asia-south1
       PRODUCTION_HOST: trackmyrmc.com
+      # Public Google Play app-signing certificate fingerprint. This is the
+      # certificate Google Play uses on installed APKs and therefore the one
+      # Android App Links must publish from /.well-known/assetlinks.json.
+      PLAY_APP_SIGNING_SHA256: "94:19:46:02:2E:2E:BF:55:5E:71:1B:63:33:99:87:C6:91:A2:21:43:B8:5C:34:97:31:D0:FC:E6:C2:AC:62:D4"
 
     steps:
       - name: Checkout main production candidate
@@ -63,6 +67,7 @@ jobs:
           test -f Dockerfile
           grep -F 'COPY backend/ /app/' Dockerfile >/dev/null
           grep -F 'uvicorn server:app' Dockerfile >/dev/null
+          test -n "$PLAY_APP_SIGNING_SHA256"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -98,6 +103,7 @@ jobs:
             --source . \
             --platform managed \
             --quiet \
+            --update-env-vars="PLAY_SIGNING_SHA256=${PLAY_APP_SIGNING_SHA256}" \
             --update-labels="source-sha=${SHORT_SHA},managed-by=github-actions,component=backend,deployment-tier=production"
 
       - name: Resolve deployed service URL and revision
@@ -128,6 +134,16 @@ jobs:
             esac
           done
 
+          code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -o /tmp/assetlinks -w '%{http_code}' "${DEPLOYED_URL}/.well-known/assetlinks.json")"
+          echo "/.well-known/assetlinks.json -> HTTP $code"
+          test "$code" = "200" || { cat /tmp/assetlinks; exit 1; }
+          grep -F 'com.trackmyrmc.concreteking' /tmp/assetlinks >/dev/null || { cat /tmp/assetlinks; exit 1; }
+          grep -F "$PLAY_APP_SIGNING_SHA256" /tmp/assetlinks >/dev/null || {
+            echo "::error::assetlinks.json does not contain the Google Play app-signing SHA-256"
+            cat /tmp/assetlinks
+            exit 1
+          }
+
       - name: Verify deployed revision is Ready
         shell: bash
         run: |
@@ -150,3 +166,12 @@ jobs:
           echo "https://${PRODUCTION_HOST}/api/health -> HTTP $code"
           test "$code" = "200" || { cat /tmp/domain-response; exit 1; }
           grep -F 'healthy' /tmp/domain-response >/dev/null || { cat /tmp/domain-response; exit 1; }
+
+          code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -L -sS -o /tmp/domain-assetlinks -w '%{http_code}' "https://${PRODUCTION_HOST}/.well-known/assetlinks.json")"
+          echo "https://${PRODUCTION_HOST}/.well-known/assetlinks.json -> HTTP $code"
+          test "$code" = "200" || { cat /tmp/domain-assetlinks; exit 1; }
+          grep -F "$PLAY_APP_SIGNING_SHA256" /tmp/domain-assetlinks >/dev/null || {
+            echo "::error::Canonical assetlinks.json does not contain the Google Play app-signing SHA-256"
+            cat /tmp/domain-assetlinks
+            exit 1
+          }
