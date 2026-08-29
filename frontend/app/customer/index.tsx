@@ -1,5 +1,7 @@
 import React from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,14 +12,15 @@ import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
-import { Badge } from "@/src/components/ui/Badge";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { MapPlaceholder } from "@/src/components/ui/MapPlaceholder";
 import { KycBanner } from "@/src/components/KycBanner";
-import { OrderCard, OrderData } from "@/src/components/OrderCard";
 import { ErrorView } from "@/src/components/StateViews";
+import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+
+const HERO = require("../../assets/images/transit-mixer.jpg");
 
 type HomeData = {
   name: string;
@@ -28,57 +31,64 @@ type HomeData = {
   unread_notifications: number;
 };
 
-const ACTIONS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "new", label: "New Order", icon: "add-circle-outline" },
-  { key: "track", label: "Track Order", icon: "navigate-circle-outline" },
-  { key: "kyc", label: "Complete KYC", icon: "id-card-outline" },
-  { key: "challan", label: "View Challan", icon: "document-text-outline" },
+const ACTIONS: { key: "new" | "track" | "plants" | "orders"; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "new", label: "New Order", icon: "add" },
+  { key: "track", label: "Track Order", icon: "navigate" },
+  { key: "plants", label: "Nearby Plants", icon: "location" },
+  { key: "orders", label: "My Orders", icon: "document-text" },
 ];
 
 export default function CustomerHome() {
-  const { colors, toggle, scheme } = useTheme();
+  const { colors } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<HomeData>("/customer/home");
 
-  const onAction = (key: string) => {
-    if (key === "kyc") return router.push("/kyc");
-    if (key === "track") {
-      if (data?.active_order) return toast("Live tracking arrives in the dispatch phase", "info");
-      return toast("No active order to track", "info");
+  const openActiveTracking = () => {
+    if (!data?.active_order) {
+      toast("No active order to track", "info");
+      return;
     }
-    if (key === "new") {
-      if (data?.kyc_status !== "VERIFIED") {
-        toast("Complete KYC to place an order", "info");
-        return router.push("/kyc");
-      }
-      return router.push("/new-order");
+    router.push(`/track/${data.active_order.id}` as any);
+  };
+
+  const onAction = (key: (typeof ACTIONS)[number]["key"]) => {
+    if (key === "track") return openActiveTracking();
+    if (key === "plants") return router.push("/customer/plants");
+    if (key === "orders") return router.push("/customer/orders");
+    if (data?.kyc_status !== "VERIFIED") {
+      toast("Complete KYC to place an order", "info");
+      return router.push("/kyc");
     }
-    if (key === "challan") return toast("Challans arrive in the dispatch phase", "info");
+    return router.push("/new-order");
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={[styles.root, { backgroundColor: colors.surface }]}> 
       <View style={{ height: insets.top }} />
-      {/* Header */}
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <AppText variant="caption">Welcome back</AppText>
-          <AppText variant="title" numberOfLines={1}>
-            {user?.name || "Customer"}
-          </AppText>
+        <View style={styles.wordmark}>
+          <AppText style={[styles.wordmarkSmall, { color: colors.onSurface }]}>TRACK MY</AppText>
+          <AppText style={[styles.wordmarkBig, { color: colors.onSurface }]}>RMC</AppText>
         </View>
-        <Pressable testID="theme-toggle" onPress={toggle} style={[styles.iconBtn, { borderColor: colors.border }]}>
-          <Ionicons name={scheme === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.onSurface} />
-        </Pressable>
-        <Pressable testID="notifications-bell" style={[styles.iconBtn, { borderColor: colors.border }]}>
-          <Ionicons name="notifications-outline" size={20} color={colors.onSurface} />
-          {data && data.unread_notifications > 0 ? (
-            <View style={[styles.dot, { backgroundColor: colors.brand }]} />
-          ) : null}
-        </Pressable>
+        <View style={styles.headerRight}>
+          {data?.kyc_status === "VERIFIED" ? (
+            <View style={[styles.verifiedPill, { borderColor: colors.verified, backgroundColor: colors.verified + "10" }]}> 
+              <AppText style={[styles.verifiedText, { color: colors.verified }]}>KYC VERIFIED</AppText>
+              <Ionicons name="checkmark-circle" size={19} color={colors.verified} />
+            </View>
+          ) : (
+            <Pressable testID="header-kyc" onPress={() => router.push("/kyc")} style={[styles.kycPending, { borderColor: colors.border }]}> 
+              <AppText variant="label">KYC</AppText>
+            </Pressable>
+          )}
+          <Pressable testID="notifications-bell" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+            <Ionicons name="notifications-outline" size={22} color={colors.onSurface} />
+            {data && data.unread_notifications > 0 ? <View style={[styles.dot, { backgroundColor: colors.brand }]} /> : null}
+          </Pressable>
+        </View>
       </View>
 
       {error && !data ? (
@@ -86,125 +96,111 @@ export default function CustomerHome() {
       ) : (
         <ScrollView
           testID="customer-home-scroll"
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }}
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}
         >
           {loading && !data ? (
             <>
-              <Skeleton height={68} style={{ borderRadius: radius.md }} />
-              <Skeleton height={220} style={{ borderRadius: radius.lg }} />
-              <Skeleton height={90} style={{ borderRadius: radius.lg }} />
+              <Skeleton height={430} style={{ borderRadius: radius.xl }} />
+              <Skeleton height={122} style={{ borderRadius: radius.lg }} />
+              <Skeleton height={250} style={{ borderRadius: radius.lg }} />
             </>
           ) : data ? (
             <>
-              <KycBanner status={data.kyc_status} />
+              <View style={[styles.hero, { backgroundColor: colors.surfaceSecondary }]}> 
+                <View style={styles.heroCopy}>
+                  <AppText style={[styles.heroLine, { color: colors.onSurface }]}>Track.</AppText>
+                  <AppText style={[styles.heroLine, { color: colors.onSurface }]}>Order.</AppText>
+                  <AppText style={[styles.heroLine, { color: colors.brand }]}>Delivered.</AppText>
+                  <AppText style={[styles.heroSub, { color: colors.onSurfaceTertiary }]}>Your concrete. Our commitment.{"\n"}All in one place.</AppText>
+                </View>
+                <View style={styles.heroVisual}>
+                  <LinearGradient colors={[colors.brand + "00", colors.brand + "14"]} style={styles.heroGlow} />
+                  <Image source={HERO} style={styles.heroImage} contentFit="contain" transition={180} />
+                </View>
+              </View>
 
-              {/* Active order / live tracking */}
-              <View style={{ gap: spacing.sm }}>
-                <AppText variant="heading">Active Delivery</AppText>
-                {data.active_order ? (
-                  <Card style={{ gap: spacing.md, padding: spacing.md }}>
-                    <MapPlaceholder pins={0} label="Transit mixer en route" style={{ minHeight: 150 }} />
-                    <View style={styles.rowBetween}>
-                      <View>
-                        <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }}>
-                          {data.active_order.order_number}
-                        </AppText>
-                        <AppText variant="caption">
-                          {data.active_order.grade} · {data.active_order.quantity} m³ · {data.active_order.site_name}
-                        </AppText>
-                      </View>
-                      <Badge label={data.active_order.status.replace(/_/g, " ")} status={data.active_order.status} />
-                    </View>
+              {data.kyc_status !== "VERIFIED" ? <KycBanner status={data.kyc_status} /> : null}
+
+              <View style={styles.section}>
+                <AppText style={[styles.sectionTitle, { color: colors.onSurface }]}>Quick Actions</AppText>
+                <View style={styles.actionGrid}>
+                  {ACTIONS.map((action, index) => (
                     <Pressable
-                      testID="track-active-order"
-                      onPress={() => router.push(`/track/${data.active_order!.id}` as any)}
-                      style={[styles.trackBtn, { backgroundColor: colors.brand }]}
+                      key={action.key}
+                      testID={`action-${action.key}`}
+                      onPress={() => onAction(action.key)}
+                      style={({ pressed }) => [
+                        styles.action,
+                        {
+                          backgroundColor: index === 0 ? colors.brandSoft : colors.surfaceSecondary,
+                          borderColor: index === 0 ? colors.brand + "3D" : colors.border,
+                          opacity: pressed ? 0.82 : 1,
+                          transform: [{ scale: pressed ? 0.98 : 1 }],
+                        },
+                      ]}
                     >
-                      <Ionicons name="navigate" size={16} color={colors.onBrand} />
-                      <AppText style={{ fontFamily: fonts.semibold, color: colors.onBrand }}>Track Order</AppText>
+                      <View style={[styles.actionIcon, { backgroundColor: index === 0 ? colors.brand : colors.surfaceTertiary }]}> 
+                        <Ionicons name={action.icon} size={25} color={index === 0 ? colors.onBrand : colors.onSurface} />
+                      </View>
+                      <AppText style={[styles.actionLabel, { color: colors.onSurface }]}>{action.label}</AppText>
                     </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.section}>
+                <View style={styles.rowBetween}>
+                  <AppText style={[styles.sectionTitle, { color: colors.onSurface }]}>Active Order</AppText>
+                  <Pressable testID="view-all-orders" onPress={() => router.push("/customer/orders")}>
+                    <AppText variant="label" color={colors.brand}>View All  ›</AppText>
+                  </Pressable>
+                </View>
+                {data.active_order ? (
+                  <Card style={styles.activeCard}>
+                    <View style={styles.activeTop}>
+                      <View style={styles.activeInfo}>
+                        <AppText style={[styles.orderNumber, { color: colors.onSurface }]}>{data.active_order.order_number}</AppText>
+                        <View style={styles.statusRow}><View style={[styles.statusDot, { backgroundColor: colors.brand }]} /><AppText style={{ color: colors.brand, fontFamily: fonts.medium }}>Dispatched</AppText></View>
+                        <AppText style={[styles.grade, { color: colors.onSurface }]}>{data.active_order.grade} Grade · {data.active_order.quantity} m³</AppText>
+                        <View style={styles.locationRow}><Ionicons name="location-outline" size={17} color={colors.onSurfaceTertiary} /><AppText variant="caption" style={{ flex: 1 }}>{data.active_order.site_name}</AppText></View>
+                      </View>
+                      <MapPlaceholder pins={0} label="" style={styles.map} />
+                    </View>
+                    <View style={[styles.metrics, { borderTopColor: colors.divider }]}> 
+                      <View><AppText variant="caption">ETA</AppText><AppText style={styles.metricValue}>Live</AppText></View>
+                      <View style={[styles.metricDivider, { backgroundColor: colors.divider }]} />
+                      <View><AppText variant="caption">Quantity</AppText><AppText style={styles.metricValue}>{data.active_order.quantity} m³</AppText></View>
+                      <Pressable testID="track-active-order" onPress={openActiveTracking} style={({ pressed }) => [styles.trackLive, { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 }]}> 
+                        <Ionicons name="radio-outline" size={18} color={colors.onBrand} />
+                        <AppText style={styles.trackLiveText}>Track Live</AppText>
+                      </Pressable>
+                    </View>
                   </Card>
                 ) : (
-                  <Card style={{ alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xl }}>
-                    <Ionicons name="cube-outline" size={32} color={colors.onSurfaceTertiary} />
-                    <AppText variant="bodyMuted" center>No active deliveries right now</AppText>
+                  <Card style={styles.emptyOrder}>
+                    <Ionicons name="cube-outline" size={30} color={colors.onSurfaceTertiary} />
+                    <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold }}>No active delivery</AppText><AppText variant="caption">Your live order will appear here after dispatch.</AppText></View>
+                    <Pressable onPress={() => onAction("new")}><Ionicons name="add-circle" size={30} color={colors.brand} /></Pressable>
                   </Card>
                 )}
               </View>
 
-              {/* Quick actions */}
-              <View style={styles.actionGrid}>
-                {ACTIONS.map((a) => (
-                  <Pressable
-                    key={a.key}
-                    testID={`action-${a.key}`}
-                    onPress={() => onAction(a.key)}
-                    style={[styles.action, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                  >
-                    <View style={[styles.actionIcon, { backgroundColor: colors.brandSoft }]}>
-                      <Ionicons name={a.icon} size={20} color={colors.onBrandSoft} />
-                    </View>
-                    <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>
-                      {a.label}
-                    </AppText>
-                  </Pressable>
-                ))}
-              </View>
-
-              {/* Nearby plants */}
               {data.nearby_plants.length > 0 ? (
-                <View style={{ gap: spacing.sm }}>
-                  <View style={styles.rowBetween}>
-                    <AppText variant="heading">Nearby Plants</AppText>
-                    <Pressable onPress={() => router.push("/customer/plants")}>
-                      <AppText variant="label" color={colors.brand}>See all</AppText>
-                    </Pressable>
-                  </View>
+                <View style={styles.section}>
+                  <View style={styles.rowBetween}><AppText style={[styles.sectionTitle, { color: colors.onSurface }]}>Nearby Plants</AppText><Pressable onPress={() => router.push("/customer/plants")}><AppText variant="label" color={colors.brand}>See all</AppText></Pressable></View>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
                     {data.nearby_plants.map((p) => (
-                      <View key={p.id} style={[styles.plantChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                        <View style={styles.rowBetween}>
-                          <Ionicons name="business" size={16} color={colors.brand} />
-                          {p.verified ? (
-                            <Ionicons name="shield-checkmark" size={14} color={colors.success} />
-                          ) : (
-                            <Ionicons name="time-outline" size={14} color={colors.warning} />
-                          )}
-                        </View>
-                        <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={2}>
-                          {p.name}
-                        </AppText>
-                        <AppText variant="caption" numberOfLines={1}>
-                          {p.city} · {(p.status || "active").replace(/_/g, " ")}
-                        </AppText>
-                      </View>
+                      <Pressable key={p.id} onPress={() => router.push("/customer/plants")} style={[styles.plantChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+                        <View style={styles.rowBetween}><Ionicons name="business-outline" size={18} color={colors.brand} />{p.verified ? <Ionicons name="checkmark-circle" size={16} color={colors.verified} /> : null}</View>
+                        <AppText style={styles.plantName} numberOfLines={2}>{p.name}</AppText>
+                        <AppText variant="caption" numberOfLines={1}>{p.city}</AppText>
+                      </Pressable>
                     ))}
                   </ScrollView>
                 </View>
               ) : null}
-
-              {/* Recent orders */}
-              <View style={{ gap: spacing.sm }}>
-                <View style={styles.rowBetween}>
-                  <AppText variant="heading">Recent Orders</AppText>
-                  <Pressable onPress={() => router.push("/customer/orders")}>
-                    <AppText variant="label" color={colors.brand}>View all</AppText>
-                  </Pressable>
-                </View>
-                {data.recent_orders.length === 0 ? (
-                  <Card style={{ alignItems: "center", paddingVertical: spacing.xl }}>
-                    <AppText variant="bodyMuted">No orders yet</AppText>
-                  </Card>
-                ) : (
-                  <View style={{ gap: spacing.md }}>
-                    {data.recent_orders.slice(0, 3).map((o) => (
-                      <OrderCard key={o.id} order={o} onPress={() => router.push(`/order/${o.id}` as any)} />
-                    ))}
-                  </View>
-                )}
-              </View>
             </>
           ) : null}
         </ScrollView>
@@ -214,43 +210,47 @@ export default function CustomerHome() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    paddingTop: spacing.sm,
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  dot: { position: "absolute", top: 10, right: 10, width: 8, height: 8, borderRadius: 4 },
+  root: { flex: 1 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22, paddingTop: 10, paddingBottom: 10 },
+  wordmark: { gap: 0 },
+  wordmarkSmall: { fontFamily: fonts.bold, fontSize: 13, letterSpacing: 1.1, lineHeight: 15 },
+  wordmarkBig: { fontFamily: fonts.displayBold, fontSize: 30, lineHeight: 31, letterSpacing: -0.8 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 9 },
+  verifiedPill: { height: 42, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6 },
+  verifiedText: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0.25 },
+  kycPending: { minHeight: 42, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  dot: { position: "absolute", top: 7, right: 7, width: 8, height: 8, borderRadius: 4 },
+  scrollContent: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120, gap: 24 },
+  hero: { minHeight: 430, borderRadius: 32, overflow: "hidden", position: "relative" },
+  heroCopy: { paddingTop: 28, paddingLeft: 24, zIndex: 3 },
+  heroLine: { fontFamily: fonts.displayBold, fontSize: 48, lineHeight: 51, letterSpacing: -1.6 },
+  heroSub: { marginTop: 18, fontFamily: fonts.medium, fontSize: 14, lineHeight: 21 },
+  heroVisual: { position: "absolute", right: -44, bottom: -2, width: "92%", height: "72%" },
+  heroGlow: { ...StyleSheet.absoluteFillObject, borderTopLeftRadius: 180 },
+  heroImage: { width: "100%", height: "100%" },
+  section: { gap: 12 },
+  sectionTitle: { fontFamily: fonts.displayBold, fontSize: 20 },
+  actionGrid: { flexDirection: "row", gap: 10 },
+  action: { flex: 1, minHeight: 126, borderRadius: 22, borderWidth: 1, padding: 12, alignItems: "center", justifyContent: "center", gap: 10 },
+  actionIcon: { width: 54, height: 54, borderRadius: 17, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  actionLabel: { fontFamily: fonts.semibold, fontSize: 12, textAlign: "center" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  trackBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    height: 44,
-    borderRadius: radius.md,
-  },
-  actionGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  action: {
-    width: "48%",
-    flexGrow: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
-  actionIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  plantChip: { width: 150, gap: 4, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
+  activeCard: { padding: 0, overflow: "hidden", borderRadius: 24 },
+  activeTop: { flexDirection: "row", minHeight: 186 },
+  activeInfo: { flex: 1, padding: 18, gap: 10 },
+  orderNumber: { fontFamily: fonts.bold, fontSize: 18 },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  grade: { fontFamily: fonts.semibold, fontSize: 14 },
+  locationRow: { flexDirection: "row", gap: 5, alignItems: "flex-start" },
+  map: { width: "48%", minHeight: 186, borderRadius: 0 },
+  metrics: { minHeight: 72, borderTopWidth: 1, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 16 },
+  metricValue: { fontFamily: fonts.bold, fontSize: 15 },
+  metricDivider: { width: 1, height: 32 },
+  trackLive: { marginLeft: "auto", minHeight: 44, borderRadius: 22, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 7 },
+  trackLiveText: { fontFamily: fonts.semibold, color: "#FFFFFF", fontSize: 14 },
+  emptyOrder: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 18 },
+  plantChip: { width: 156, minHeight: 104, gap: 7, padding: 14, borderRadius: 18, borderWidth: 1 },
+  plantName: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
 });
