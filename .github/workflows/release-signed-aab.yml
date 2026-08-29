@@ -145,12 +145,13 @@ jobs:
           TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
           EOF
           python3 - <<'PY'
-          import re, pathlib
+          import pathlib
+          import re
+
           gradle = pathlib.Path("app/build.gradle")
           text = gradle.read_text()
-          if "TRACKMYRMC_UPLOAD_STORE_FILE" in text:
-              print("signingConfig already wired, skipping")
-          else:
+
+          if "TRACKMYRMC_UPLOAD_STORE_FILE" not in text:
               signing_block = """
               signingConfigs {
                   release {
@@ -163,18 +164,69 @@ jobs:
                   }
               }
               """
-              text2 = re.sub(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              text2 = re.sub(
-                  r'(buildTypes\s*\{[^{}]*release\s*\{[^{}]*?)(signingConfig\s+signingConfigs\.\w+)',
-                  r'\1signingConfig signingConfigs.release',
-                  text2,
+              text, inserted = re.subn(
+                  r'(\n\s*buildTypes\s*\{)',
+                  signing_block + r'\1',
+                  text,
                   count=1,
-                  flags=re.DOTALL,
               )
-              if text2 == text:
-                  raise SystemExit("failed to patch app/build.gradle with release signingConfig")
-              gradle.write_text(text2)
-              print("signingConfig wired into app/build.gradle")
+              if inserted != 1:
+                  raise SystemExit("failed to insert release signingConfigs block")
+
+          # Expo prebuild emits a debug block before release, so a regex that assumes
+          # no nested braces inside buildTypes can miss the release signingConfig.
+          # Locate the release block and replace its signer explicitly.
+          release_match = re.search(r'(?m)^\s*release\s*\{', text)
+          if not release_match:
+              raise SystemExit("release buildType block not found")
+
+          open_brace = text.find('{', release_match.start())
+          depth = 0
+          close_brace = None
+          for index in range(open_brace, len(text)):
+              if text[index] == '{':
+                  depth += 1
+              elif text[index] == '}':
+                  depth -= 1
+                  if depth == 0:
+                      close_brace = index
+                      break
+          if close_brace is None:
+              raise SystemExit("release buildType block is malformed")
+
+          release_body = text[open_brace + 1:close_brace]
+          release_body, replaced = re.subn(
+              r'(?m)^(\s*)signingConfig\s+signingConfigs\.\w+\s*$',
+              r'\1signingConfig signingConfigs.release',
+              release_body,
+              count=1,
+          )
+          if replaced != 1:
+              raise SystemExit("release signingConfig line not found")
+
+          text = text[:open_brace + 1] + release_body + text[close_brace:]
+          gradle.write_text(text)
+
+          # Fail here instead of spending ~20 minutes building a debug-signed AAB.
+          patched = gradle.read_text()
+          release_match = re.search(r'(?m)^\s*release\s*\{', patched)
+          open_brace = patched.find('{', release_match.start())
+          depth = 0
+          close_brace = None
+          for index in range(open_brace, len(patched)):
+              if patched[index] == '{':
+                  depth += 1
+              elif patched[index] == '}':
+                  depth -= 1
+                  if depth == 0:
+                      close_brace = index
+                      break
+          release_body = patched[open_brace + 1:close_brace]
+          if "signingConfig signingConfigs.release" not in release_body:
+              raise SystemExit("release buildType is not wired to signingConfigs.release")
+          if "signingConfig signingConfigs.debug" in release_body:
+              raise SystemExit("release buildType still references debug signingConfig")
+          print("release buildType is wired to the Google Play upload signingConfig")
           PY
 
       - name: Build signed release AAB
