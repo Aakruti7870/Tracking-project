@@ -48,13 +48,13 @@ const SLOT = 52;
 const ORBIT = 210;
 
 const positions = [
-  { left: 79, top: 4, rotate: "-8deg" },
-  { left: 145, top: 43, rotate: "8deg" },
-  { left: 145, top: 116, rotate: "-7deg" },
-  { left: 79, top: 154, rotate: "7deg" },
-  { left: 13, top: 116, rotate: "-8deg" },
-  { left: 13, top: 43, rotate: "8deg" },
-];
+  { left: 79, top: 4, transform: [{ rotate: "-8deg" }] },
+  { left: 145, top: 43, transform: [{ rotate: "8deg" }] },
+  { left: 145, top: 116, transform: [{ rotate: "-7deg" }] },
+  { left: 79, top: 154, transform: [{ rotate: "7deg" }] },
+  { left: 13, top: 116, transform: [{ rotate: "-8deg" }] },
+  { left: 13, top: 43, transform: [{ rotate: "8deg" }] },
+] as const;
 
 export function OtpOrbitVerification({
   value,
@@ -86,15 +86,16 @@ export function OtpOrbitVerification({
   useEffect(() => {
     if (state === "checking") {
       spin.setValue(0);
-      Animated.loop(
+      const animation = Animated.loop(
         Animated.timing(spin, {
           toValue: 1,
           duration: 850,
           easing: Easing.linear,
           useNativeDriver: true,
         }),
-      ).start();
-      return () => spin.stopAnimation();
+      );
+      animation.start();
+      return () => animation.stop();
     }
     spin.stopAnimation();
     return undefined;
@@ -171,24 +172,22 @@ export function OtpOrbitVerification({
         <AppText style={[styles.title, { color: colors.onSurface }]}>{title}</AppText>
         <AppText variant="bodyMuted" center style={styles.subtitle}>{subtitle}</AppText>
 
-        <View style={styles.inputAnchor}>
-          <TextInput
-            ref={inputRef}
-            testID={testID}
-            value={value}
-            onChangeText={(text) => onChangeText(sanitize(text))}
-            keyboardType="number-pad"
-            inputMode="numeric"
-            maxLength={OTP_LENGTH}
-            autoFocus={autoFocus}
-            editable={state !== "checking"}
-            autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
-            textContentType="oneTimeCode"
-            importantForAutofill="yes"
-            style={styles.nativeInput}
-            accessibilityLabel="Six digit verification code"
-          />
-        </View>
+        <TextInput
+          ref={inputRef}
+          testID={testID}
+          value={value}
+          onChangeText={(text) => onChangeText(sanitize(text))}
+          keyboardType="number-pad"
+          inputMode="numeric"
+          maxLength={OTP_LENGTH}
+          autoFocus={autoFocus}
+          editable={state !== "checking"}
+          autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
+          textContentType="oneTimeCode"
+          importantForAutofill="yes"
+          style={styles.nativeInput}
+          accessibilityLabel="Six digit verification code"
+        />
 
         <View style={styles.orbit}>
           <Animated.View
@@ -216,7 +215,7 @@ export function OtpOrbitVerification({
             </View>
           ))}
           {state === "checking" ? (
-            <View style={[styles.checkingDot, { borderColor: `${SUCCESS}44`, borderTopColor: SUCCESS }]} />
+            <Animated.View style={[styles.checkingDot, { borderColor: `${SUCCESS}44`, borderTopColor: SUCCESS, transform: [{ rotate: ringRotate }] }]} />
           ) : null}
         </View>
 
@@ -255,8 +254,7 @@ const styles = StyleSheet.create({
   grabber: { width: 40, height: 4, borderRadius: 99, alignSelf: "center", marginBottom: spacing.lg },
   title: { fontFamily: fonts.bold, fontSize: fontSize.xl, textAlign: "center" },
   subtitle: { marginTop: spacing.sm, paddingHorizontal: spacing.sm },
-  inputAnchor: { position: "absolute", width: 1, height: 1, opacity: 0.01 },
-  nativeInput: { width: 2, height: 2, opacity: 0.01 },
+  nativeInput: { position: "absolute", width: 2, height: 2, opacity: 0.01 },
   orbit: { width: ORBIT, height: ORBIT, alignSelf: "center", marginTop: spacing.lg, marginBottom: spacing.sm },
   orbitRing: { position: "absolute", width: 104, height: 104, left: 53, top: 53, borderWidth: 1.5, borderRadius: 52, borderStyle: "dashed" },
   hub: { position: "absolute", width: 8, height: 8, left: 101, top: 101, borderRadius: 4, opacity: 0.9 },
@@ -264,14 +262,14 @@ const styles = StyleSheet.create({
   slotChecking: { opacity: 0.28 },
   digit: { fontFamily: fonts.bold, fontSize: 22 },
   checkingDot: { position: "absolute", width: 28, height: 28, left: 91, top: 91, borderWidth: 3, borderRadius: 14 },
-  errorText: { fontFamily: fonts.semiBold, fontSize: fontSize.sm, marginTop: spacing.xs },
+  errorText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, marginTop: spacing.xs },
   resendRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, flexWrap: "wrap", marginTop: spacing.md },
-  resendLink: { fontFamily: fonts.semiBold, fontSize: fontSize.sm },
+  resendLink: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   successTitle: { fontFamily: fonts.bold, fontSize: fontSize.xl, textAlign: "center", marginTop: spacing.md },
   successVisual: { width: 180, height: 180, alignSelf: "center", alignItems: "center", justifyContent: "center", marginVertical: spacing.lg },
   successRingOuter: { position: "absolute", width: 170, height: 170, borderWidth: 1, borderRadius: 40 },
   successRingInner: { position: "absolute", width: 116, height: 116, borderWidth: 1, borderRadius: 30 },
   successCheck: { width: 70, height: 70, borderWidth: 2, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   secureRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs },
-  secureText: { fontFamily: fonts.semiBold, fontSize: fontSize.sm },
+  secureText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
 });
