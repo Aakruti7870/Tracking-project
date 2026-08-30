@@ -30,6 +30,7 @@ import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const HERO = require("../assets/images/transit-mixer.jpg");
+const APP_MARK = require("../assets/images/icon.png");
 
 type LoginMode = "user" | "plant";
 type LoginPhase = "enter" | "user_otp" | "staff_email_otp" | "staff_passkey" | "staff_totp" | "staff_recovery";
@@ -39,13 +40,14 @@ type ContactAction = {
   detail: string;
   icon: React.ComponentProps<typeof Ionicons>["name"];
   url: string;
+  tone: "brand" | "instagram";
 };
 
 const CONTACT_ACTIONS: ContactAction[] = [
-  { label: "Support", detail: "+91 9594177870", icon: "logo-whatsapp", url: "https://wa.me/919594177870" },
-  { label: "Query", detail: "+91 9082189911", icon: "logo-whatsapp", url: "https://wa.me/919082189911" },
-  { label: "Instagram", detail: "@trackmyrmc", icon: "logo-instagram", url: "https://www.instagram.com/trackmyrmc?igsi=MXQ5YnVpbmkyMmw1dA==" },
-  { label: "Email", detail: "support@goldetech.com", icon: "mail-outline", url: "mailto:support@goldetech.com" },
+  { label: "Support", detail: "+91 9594177870", icon: "logo-whatsapp", url: "https://wa.me/919594177870", tone: "brand" },
+  { label: "Query", detail: "+91 9082189911", icon: "logo-whatsapp", url: "https://wa.me/919082189911", tone: "brand" },
+  { label: "Instagram", detail: "@trackmyrmc", icon: "logo-instagram", url: "https://www.instagram.com/trackmyrmc?igsi=MXQ5YnVpbmkyMmw1dA==", tone: "instagram" },
+  { label: "Email", detail: "support@goldetech.com", icon: "mail-outline", url: "mailto:support@goldetech.com", tone: "brand" },
 ];
 
 const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
@@ -257,10 +259,7 @@ export default function Login() {
         return;
       }
 
-      const result = await WebBrowser.openAuthSessionAsync(
-        request.authorization_url,
-        "trackmyrmc://auth/passkey",
-      );
+      const result = await WebBrowser.openAuthSessionAsync(request.authorization_url, "trackmyrmc://auth/passkey");
       if (result.type !== "success") throw new Error("Passkey login was cancelled");
       const parsed = Linking.parse(result.url);
       const rawCode = parsed.queryParams?.code;
@@ -367,7 +366,7 @@ export default function Login() {
   const codeInput = (label: string, testID: string, submit: () => void, buttonLabel: string) => (
     <View style={styles.formGap}>
       <View style={styles.securityHeading}>
-        <View style={[styles.securityIcon, { backgroundColor: colors.brand + "18" }]}>
+        <View style={[styles.securityIcon, { backgroundColor: colors.brandSoft }]}>
           <Ionicons name="shield-checkmark-outline" size={24} color={colors.brand} />
         </View>
         <View style={{ flex: 1, gap: 3 }}>
@@ -402,8 +401,15 @@ export default function Login() {
     if (phase === "user_otp") {
       return (
         <View style={styles.formGap}>
-          <AppText variant="heading">Verify OTP</AppText>
-          <AppText variant="bodyMuted">OTP sent to +91 {mobile}</AppText>
+          <View style={styles.formHeadingRow}>
+            <View style={[styles.formIcon, { backgroundColor: colors.brandSoft }]}>
+              <Ionicons name="chatbox-ellipses-outline" size={22} color={colors.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <AppText variant="heading">Verify OTP</AppText>
+              <AppText variant="bodyMuted">OTP sent to +91 {mobile}</AppText>
+            </View>
+          </View>
           <Input testID="login-otp-input" label="One-time password" value={code} onChangeText={(text) => { setCode(text.replace(/[^0-9]/g, "").slice(0, 6)); setError(null); }} placeholder="••••••" keyboardType="number-pad" maxLength={6} center autoFocus error={error} />
           <Button testID="login-verify-button" label="Verify & Login" onPress={handleVerifyUser} loading={loading} disabled={code.length !== 6} icon={<Ionicons name="lock-open-outline" size={18} color={colors.onBrand} />} />
           <View style={styles.resendRow}>
@@ -434,7 +440,7 @@ export default function Login() {
       return (
         <View style={styles.formGap}>
           <View style={styles.securityHeading}>
-            <View style={[styles.securityIcon, { backgroundColor: colors.brand + "18" }]}>
+            <View style={[styles.securityIcon, { backgroundColor: colors.brandSoft }]}>
               <Ionicons name="finger-print-outline" size={26} color={colors.brand} />
             </View>
             <View style={{ flex: 1, gap: 3 }}>
@@ -442,13 +448,7 @@ export default function Login() {
               <AppText variant="bodyMuted">Phishing-resistant verification for {plantEmail}</AppText>
             </View>
           </View>
-          <Button
-            testID="login-plant-passkey"
-            label="Continue with Passkey"
-            onPress={handleVerifyPasskey}
-            loading={loading}
-            icon={<Ionicons name="finger-print-outline" size={20} color={colors.onBrand} />}
-          />
+          <Button testID="login-plant-passkey" label="Continue with Passkey" onPress={handleVerifyPasskey} loading={loading} icon={<Ionicons name="finger-print-outline" size={20} color={colors.onBrand} />} />
           {error ? <AppText variant="caption" center color={colors.error}>{error}</AppText> : null}
           <View style={styles.resendRow}>
             <Pressable onPress={() => resetEntry("plant")}><AppText variant="label" color={colors.brand}>← Change email</AppText></Pressable>
@@ -482,7 +482,7 @@ export default function Login() {
       return (
         <View style={styles.formGap}>
           <View style={styles.securityHeading}>
-            <View style={[styles.securityIcon, { backgroundColor: colors.brand + "18" }]}><Ionicons name="key-outline" size={24} color={colors.brand} /></View>
+            <View style={[styles.securityIcon, { backgroundColor: colors.brandSoft }]}><Ionicons name="key-outline" size={24} color={colors.brand} /></View>
             <View style={{ flex: 1, gap: 3 }}><AppText variant="heading">Recovery Code</AppText><AppText variant="bodyMuted">Use one saved one-time recovery code.</AppText></View>
           </View>
           <Input testID="login-plant-recovery-input" label="Recovery code" value={recoveryCode} onChangeText={(text) => { setRecoveryCode(text.toUpperCase().slice(0, 20)); setError(null); }} placeholder="ABCD-EFGH-JKLM" autoCapitalize="characters" autoCorrect={false} error={error} />
@@ -495,27 +495,44 @@ export default function Login() {
     if (mode === "user") {
       return (
         <View style={styles.formGap}>
-          <AppText variant="heading">Mobile Login</AppText>
+          <View style={styles.formHeadingRow}>
+            <View style={[styles.formIcon, { backgroundColor: colors.brandSoft }]}>
+              <Ionicons name="phone-portrait-outline" size={23} color={colors.brand} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <AppText variant="heading">Mobile Login</AppText>
+              <AppText variant="bodyMuted">Enter your mobile number to continue</AppText>
+            </View>
+          </View>
           <View style={[styles.phoneInputWrap, { borderColor: error ? colors.error : colors.border, backgroundColor: colors.surfaceSecondary }]}>
             <View style={[styles.prefix, { borderRightColor: colors.border }]}><AppText style={styles.prefixText}>+91</AppText></View>
-            <TextInput testID="login-mobile-input" value={mobile} onChangeText={(text) => { setMobile(text.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="10-digit mobile number" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={10} style={[styles.phoneInput, { color: colors.onSurface }]} />
+            <TextInput testID="login-mobile-input" value={mobile} onChangeText={(text) => { setMobile(text.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="Enter 10-digit mobile number" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={10} style={[styles.phoneInput, { color: colors.onSurface }]} />
           </View>
           {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
-          <Button testID="login-send-otp-button" label="Send OTP" onPress={handleSendUserOtp} loading={loading} disabled={mobile.length !== 10} icon={<Ionicons name="phone-portrait-outline" size={18} color={colors.onBrand} />} />
+          <Button testID="login-send-otp-button" label="SEND OTP" onPress={handleSendUserOtp} loading={loading} disabled={mobile.length !== 10} icon={<Ionicons name="shield-checkmark-outline" size={19} color={colors.onBrand} />} style={styles.primaryCta} />
+          <View style={styles.secureLine}>
+            <Ionicons name="shield-checkmark-outline" size={17} color={colors.onSurfaceTertiary} />
+            <AppText variant="caption">Secure login</AppText>
+          </View>
         </View>
       );
     }
 
     return (
       <View style={styles.formGap}>
-        <View style={{ gap: spacing.xs }}>
-          <AppText variant="heading">Plant Staff Secure Login</AppText>
-          <AppText variant="bodyMuted">Use the approved work email for your Plant Owner, staff, Authority, or Central Admin account.</AppText>
+        <View style={styles.formHeadingRow}>
+          <View style={[styles.formIcon, { backgroundColor: colors.brandSoft }]}>
+            <Ionicons name="people-outline" size={23} color={colors.brand} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <AppText variant="heading">Plant Staff Secure Login</AppText>
+            <AppText variant="bodyMuted">Use your approved work email</AppText>
+          </View>
         </View>
         <Input testID="login-plant-email-input" label="Work email" value={plantEmail} onChangeText={(text) => { setPlantEmail(text.trimStart().toLowerCase()); setError(null); setOnboardingRequired(false); }} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} error={error} />
-        <Button testID="login-plant-send-otp" label="Continue Securely" onPress={handleStartPlantLogin} loading={loading} disabled={!validEmail(plantEmail)} icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />} />
+        <Button testID="login-plant-send-otp" label="Continue Securely" onPress={handleStartPlantLogin} loading={loading} disabled={!validEmail(plantEmail)} icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />} style={styles.primaryCta} />
         <View style={[styles.securityStrip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Ionicons name="shield-checkmark" size={19} color={colors.brand} />
+          <Ionicons name="lock-closed-outline" size={19} color={colors.brand} />
           <AppText variant="caption" style={{ flex: 1 }}>Approved staff use Passkey first, with Authenticator and recovery codes as controlled fallbacks. New approved staff verify email once to activate security.</AppText>
         </View>
         {onboardingRequired ? (
@@ -534,65 +551,92 @@ export default function Login() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <StatusBar style="light" />
+      <StatusBar style={colors.isDark ? "light" : "dark"} />
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="contain" />
-          <LinearGradient pointerEvents="none" colors={["rgba(5,24,20,0.78)", "rgba(5,24,20,0.12)", colors.surface]} locations={[0, 0.62, 1]} style={StyleSheet.absoluteFill} />
-          <View style={[styles.brandWrap, { paddingTop: insets.top + spacing.lg }]}> 
-            <AppText style={styles.brand} color="#FFFFFF">TRACK MY RMC</AppText>
-            <AppText style={styles.brandSub} color="rgba(255,255,255,0.78)">Secure access for concrete operations</AppText>
+        <View style={[styles.hero, { backgroundColor: colors.surface }]}> 
+          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="center" />
+          <LinearGradient pointerEvents="none" colors={[colors.surface, "rgba(255,255,255,0.20)", "rgba(255,255,255,0)", colors.surface]} locations={[0, 0.18, 0.68, 1]} style={StyleSheet.absoluteFill} />
+          <View style={[styles.heroHeader, { paddingTop: insets.top + spacing.md }]}> 
+            <View style={styles.brandRow}>
+              <Image source={APP_MARK} style={styles.appMark} contentFit="contain" />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AppText style={[styles.brandTop, { color: colors.onSurface }]}>TRACK MY</AppText>
+                <AppText style={[styles.brandMain, { color: colors.brand }]}>RMC</AppText>
+              </View>
+            </View>
+            <AppText style={[styles.brandSub, { color: colors.onSurfaceSecondary }]}>Secure access for concrete operations</AppText>
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-          <View style={[styles.segmented, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
-            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brand }]}> 
-              <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onBrand : colors.onSurfaceTertiary}>USER LOGIN</AppText>
+        <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+          <View style={[styles.segmented, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
+              <Ionicons name="person" size={18} color={mode === "user" ? colors.brand : colors.onSurfaceTertiary} />
+              <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onSurface : colors.onSurfaceTertiary}>USER LOGIN</AppText>
             </Pressable>
-            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brand }]}> 
-              <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onBrand : colors.onSurfaceTertiary}>PLANT STAFF LOGIN</AppText>
+            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
+              <Ionicons name="people" size={18} color={mode === "plant" ? colors.brand : colors.onSurfaceTertiary} />
+              <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onSurface : colors.onSurfaceTertiary}>PLANT STAFF LOGIN</AppText>
             </Pressable>
           </View>
 
-          {renderForm()}
+          <View style={styles.formPanel}>{renderForm()}</View>
 
           {DEMO_LOGIN_ENABLED ? (
-            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+            <View style={[styles.demoBox, { borderColor: colors.border, backgroundColor: colors.surface }]}> 
               <AppText variant="label" style={styles.demoTitle}>Demo access (Google Play review)</AppText>
               <View style={styles.demoGrid}>{DEMO_ROLES.map((item) => (
-                <Pressable key={item.role} testID={`demo-login-${item.role}`} disabled={loading} onPress={() => handleDemoLogin(item.role)} style={({ pressed }) => [styles.demoChip, { borderColor: colors.border, backgroundColor: pressed ? colors.brand + "1A" : colors.surface, opacity: loading ? 0.6 : 1 }]}> 
+                <Pressable key={item.role} testID={`demo-login-${item.role}`} disabled={loading} onPress={() => handleDemoLogin(item.role)} style={({ pressed }) => [styles.demoChip, { borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : colors.surfaceSecondary, opacity: loading ? 0.6 : 1 }]}> 
                   <Ionicons name={item.icon} size={18} color={colors.brand} /><AppText style={styles.demoChipLabel}>{item.label}</AppText>
                 </Pressable>
               ))}</View>
             </View>
           ) : null}
+        </View>
 
-          <View style={styles.legal}>
-            <View style={styles.legalCardsRow}>
-              <Pressable testID="login-privacy-card" onPress={() => { void Haptics.selectionAsync(); void openExternal(PRIVACY_POLICY_URL); }} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
-                <View style={[styles.legalCardIcon, { backgroundColor: colors.brand + "1A" }]}><Ionicons name="shield-checkmark-outline" size={21} color={colors.brand} /></View>
-                <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Privacy Policy</AppText><AppText style={styles.legalCardSub}>How TrackMyRMC uses your data</AppText></View>
-              </Pressable>
-              <Pressable testID="login-delete-account-card" onPress={confirmAccountDeletion} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
-                <View style={[styles.legalCardIcon, { backgroundColor: "#E45B5B22" }]}><Ionicons name="trash-outline" size={21} color="#E45B5B" /></View>
-                <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Delete Account</AppText><AppText style={styles.legalCardSub}>Erase your account without signing in</AppText></View>
-              </Pressable>
-            </View>
-
-            <View style={styles.reviewRow}>
-              <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)}>
-                <AppText variant="caption" color={colors.brand}>App Review Access</AppText>
-              </Pressable>
-            </View>
-
-            <AppText variant="caption" center style={styles.poweredBy}>Powered by <AppText variant="caption" style={styles.goldETech}>GOLD e TECH</AppText></AppText>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contactRow}>{CONTACT_ACTIONS.map((action) => (
-              <Pressable key={action.label} onPress={() => openExternal(action.url)} style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
-                <Ionicons name={action.icon} size={20} color={colors.brand} /><AppText style={styles.contactLabel}>{action.label}</AppText><AppText style={styles.contactDetail} numberOfLines={1}>{action.detail}</AppText>
-              </Pressable>
-            ))}</ScrollView>
+        <View style={styles.afterLogin}>
+          <View style={styles.legalCardsRow}>
+            <Pressable testID="login-privacy-card" onPress={() => { void Haptics.selectionAsync(); void openExternal(PRIVACY_POLICY_URL); }} style={[styles.legalCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+              <View style={[styles.legalCardIcon, { backgroundColor: colors.brandSoft }]}><Ionicons name="shield-checkmark-outline" size={24} color={colors.brand} /></View>
+              <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Privacy Policy</AppText><AppText style={styles.legalCardSub}>How TrackMyRMC uses your data</AppText></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable testID="login-delete-account-card" onPress={confirmAccountDeletion} style={[styles.legalCard, { borderColor: "#F2C9C9", backgroundColor: colors.surfaceSecondary }]}> 
+              <View style={[styles.legalCardIcon, { backgroundColor: "#FFE9E9" }]}><Ionicons name="trash-outline" size={24} color="#D93B3B" /></View>
+              <View style={styles.legalCardBody}><AppText style={styles.legalCardTitle}>Delete Account</AppText><AppText style={styles.legalCardSub}>Erase your account without signing in</AppText></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
           </View>
+
+          <View style={styles.helpTitleRow}>
+            <View style={[styles.helpRule, { backgroundColor: colors.border }]} />
+            <AppText style={styles.helpTitle}>Need Help?</AppText>
+            <View style={[styles.helpRule, { backgroundColor: colors.border }]} />
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contactRow}>{CONTACT_ACTIONS.map((action) => {
+            const iconColor = action.tone === "instagram" ? "#E1306C" : colors.brand;
+            return (
+              <Pressable key={action.label} onPress={() => openExternal(action.url)} style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+                <View style={[styles.contactIconWrap, { backgroundColor: action.tone === "instagram" ? "#FFF0F5" : colors.brandSoft }]}>
+                  <Ionicons name={action.icon} size={25} color={iconColor} />
+                </View>
+                <AppText style={styles.contactLabel}>{action.label}</AppText>
+                <AppText style={styles.contactDetail} numberOfLines={1}>{action.detail}</AppText>
+              </Pressable>
+            );
+          })}</ScrollView>
+
+          <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)} style={[styles.reviewCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+            <View style={[styles.reviewIcon, { backgroundColor: colors.brandSoft }]}><Ionicons name="star" size={23} color={colors.brand} /></View>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.reviewTitle}>REVIEW APP</AppText>
+              <AppText variant="caption">Your feedback helps us improve</AppText>
+            </View>
+            <View style={styles.starsRow}>{[0, 1, 2, 3, 4].map((n) => <Ionicons key={n} name="star" size={16} color={colors.brand} />)}</View>
+          </Pressable>
+
+          <AppText variant="caption" center style={styles.poweredBy}>Powered by <AppText variant="caption" style={styles.goldETech}>GOLD <AppText variant="caption" style={{ color: colors.brand, fontFamily: fonts.bold }}>e</AppText> TECH</AppText></AppText>
         </View>
       </KeyboardAwareScrollView>
     </View>
@@ -600,43 +644,58 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  hero: { height: 300, justifyContent: "flex-start", backgroundColor: "#071B17" },
-  brandWrap: { alignItems: "center", paddingHorizontal: spacing.xl, gap: 4 },
-  brand: { fontFamily: fonts.displayBold, fontSize: 26, letterSpacing: 1.2 },
-  brandSub: { fontFamily: fonts.medium, fontSize: 12, letterSpacing: 0.2 },
-  card: { flex: 1, marginTop: -24, marginHorizontal: spacing.md, borderRadius: 28, borderWidth: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing["2xl"], shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 5 },
-  segmented: { flexDirection: "row", borderRadius: radius.lg, borderWidth: 1, padding: 4, marginBottom: spacing.xl },
-  segment: { flex: 1, minHeight: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.sm },
-  segmentLabel: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.25, textAlign: "center" },
+  hero: { height: 420, justifyContent: "flex-start", overflow: "hidden" },
+  heroHeader: { paddingHorizontal: spacing.xl, gap: spacing.sm },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, maxWidth: 280 },
+  appMark: { width: 64, height: 64, borderRadius: 18 },
+  brandTop: { fontFamily: fonts.displayBold, fontSize: 19, letterSpacing: 1.2 },
+  brandMain: { fontFamily: fonts.displayBold, fontSize: 44, lineHeight: 46, letterSpacing: 0.4 },
+  brandSub: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, maxWidth: 230 },
+  loginShell: { marginTop: -22, marginHorizontal: spacing.md, borderRadius: 30, borderWidth: 1, padding: spacing.md, shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  segmented: { flexDirection: "row", borderRadius: 22, borderWidth: 1, padding: 4, marginBottom: spacing.md },
+  segment: { flex: 1, minHeight: 54, borderRadius: 18, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: spacing.sm },
+  segmentLabel: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2, textAlign: "center" },
+  formPanel: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
   formGap: { gap: spacing.lg },
-  phoneInputWrap: { flexDirection: "row", minHeight: 56, borderRadius: radius.md, borderWidth: 1, overflow: "hidden", alignItems: "stretch" },
-  prefix: { width: 66, borderRightWidth: 1, alignItems: "center", justifyContent: "center" },
-  prefixText: { fontFamily: fonts.semibold, fontSize: fontSize.base },
-  phoneInput: { flex: 1, minHeight: 56, paddingHorizontal: spacing.md, fontFamily: fonts.medium, fontSize: fontSize.base },
+  formHeadingRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  formIcon: { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  phoneInputWrap: { flexDirection: "row", minHeight: 62, borderRadius: 16, borderWidth: 1, overflow: "hidden", alignItems: "stretch" },
+  prefix: { width: 72, borderRightWidth: 1, alignItems: "center", justifyContent: "center" },
+  prefixText: { fontFamily: fonts.bold, fontSize: fontSize.lg },
+  phoneInput: { flex: 1, minHeight: 62, paddingHorizontal: spacing.md, fontFamily: fonts.medium, fontSize: fontSize.base },
+  primaryCta: { height: 58, borderRadius: 16 },
+  secureLine: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
   resendRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
   securityHeading: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  securityIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  securityIcon: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   securityStrip: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, padding: spacing.md, borderWidth: 1, borderRadius: radius.md },
   infoCard: { marginTop: spacing.md, flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, padding: spacing.md, borderWidth: 1, borderRadius: radius.md },
   onboardingCard: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
-  onboardingIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  onboardingIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   demoBox: { marginTop: spacing.xl, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
   demoTitle: { textAlign: "center" },
   demoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, justifyContent: "center" },
   demoChip: { minHeight: 44, flexGrow: 1, minWidth: "45%", borderWidth: 1, borderRadius: radius.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   demoChipLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
-  legal: { marginTop: spacing["2xl"], paddingTop: spacing.lg },
-  legalCardsRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md },
-  legalCard: { flex: 1, minHeight: 76, borderWidth: 1, borderRadius: radius.md, flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm },
-  legalCardIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  legalCardBody: { flex: 1, minWidth: 0, gap: 2 },
+  afterLogin: { paddingHorizontal: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing["3xl"], gap: spacing.xl },
+  legalCardsRow: { flexDirection: "row", gap: spacing.sm },
+  legalCard: { flex: 1, minHeight: 92, borderWidth: 1, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md },
+  legalCardIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  legalCardBody: { flex: 1, minWidth: 0, gap: 3 },
   legalCardTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   legalCardSub: { fontFamily: fonts.regular, fontSize: 11, opacity: 0.72 },
-  reviewRow: { alignItems: "center", justifyContent: "center", minHeight: 32 },
-  poweredBy: { marginTop: spacing.lg },
-  goldETech: { fontFamily: fonts.bold },
-  contactRow: { gap: spacing.sm, paddingTop: spacing.lg, paddingBottom: spacing.sm },
-  contactAction: { width: 122, minHeight: 76, borderWidth: 1, borderRadius: radius.md, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: spacing.sm },
+  helpTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.md },
+  helpRule: { flex: 1, height: 1 },
+  helpTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg },
+  contactRow: { gap: spacing.sm, paddingBottom: spacing.xs },
+  contactAction: { width: 124, minHeight: 112, borderWidth: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: spacing.sm, paddingVertical: spacing.md },
+  contactIconWrap: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 2 },
   contactLabel: { fontFamily: fonts.semibold, fontSize: 12 },
   contactDetail: { fontFamily: fonts.regular, fontSize: 10, opacity: 0.72 },
+  reviewCard: { minHeight: 82, borderWidth: 1, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
+  reviewIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  reviewTitle: { fontFamily: fonts.bold, fontSize: fontSize.base },
+  starsRow: { flexDirection: "row", gap: 1 },
+  poweredBy: { marginTop: spacing.sm },
+  goldETech: { fontFamily: fonts.bold },
 });
