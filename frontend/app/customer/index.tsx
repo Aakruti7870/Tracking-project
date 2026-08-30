@@ -1,12 +1,9 @@
 import React from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
@@ -18,10 +15,8 @@ import { KycBanner } from "@/src/components/KycBanner";
 import { ErrorView } from "@/src/components/StateViews";
 import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
+import { BrandHero } from "@/src/components/BrandHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
-
-const HERO_LIGHT = require("../../assets/images/home-hero-light.jpg");
-const HERO_DARK = require("../../assets/images/home-hero-dark.jpg");
 
 type HomeData = {
   name: string;
@@ -41,8 +36,6 @@ const ACTIONS: { key: "new" | "track" | "plants" | "orders"; label: string; icon
 
 export default function CustomerHome() {
   const { colors } = useTheme();
-  const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
-  const { user } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -110,16 +103,7 @@ export default function CustomerHome() {
             </>
           ) : data ? (
             <>
-              <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4" }]}> 
-                <Image source={heroSource} style={StyleSheet.absoluteFill} contentFit="contain" contentPosition="right center" transition={180} />
-                <LinearGradient colors={colors.isDark ? ["rgba(5,7,9,0.96)", "rgba(5,7,9,0.78)", "rgba(5,7,9,0.18)", "rgba(5,7,9,0)"] : ["rgba(247,248,246,0.98)", "rgba(247,248,246,0.82)", "rgba(247,248,246,0.16)", "rgba(247,248,246,0)"]} locations={[0, 0.38, 0.7, 1]} style={StyleSheet.absoluteFill} />
-                <View style={styles.heroCopy}>
-                  <AppText style={[styles.heroLine, { color: colors.isDark ? "#FFFFFF" : colors.onSurface }]}>Track.</AppText>
-                  <AppText style={[styles.heroLine, { color: colors.isDark ? "#FFFFFF" : colors.onSurface }]}>Order.</AppText>
-                  <AppText style={[styles.heroLine, { color: colors.brand }]}>Delivered.</AppText>
-                  <AppText style={[styles.heroSub, { color: colors.isDark ? "rgba(255,255,255,0.76)" : colors.onSurfaceSecondary }]}>Your concrete. Our commitment.{"\n"}All in one place.</AppText>
-                </View>
-              </View>
+              <BrandHero style={styles.heroCard} />
 
               {data.kyc_status !== "VERIFIED" ? <KycBanner status={data.kyc_status} /> : null}
 
@@ -222,10 +206,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   dot: { position: "absolute", top: 7, right: 7, width: 8, height: 8, borderRadius: 4 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120, gap: 24 },
-  hero: { minHeight: 430, borderRadius: 32, overflow: "hidden", position: "relative", justifyContent: "center" },
-  heroCopy: { paddingTop: 30, paddingLeft: 24, zIndex: 3, maxWidth: "72%" },
-  heroLine: { fontFamily: fonts.displayBold, fontSize: 48, lineHeight: 51, letterSpacing: -1.6 },
-  heroSub: { marginTop: 18, fontFamily: fonts.medium, fontSize: 14, lineHeight: 21 },
+  heroCard: { borderRadius: 24, marginBottom: spacing.xs },
   section: { gap: 12 },
   sectionTitle: { fontFamily: fonts.displayBold, fontSize: 20 },
   actionGrid: { flexDirection: "row", gap: 10 },

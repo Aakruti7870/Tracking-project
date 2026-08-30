@@ -8,8 +8,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
@@ -26,11 +24,9 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
+import { BrandHero } from "@/src/components/BrandHero";
 import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
-
-const HERO_LIGHT = require("../assets/images/login-hero-light.jpg");
-const HERO_DARK = require("../assets/images/login-hero-dark.jpg");
 
 type LoginMode = "user" | "plant";
 type LoginPhase = "enter" | "user_otp" | "staff_email_otp" | "staff_passkey" | "staff_totp" | "staff_recovery";
@@ -62,7 +58,6 @@ const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.tr
 
 export default function Login() {
   const { colors } = useTheme();
-  const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -554,11 +549,7 @@ export default function Login() {
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style={colors.isDark ? "light" : "dark"} />
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4" }]}> 
-          <Image source={heroSource} style={StyleSheet.absoluteFill} contentFit="contain" contentPosition="center" transition={180} />
-          <LinearGradient pointerEvents="none" colors={colors.isDark ? ["rgba(0,0,0,0.02)", "rgba(0,0,0,0)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0)", colors.surface]} locations={[0, 0.76, 1]} style={StyleSheet.absoluteFill} />
-          <View style={{ height: insets.top }} />
-        </View>
+        <BrandHero topInset={insets.top} />
 
         <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
           <View style={[styles.segmented, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
