@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, Linking, Pressable, StyleSheet, View } from "react-native";
+import { FlatList, Linking, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,7 +12,6 @@ import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
-import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { PlantMap } from "@/src/components/PlantMap";
 import { PlantCard, PlantData } from "@/src/components/PlantCard";
@@ -61,16 +60,12 @@ export default function CustomerPlants() {
         const permission = await Location.getForegroundPermissionsAsync();
         if (permission.status !== "granted") return;
         const last = await Location.getLastKnownPositionAsync();
-        if (mounted && last) {
-          setUserLocation({ lat: last.coords.latitude, lng: last.coords.longitude });
-        }
+        if (mounted && last) setUserLocation({ lat: last.coords.latitude, lng: last.coords.longitude });
       } catch {
         // Location is optional for registered-plant discovery.
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   const useMyLocation = async () => {
@@ -79,13 +74,14 @@ export default function CustomerPlants() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== "granted") {
-        setLocationMessage("Location permission is off. All registered plants are still shown.");
+        setLocationMessage("Location permission is off. Registered plants are still available.");
         return;
       }
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setUserLocation({ lat: current.coords.latitude, lng: current.coords.longitude });
+      await refetch();
     } catch {
-      setLocationMessage("Could not read your location. All registered plants are still shown.");
+      setLocationMessage("Could not refresh your location. Registered plants are still available.");
     } finally {
       setLocating(false);
     }
@@ -94,7 +90,7 @@ export default function CustomerPlants() {
   const discoverOnGoogle = async () => {
     if (!token) return;
     if (!userLocation) {
-      toast("Use your location first", "error");
+      toast("Refresh location first", "error");
       return;
     }
     setDiscovering(true);
@@ -107,13 +103,11 @@ export default function CustomerPlants() {
       );
       if (!result.configured) {
         setGooglePlants([]);
-        setDiscoveryError("Google Places discovery is not configured on the TrackMyRMC server yet.");
+        setDiscoveryError("Google Places discovery is not configured on the server yet.");
         return;
       }
       setGooglePlants(result.places || []);
-      if (!result.places?.length) {
-        setDiscoveryError("Google did not return an RMC plant for this search area. Try a plant/city name.");
-      }
+      if (!result.places?.length) setDiscoveryError("No additional RMC plants found. Try a plant or city name.");
     } catch (e: any) {
       setDiscoveryError(e?.detail || "Google RMC discovery failed");
     } finally {
@@ -129,18 +123,12 @@ export default function CustomerPlants() {
         `/maps/rmc-plants/${encodeURIComponent(place.place_id)}/request-listing`,
         token,
       );
-      setGooglePlants((current) =>
-        current.map((p) =>
-          p.place_id === place.place_id
-            ? {
-                ...p,
-                registered: result.status === "REGISTERED" ? true : p.registered,
-                plant_id: result.plant_id || p.plant_id,
-                request_status: result.status === "REGISTERED" ? p.request_status : result.status,
-              }
-            : p,
-        ),
-      );
+      setGooglePlants((current) => current.map((p) => p.place_id === place.place_id ? {
+        ...p,
+        registered: result.status === "REGISTERED" ? true : p.registered,
+        plant_id: result.plant_id || p.plant_id,
+        request_status: result.status === "REGISTERED" ? p.request_status : result.status,
+      } : p));
       toast(result.status === "REGISTERED" ? "Plant is already registered" : "Sent to Authority for review", "success");
     } catch (e: any) {
       toast(e?.detail || "Could not submit this plant", "error");
@@ -150,65 +138,54 @@ export default function CustomerPlants() {
   };
 
   const ranked = useMemo(() => {
-    const list = (data?.plants || []).map((plant) => {
-      if (!userLocation || !validLatLng(plant)) return { ...plant, distance_km: null };
-      return {
-        ...plant,
-        distance_km: distanceKm(userLocation, { lat: plant.lat!, lng: plant.lng! }),
-      };
-    });
+    const list = (data?.plants || []).map((plant) => !userLocation || !validLatLng(plant)
+      ? { ...plant, distance_km: null }
+      : { ...plant, distance_km: distanceKm(userLocation, { lat: plant.lat!, lng: plant.lng! }) });
 
     if (userLocation) {
       list.sort((a, b) => {
-        const ap = a.promoted ? 0 : 1;
-        const bp = b.promoted ? 0 : 1;
-        if (ap !== bp) return ap - bp;
-        const ad = a.distance_km ?? Number.POSITIVE_INFINITY;
-        const bd = b.distance_km ?? Number.POSITIVE_INFINITY;
-        if (ad !== bd) return ad - bd;
-        const ae = a.order_enabled ? 0 : 1;
-        const be = b.order_enabled ? 0 : 1;
-        if (ae !== be) return ae - be;
+        const promoted = Number(Boolean(b.promoted)) - Number(Boolean(a.promoted));
+        if (promoted) return promoted;
+        const distance = (a.distance_km ?? Number.POSITIVE_INFINITY) - (b.distance_km ?? Number.POSITIVE_INFINITY);
+        if (distance) return distance;
+        const enabled = Number(Boolean(b.order_enabled)) - Number(Boolean(a.order_enabled));
+        if (enabled) return enabled;
         return (a.name || "").localeCompare(b.name || "");
       });
-    } else list.sort((a, b) => (a.promoted === b.promoted ? (a.name || "").localeCompare(b.name || "") : a.promoted ? -1 : 1));
+    } else {
+      list.sort((a, b) => (a.promoted === b.promoted ? (a.name || "").localeCompare(b.name || "") : a.promoted ? -1 : 1));
+    }
     return list;
   }, [data, userLocation]);
 
   const filtered = useMemo(() => {
     if (!q.trim()) return ranked;
     const t = q.toLowerCase();
-    return ranked.filter(
-      (p) =>
-        (p.name || "").toLowerCase().includes(t) ||
-        (p.city || "").toLowerCase().includes(t) ||
-        (p.district || "").toLowerCase().includes(t) ||
-        (p.address || "").toLowerCase().includes(t),
-    );
+    return ranked.filter((p) =>
+      (p.name || "").toLowerCase().includes(t) ||
+      (p.city || "").toLowerCase().includes(t) ||
+      (p.district || "").toLowerCase().includes(t) ||
+      (p.address || "").toLowerCase().includes(t));
   }, [ranked, q]);
 
-  const googleMapPlants = useMemo<PlantData[]>(
-    () =>
-      googlePlants
-        .filter((p) => !p.registered)
-        .map((p) => ({
-          id: `google:${p.place_id}`,
-          name: p.name,
-          city: p.city || "Google Places",
-          district: p.district || undefined,
-          address: p.address || "",
-          lat: p.lat,
-          lng: p.lng,
-          grades: [],
-          contact_phone: p.contact_phone || "",
-          service_area_km: 0,
-          status: "google_discovered",
-          verified: false,
-          order_enabled: false,
-          distance_km: userLocation ? distanceKm(userLocation, { lat: p.lat, lng: p.lng }) : null,
-        })),
-    [googlePlants, userLocation],
-  );
+  const googleMapPlants = useMemo<PlantData[]>(() => googlePlants
+    .filter((p) => !p.registered)
+    .map((p) => ({
+      id: `google:${p.place_id}`,
+      name: p.name,
+      city: p.city || "Google Places",
+      district: p.district || undefined,
+      address: p.address || "",
+      lat: p.lat,
+      lng: p.lng,
+      grades: [],
+      contact_phone: p.contact_phone || "",
+      service_area_km: 0,
+      status: "google_discovered",
+      verified: false,
+      order_enabled: false,
+      distance_km: userLocation ? distanceKm(userLocation, { lat: p.lat, lng: p.lng }) : null,
+    })), [googlePlants, userLocation]);
 
   const mapPlants = useMemo(() => [...filtered, ...googleMapPlants], [filtered, googleMapPlants]);
 
@@ -217,14 +194,10 @@ export default function CustomerPlants() {
       <View style={{ height: insets.top }} />
       <View style={styles.titleRow}>
         <AppText variant="title">Nearby Plants</AppText>
-        <AppText variant="caption">
-          Registered TrackMyRMC plants stay visible. You can also search Google for more real RMC businesses nearby.
-        </AppText>
+        <AppText variant="caption">Registered plants first. Discover more real RMC businesses nearby when needed.</AppText>
       </View>
 
-      {error && !data ? (
-        <ErrorView message={error} onRetry={reload} />
-      ) : (
+      {error && !data ? <ErrorView message={error} onRetry={reload} /> : (
         <FlatList
           testID="plants-list"
           data={filtered}
@@ -234,156 +207,103 @@ export default function CustomerPlants() {
           refreshing={false}
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.md, flexGrow: 1 }}
           ListHeaderComponent={
-            <View style={{ gap: spacing.md, marginBottom: spacing.xs }}>
+            <View style={{ gap: spacing.sm, marginBottom: spacing.xs }}>
               <PlantMap plants={mapPlants} userLocation={userLocation} />
 
-              <View style={[styles.locationBar, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <View style={[styles.locationIcon, { backgroundColor: colors.brandSoft }]}>
-                  <Ionicons name="locate-outline" size={18} color={colors.onBrandSoft} />
-                </View>
-                <View style={{ flex: 1, gap: 1 }}>
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>
-                    {userLocation ? "Nearest plants first" : "Sort by your location"}
-                  </AppText>
-                  <AppText variant="caption">
-                    {userLocation
-                      ? "Registered plants sort by proximity; Google discovery can find additional RMC businesses."
-                      : "Location is optional for registered plants and required only for nearby Google discovery."}
-                  </AppText>
-                </View>
+              <View style={[styles.searchBar, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons name="search-outline" size={20} color={colors.onSurfaceTertiary} />
+                <TextInput
+                  testID="plants-search"
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Search plants or area…"
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  returnKeyType="search"
+                  onSubmitEditing={() => { if (q.trim()) void discoverOnGoogle(); }}
+                  style={[styles.searchInput, { color: colors.onSurface }]}
+                />
                 <Pressable
                   testID="plants-use-location"
+                  accessibilityLabel="Refresh nearby plants and location"
                   onPress={useMyLocation}
                   disabled={locating}
-                  style={[styles.locationButton, { borderColor: colors.border }]}
+                  style={({ pressed }) => [styles.refreshButton, { backgroundColor: colors.brandSoft, opacity: pressed || locating ? 0.65 : 1 }]}
                 >
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.brand }}>
-                    {locating ? "Locating…" : userLocation ? "Refresh" : "Use location"}
-                  </AppText>
+                  <Ionicons name={locating ? "hourglass-outline" : "refresh"} size={20} color={colors.brand} />
                 </Pressable>
               </View>
 
-              {locationMessage ? (
-                <AppText variant="caption" color={colors.warning}>{locationMessage}</AppText>
-              ) : null}
-
-              <Input
-                testID="plants-search"
-                value={q}
-                onChangeText={setQ}
-                placeholder="Search plant/city, or type a Google RMC search"
-              />
-
-              <View style={[styles.discoveryBar, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>
-                    Google RMC Discovery
-                  </AppText>
-                  <AppText variant="caption">
-                    Find real RMC businesses within 50 km. Google results are not orderable until Authority approval and plant setup.
-                  </AppText>
+              <View style={styles.discoveryRow}>
+                <View style={styles.discoveryMeta}>
+                  <Ionicons name="location" size={15} color={colors.brand} />
+                  <AppText style={[styles.discoveryMetaText, { color: colors.onSurfaceSecondary }]}>{ranked.length} nearby</AppText>
+                  <View style={[styles.dotDivider, { backgroundColor: colors.border }]} />
+                  <Ionicons name="search-circle-outline" size={17} color={colors.brand} />
+                  <AppText style={[styles.discoveryMetaText, { color: colors.onSurfaceSecondary }]}>Google discovery</AppText>
                 </View>
                 <Pressable
                   testID="discover-google-rmc"
                   onPress={discoverOnGoogle}
                   disabled={discovering}
-                  style={[styles.discoveryButton, { backgroundColor: colors.brand }]}
+                  style={({ pressed }) => [styles.findMore, { backgroundColor: colors.brand, opacity: pressed || discovering ? 0.72 : 1 }]}
                 >
-                  <Ionicons name="search" size={16} color={colors.onBrand} />
                   <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onBrand }}>
-                    {discovering ? "Searching…" : "Find more"}
+                    {discovering ? "Searching…" : "Find More"}
                   </AppText>
                 </Pressable>
               </View>
 
-              {discoveryError ? (
-                <AppText variant="caption" color={colors.warning}>{discoveryError}</AppText>
-              ) : null}
+              {locationMessage ? <AppText variant="caption" color={colors.warning}>{locationMessage}</AppText> : null}
+              {discoveryError ? <AppText variant="caption" color={colors.warning}>{discoveryError}</AppText> : null}
+
+              <View style={styles.registeredHeading}>
+                <AppText variant="heading">Registered plants</AppText>
+                <AppText variant="caption">Order-enabled plants appear first by proximity.</AppText>
+              </View>
             </View>
           }
-          renderItem={({ item }) =>
-            loading && !data ? null : (
-              <PlantCard plant={item} onOrder={() => router.push(`/new-order?plantId=${item.id}` as any)} />
-            )
-          }
-          ListFooterComponent={
-            googlePlants.length ? (
-              <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
-                <View style={{ gap: 2 }}>
-                  <AppText variant="heading">Google-discovered RMC plants</AppText>
-                  <AppText variant="caption">
-                    {googlePlants.length} result{googlePlants.length === 1 ? "" : "s"}. Submit a real business once; Google Place ID prevents duplicate imports.
-                  </AppText>
-                </View>
-                {googlePlants.map((place) => (
-                  <GooglePlantCard
-                    key={place.place_id}
-                    place={place}
-                    requesting={requestingPlace === place.place_id}
-                    onRequest={() => requestListing(place)}
-                  />
-                ))}
+          renderItem={({ item }) => loading && !data ? null : (
+            <PlantCard plant={item} onOrder={() => router.push(`/new-order?plantId=${item.id}` as any)} />
+          )}
+          ListFooterComponent={googlePlants.length ? (
+            <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
+              <View style={{ gap: 2 }}>
+                <AppText variant="heading">More RMC plants nearby</AppText>
+                <AppText variant="caption">Google-discovered businesses are not orderable until Authority approval and plant setup.</AppText>
               </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            googlePlants.length ? null : loading && !data ? (
-              <View style={{ gap: spacing.md }}>
-                {[0, 1].map((i) => (
-                  <Skeleton key={i} height={140} style={{ borderRadius: radius.lg }} />
-                ))}
-              </View>
-            ) : (
-              <EmptyView
-                icon="business-outline"
-                title="No registered plants found"
-                subtitle={q.trim() ? "Try another search or use Google RMC Discovery" : "Use Google RMC Discovery to find businesses nearby"}
-              />
-            )
-          }
+              {googlePlants.map((place) => (
+                <GooglePlantCard key={place.place_id} place={place} requesting={requestingPlace === place.place_id} onRequest={() => requestListing(place)} />
+              ))}
+            </View>
+          ) : null}
+          ListEmptyComponent={googlePlants.length ? null : loading && !data ? (
+            <View style={{ gap: spacing.md }}>{[0, 1].map((i) => <Skeleton key={i} height={140} style={{ borderRadius: radius.lg }} />)}</View>
+          ) : (
+            <EmptyView icon="business-outline" title="No registered plants found" subtitle={q.trim() ? "Try another search or use Find More" : "Use Find More to discover RMC businesses nearby"} />
+          )}
         />
       )}
     </View>
   );
 }
 
-function GooglePlantCard({
-  place,
-  requesting,
-  onRequest,
-}: {
-  place: GooglePlant;
-  requesting: boolean;
-  onRequest: () => void;
-}) {
+function GooglePlantCard({ place, requesting, onRequest }: { place: GooglePlant; requesting: boolean; onRequest: () => void }) {
   const { colors } = useTheme();
   const pending = place.request_status === "PENDING";
   const approved = place.request_status === "APPROVED";
-  const buttonLabel = place.registered
-    ? "Already listed"
-    : pending
-      ? "Sent for review"
-      : approved
-        ? "Approved"
-        : requesting
-          ? "Submitting…"
-          : "Add to TrackMyRMC";
+  const buttonLabel = place.registered ? "Already listed" : pending ? "Sent for review" : approved ? "Approved" : requesting ? "Submitting…" : "Add to TrackMyRMC";
 
   const openDirections = () => {
     const url = place.google_maps_uri || `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lng}`;
-    Linking.openURL(url);
+    void Linking.openURL(url);
   };
 
   return (
     <Card style={{ gap: spacing.sm }}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
-        <View style={[styles.googleIcon, { backgroundColor: colors.surfaceTertiary }]}>
-          <Ionicons name="location-outline" size={18} color={colors.brand} />
-        </View>
+        <View style={[styles.googleIcon, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="location-outline" size={18} color={colors.brand} /></View>
         <View style={{ flex: 1, gap: 3 }}>
-          <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={2}>
-            {place.name}
-          </AppText>
+          <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={2}>{place.name}</AppText>
           <AppText variant="caption" numberOfLines={2}>{place.address || [place.city, place.district].filter(Boolean).join(" · ")}</AppText>
           <AppText variant="caption" color={place.registered ? colors.success : colors.warning}>
             {place.registered ? "Registered TrackMyRMC plant" : "Google-discovered · not yet verified for orders"}
@@ -399,28 +319,10 @@ function GooglePlantCard({
           testID={`request-google-plant-${place.place_id}`}
           disabled={place.registered || pending || approved || requesting}
           onPress={onRequest}
-          style={[
-            styles.googleRequestButton,
-            {
-              backgroundColor: place.registered || pending || approved ? colors.surfaceTertiary : colors.brand,
-              opacity: requesting ? 0.7 : 1,
-            },
-          ]}
+          style={[styles.googleRequestButton, { backgroundColor: place.registered || pending || approved ? colors.surfaceTertiary : colors.brand, opacity: requesting ? 0.7 : 1 }]}
         >
-          <Ionicons
-            name={place.registered ? "checkmark-circle-outline" : pending ? "time-outline" : "add-circle-outline"}
-            size={15}
-            color={place.registered || pending || approved ? colors.onSurfaceTertiary : colors.onBrand}
-          />
-          <AppText
-            style={{
-              fontFamily: fonts.semibold,
-              fontSize: 12,
-              color: place.registered || pending || approved ? colors.onSurfaceTertiary : colors.onBrand,
-            }}
-          >
-            {buttonLabel}
-          </AppText>
+          <Ionicons name={place.registered ? "checkmark-circle-outline" : pending ? "time-outline" : "add-circle-outline"} size={15} color={place.registered || pending || approved ? colors.onSurfaceTertiary : colors.onBrand} />
+          <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: place.registered || pending || approved ? colors.onSurfaceTertiary : colors.onBrand }}>{buttonLabel}</AppText>
         </Pressable>
       </View>
     </Card>
@@ -429,73 +331,17 @@ function GooglePlantCard({
 
 const styles = StyleSheet.create({
   titleRow: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: 2 },
-  locationBar: {
-    minHeight: 64,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  locationIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  locationButton: {
-    minHeight: 38,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  discoveryBar: {
-    minHeight: 72,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  discoveryButton: {
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    flexDirection: "row",
-    gap: 5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googleIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  searchBar: { minHeight: 54, borderWidth: 1, borderRadius: 18, paddingLeft: spacing.md, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  searchInput: { flex: 1, minHeight: 52, fontFamily: fonts.medium, fontSize: fontSize.base, paddingVertical: 0 },
+  refreshButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  discoveryRow: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  discoveryMeta: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap" },
+  discoveryMetaText: { fontFamily: fonts.medium, fontSize: 12 },
+  dotDivider: { width: 1, height: 18, marginHorizontal: 3 },
+  findMore: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  registeredHeading: { gap: 2, paddingTop: spacing.xs },
+  googleIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   googleActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
-  googleOutlineButton: {
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  googleRequestButton: {
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    marginLeft: "auto",
-  },
+  googleOutlineButton: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5 },
+  googleRequestButton: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: radius.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginLeft: "auto" },
 });
