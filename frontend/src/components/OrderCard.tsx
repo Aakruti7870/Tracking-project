@@ -29,11 +29,20 @@ export type OrderData = {
 
 export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () => void }) {
   const { colors } = useTheme();
+  const interactive = Boolean(onPress);
   return (
-    <Pressable onPress={onPress} testID={`order-card-${order.order_number}`}>
+    <Pressable
+      onPress={onPress}
+      disabled={!interactive}
+      testID={`order-card-${order.order_number}`}
+      accessibilityRole={interactive ? "button" : undefined}
+      accessibilityLabel={`Order ${order.order_number}. ${order.grade}, ${order.quantity} cubic metres. ${order.status.replace(/_/g, " ")}.`}
+      accessibilityHint={interactive ? "Opens order details" : undefined}
+      style={({ pressed }) => ({ opacity: pressed && interactive ? 0.9 : 1, transform: [{ scale: pressed && interactive ? 0.992 : 1 }] })}
+    >
       <Card style={{ gap: spacing.md }}>
         <View style={styles.row}>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, gap: 2 }}>
             <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }}>
               {order.order_number}
             </AppText>
@@ -57,7 +66,7 @@ export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () =
 
         <View style={styles.row}>
           <View style={styles.siteRow}>
-            <Ionicons name="location-outline" size={14} color={colors.onSurfaceTertiary} />
+            <Ionicons name="location-outline" size={15} color={colors.onSurfaceTertiary} />
             <AppText variant="caption" numberOfLines={1} style={{ flex: 1 }}>
               {order.site_name}
             </AppText>
@@ -72,8 +81,10 @@ export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () =
 function Meta({ icon, label, value, colors }: any) {
   return (
     <View style={styles.meta}>
-      <Ionicons name={icon} size={14} color={colors.brand} />
-      <View>
+      <View style={[styles.metaIcon, { backgroundColor: colors.brandSoft }]}>
+        <Ionicons name={icon} size={14} color={colors.brand} />
+      </View>
+      <View style={{ gap: 1 }}>
         <AppText style={{ fontFamily: fonts.regular, fontSize: 10, color: colors.onSurfaceTertiary }}>
           {label}
         </AppText>
@@ -90,10 +101,12 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: spacing.sm,
   },
-  meta: { flexDirection: "row", alignItems: "center", gap: 6 },
+  meta: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
+  metaIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   siteRow: { flexDirection: "row", alignItems: "center", gap: 4, flex: 1, marginRight: spacing.sm },
 });
