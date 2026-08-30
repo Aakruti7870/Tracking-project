@@ -2,32 +2,23 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import type { Order } from "@/src/domain/order";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, spacing } from "@/src/theme/tokens";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
 import { AppText } from "./ui/AppText";
 
-export type OrderData = {
-  id: string;
-  order_number: string;
-  plant_name: string;
-  grade: string;
-  quantity: number;
-  site_name: string;
-  site_address?: string;
-  delivery_date: string;
-  delivery_time?: string;
-  status: string;
-  payment_status: string;
-  tm_number?: string;
-  driver_name?: string;
-  driver_mobile?: string;
-  challan_number?: string;
-  invoice_number?: string;
+export type { Order as OrderData } from "@/src/domain/order";
+
+type MetaProps = {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  value: string;
+  colors: ReturnType<typeof useTheme>["colors"];
 };
 
-export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () => void }) {
+export function OrderCard({ order, onPress }: { order: Order; onPress?: () => void }) {
   const { colors } = useTheme();
   const interactive = Boolean(onPress);
   return (
@@ -78,7 +69,7 @@ export function OrderCard({ order, onPress }: { order: OrderData; onPress?: () =
   );
 }
 
-function Meta({ icon, label, value, colors }: any) {
+function Meta({ icon, label, value, colors }: MetaProps) {
   return (
     <View style={styles.meta}>
       <View style={[styles.metaIcon, { backgroundColor: colors.brandSoft }]}>

@@ -2,29 +2,21 @@ import React from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import type { Plant } from "@/src/domain/plant";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 import { formatDistanceKm } from "@/src/maps/geo";
 import { Card } from "./ui/Card";
 import { AppText } from "./ui/AppText";
 
-export type PlantData = {
-  id: string;
-  name: string;
-  city: string;
-  district?: string;
-  address: string;
-  lat?: number | null;
-  lng?: number | null;
-  grades: string[];
-  contact_phone: string;
-  service_area_km: number;
-  status?: string;
-  verified: boolean;
-  order_enabled?: boolean;
-  distance_km?: number | null;
-  promoted?: boolean;
-  promotion_ends_at?: string | null;
+export type { Plant as PlantData } from "@/src/domain/plant";
+
+type ActionProps = {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  colors: ReturnType<typeof useTheme>["colors"];
+  onPress: () => void;
+  disabled?: boolean;
 };
 
 function readableStatus(value?: string) {
@@ -33,7 +25,7 @@ function readableStatus(value?: string) {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () => void }) {
+export function PlantCard({ plant, onOrder }: { plant: Plant; onOrder?: () => void }) {
   const { colors } = useTheme();
   const status = (plant.status || "active").toLowerCase();
   const orderEnabled = plant.order_enabled ?? (status === "active" && plant.verified);
@@ -140,7 +132,7 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
   );
 }
 
-function Action({ icon, label, colors, onPress, disabled = false }: any) {
+function Action({ icon, label, colors, onPress, disabled = false }: ActionProps) {
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
