@@ -1,1 +1,0 @@
-Hero implementation branch prepared from green main with theme-aware no-crop rendering and dedicated light/dark paths for Login and Customer Home.
