@@ -1,1 +1,0 @@
-Final scope: Login and Customer Home hero rendering only. Theme-aware light/dark source selection and no-crop contain behavior are the required invariants.
