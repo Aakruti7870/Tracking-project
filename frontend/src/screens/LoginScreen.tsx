@@ -89,7 +89,10 @@ export default function LoginScreen() {
   // Hydrated sessions should return to the correct role. During an active OTP
   // animation the screen owns navigation so the verified state is actually seen.
   useEffect(() => {
-    if (!hydrating && token && user && phase === "enter" && otpVisual !== "success") {
+    if (!hydrating && token && user) {
+      // During an active OTP animation the screen owns navigation so the
+      // verified state is actually seen before we redirect the session.
+      if (phase !== "enter" || otpVisual === "success") return;
       if (user.mfa_configured && !user.mfa_enabled && user.role !== "customer" && user.role !== "driver") {
         router.replace("/mfa-setup" as any);
       } else {
@@ -399,7 +402,7 @@ export default function LoginScreen() {
           />
           <View style={styles.linkRow}>
             <Pressable onPress={() => resetEntry("plant")}><AppText variant="label" color={colors.brand}>← Change email</AppText></Pressable>
-            <Pressable onPress={() => { setRecoveryCode(""); setCode(""); setError(null); setPhase("staff_recovery"); }}>
+            <Pressable testID="login-use-recovery" onPress={() => { setRecoveryCode(""); setCode(""); setError(null); setPhase("staff_recovery"); }}>
               <AppText variant="label" color={colors.brand}>Use recovery code</AppText>
             </Pressable>
           </View>
@@ -415,9 +418,9 @@ export default function LoginScreen() {
             <AppText variant="heading" center>Passkey verification</AppText>
             <AppText variant="bodyMuted" center>Use your trusted device credential, or continue with Authenticator.</AppText>
           </View>
-          <Button label="Continue with Passkey" onPress={handleVerifyPasskey} loading={loading} icon={<Ionicons name="finger-print-outline" size={20} color={colors.onBrand} />} />
+          <Button testID="login-plant-passkey" label="Continue with Passkey" onPress={handleVerifyPasskey} loading={loading} icon={<Ionicons name="finger-print-outline" size={20} color={colors.onBrand} />} />
           {error ? <AppText variant="caption" center color={colors.error}>{error}</AppText> : null}
-          <Pressable onPress={() => { setCode(""); setError(null); setPhase("staff_totp"); }}>
+          <Pressable testID="login-use-authenticator" onPress={() => { setCode(""); setError(null); setPhase("staff_totp"); }}>
             <AppText variant="label" center color={colors.brand}>Use Authenticator instead</AppText>
           </Pressable>
         </View>
@@ -496,12 +499,12 @@ export default function LoginScreen() {
           autoCorrect={false}
           error={error}
         />
-        <Button label="Continue Securely" onPress={handleStartPlantLogin} loading={loading} disabled={!validEmail(plantEmail)} icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />} />
+        <Button testID="login-plant-send-otp" label="Continue Securely" onPress={handleStartPlantLogin} loading={loading} disabled={!validEmail(plantEmail)} icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />} />
         {onboardingRequired ? (
           <View style={[styles.onboardingCard, { borderColor: `${colors.brand}55`, backgroundColor: colors.brandSoft }]}> 
             <AppText style={styles.onboardingTitle}>Welcome to TrackMyRMC</AppText>
             <AppText variant="caption" center>This email is not associated with an approved plant account. Submit onboarding details for Authority review.</AppText>
-            <Button label="Get Onboard" onPress={openOnboarding} />
+            <Button testID="login-get-onboard" label="Get Onboard" onPress={openOnboarding} />
           </View>
         ) : null}
       </View>
@@ -529,11 +532,11 @@ export default function LoginScreen() {
 
         <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
           <View style={[styles.segmented, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <Pressable onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
+            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
               <Ionicons name="person-outline" size={17} color={mode === "user" ? colors.brand : colors.onSurfaceTertiary} />
               <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onSurface : colors.onSurfaceTertiary}>USER LOGIN</AppText>
             </Pressable>
-            <Pressable onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
+            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
               <Ionicons name="people-outline" size={17} color={mode === "plant" ? colors.brand : colors.onSurfaceTertiary} />
               <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onSurface : colors.onSurfaceTertiary}>PLANT STAFF</AppText>
             </Pressable>
@@ -578,12 +581,12 @@ export default function LoginScreen() {
               variant="caption"
               style={[styles.legalLink, { color: colors.onSurface, textDecorationColor: ERROR }]}
               onPress={() => void openExternal(ACCOUNT_DELETION_URL)}
-            >Account Deletion</AppText>
+            >Delete Account</AppText>
           </AppText>
         </View>
 
-        <Pressable onPress={() => router.push("/review-access" as any)} style={styles.reviewLink} hitSlop={10}>
-          <AppText variant="caption" center color={colors.onSurfaceTertiary}>Google Play reviewer access</AppText>
+        <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)} style={styles.reviewLink} hitSlop={10}>
+          <AppText variant="caption" center color={colors.onSurfaceTertiary}>REVIEW APP · Google Play reviewer access</AppText>
         </Pressable>
       </KeyboardAwareScrollView>
     </View>

@@ -90,7 +90,18 @@ expectIncludes(notificationsScreen, 'Enable device notifications', 'Users must b
 const reviewScreen = read('frontend/app/review-access.tsx');
 const reviewRouter = read('backend/routers/play_review.py');
 const reviewFixture = read('backend/play_review.py');
-const login = read('frontend/app/login.tsx');
+const login = (() => {
+  // app/login.tsx may be a thin re-export of the real screen implementation.
+  // Resolve to the live login UI so Play-policy assertions inspect the actual
+  // sign-in surface regardless of where the code physically lives.
+  const entry = read('frontend/app/login.tsx');
+  const reexport = entry.match(/from ["']@\/(src\/[^"']+)["']/);
+  if (reexport) {
+    const rel = reexport[1].endsWith('.tsx') ? reexport[1] : `${reexport[1]}.tsx`;
+    return `${entry}\n${read(path.join('frontend', rel))}`;
+  }
+  return entry;
+})();
 const config = read('backend/config.py');
 for (const role of ['customer', 'plant_owner', 'authority', 'driver']) {
   expectIncludes(reviewScreen, `role: "${role}"`, `Review screen is missing ${role}.`);
@@ -99,8 +110,8 @@ for (const role of ['customer', 'plant_owner', 'authority', 'driver']) {
 expectIncludes(login, 'testID="login-review-access"', 'Reviewer access control must be present on sign-in.');
 expectIncludes(login, 'router.push("/review-access"', 'Reviewer access control must route directly from sign-in to the reviewer login screen.');
 expectIncludes(login, 'REVIEW APP', 'Reviewer access must remain visibly labeled on sign-in.');
-expectIncludes(reviewScreen, 'Review access code', 'Reviewer login must require the reusable credential supplied through Google Play Console.');
-expectIncludes(reviewScreen, 'no OTP or Google account required', 'Reviewer login must clearly explain that normal OTP/Google authentication is bypassed for review.');
+expectIncludes(reviewScreen, '6-digit reviewer OTP', 'Reviewer login must require the reusable six-digit credential supplied through Google Play Console.');
+expectIncludes(reviewScreen, 'Normal users must use the standard User Login or Plant Staff Login flow', 'Reviewer login must clearly explain that the reviewer OTP is separate from normal OTP/Google authentication.');
 expectIncludes(reviewRouter, 'PLAY_REVIEW_ACCESS_ENABLED', 'Reviewer access must be deployment-gated.');
 expectIncludes(reviewRouter, 'compare_digest', 'Reviewer access code comparison must be constant-time.');
 expectIncludes(config, 'PLAY_REVIEW_ACCESS_CODE', 'Reviewer access code must be configured server-side.');

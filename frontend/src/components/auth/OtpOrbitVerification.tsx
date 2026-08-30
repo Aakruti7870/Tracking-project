@@ -225,7 +225,7 @@ export function OtpOrbitVerification({
 
         {onResend ? (
           <View style={styles.resendRow}>
-            <AppText variant="caption">Didn't receive the code?</AppText>
+            <AppText variant="caption">Didn&apos;t receive the code?</AppText>
             {countdown > 0 ? (
               <AppText variant="caption">Resend in {countdown}s</AppText>
             ) : (

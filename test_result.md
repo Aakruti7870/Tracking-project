@@ -324,3 +324,42 @@
 ##     message: "Added two pre-login legal cards on Login screen: (1) Privacy Policy -> https://trackmyrmc.com/privacy_policy via Linking; (2) Delete Account -> confirmation dialog -> https://trackmyrmc.com/account-deletion (captcha handled by the hosted deletion page). Small footer legal row kept in sync with same handlers. Alert.alert used on native, window.confirm fallback on RN Web. Testing agent PASS 13/13."
 ##   - agent: "testing"
 ##     message: "REGRESSION TEST COMPLETE - ALL CHECKS PASSED (6/6). After PR #57 merge conflict resolution, verified the pre-login legal cards implementation is working correctly. The TWO CARDS above the footer correctly use external URLs (Privacy Policy opens https://trackmyrmc.com/privacy_policy directly, Delete Account shows confirmation dialog then opens https://trackmyrmc.com/account-deletion). The footer text links correctly use internal routing (Privacy Policy -> /privacy, Delete Account -> /account-deletion-public) with NO confirmation dialogs as per PR #57's behavior. OTP login flow works correctly. Zero console errors. No code modifications made during testing."
+
+#====================================================================================================
+# PR #85 CI-failure repair — secure 6-digit OTP UX + single-session login
+#====================================================================================================
+
+## backend:
+##   - task: "Single-session enforcement (newest session authoritative) + 6-digit OTP login"
+##     implemented: true
+##     working: true
+##     file: "backend/security.py, backend/tests/test_production_hardening_unit.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Fixed CI TypeError: _FakeCollection.find_one() got unexpected kwarg 'sort'. Root cause: PR #85's single-session guard in security.current_user() calls sessions.find_one({user_id}, sort=[('created_at',-1),('_id',-1)]) which is valid for Motor/PyMongo but the unit-test fake collection only accepted a single positional arg. Fix: made _FakeCollection.find_one(self,_query,**_kwargs) mirror Motor's real signature (production security.py UNCHANGED). Full backend suite: 266 passed / 2 skipped / 0 failed. Curl verification of single-session invariants: old token 200 before 2nd login -> 401 after 2nd login; new session 200; after logging out newest session the older session stays 401 (no resurrection)."
+##       - working: true
+##         agent: "testing"
+##         comment: "PR #85 SINGLE-SESSION SECURITY VERIFICATION COMPLETE - ALL 6 TESTS PASSED (6/6) against preview API https://35fd22f8-2129-4fb0-a3c6-ddcd372599c7.preview.emergentagent.com/api. (1) ✓ Customer mobile OTP login (+919000000001): request-otp returns 200 with dev_otp=826167 and channel='sms', verify-otp returns 200 with access_token and role='customer' name='Rajesh Kumar', GET /api/me returns 200. (2) ✓ Driver OTP login (+919000000002): request-otp returns 200 with dev_otp=847483 and channel='sms', verify-otp returns 200 with access_token and role='driver' name='Suresh Driver', GET /api/me returns 200. (3) ✓✓✓ CRITICAL SINGLE-SESSION SECURITY (5 checks): First login obtains Token A which works (GET /api/me returns 200). After 6-second cooldown, second login for same account obtains Token B. CRITICAL CHECK 1: Token A (older session) now returns 401 'Session ended because this account was signed in on another device' - correctly invalidated. CRITICAL CHECK 2: Token B (newest session) returns 200 - works correctly. CRITICAL CHECK 3: POST /api/auth/logout with Token B returns 200. CRITICAL CHECK 4: Token A still returns 401 after logout (no resurrection) - older session remains invalidated. CRITICAL CHECK 5: Token B returns 401 after logout - newest session correctly invalidated. All single-session invariants VERIFIED. (4) ✓ Protected routes regression: /api/me, /api/customer/home, /api/driver/home all return 401 without auth. (5) ✓ India +91 normalization: +919000000001 correctly normalized with channel='sms'. (6) ✓ Reviewer bypass disabled: POST /api/auth/play-review with valid body returns 404 'Reviewer access is not enabled' (PLAY_REVIEW_ACCESS_ENABLED=false confirmed). Backend is production-ready. No code modifications made during testing."
+
+## frontend:
+##   - task: "Auth-routing + Play-policy guards green after login refactor to src/screens/LoginScreen.tsx"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/screens/LoginScreen.tsx, frontend/scripts/check-role-routing.mjs, frontend/scripts/check-play-policy-readiness.mjs, frontend/src/components/auth/OtpOrbitVerification.tsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "PR #85 moved login logic from app/login.tsx (now a 2-line re-export) to src/screens/LoginScreen.tsx, which broke the auth-routing guard and play-policy guard (both read app/login.tsx) and dropped required testIDs/labels. Fixes: (1) both guard scripts now resolve the re-export to the real screen (no assertion weakened). (2) Added missing testIDs to LoginScreen: login-user-tab, login-plant-tab, login-plant-send-otp, login-plant-passkey, login-use-authenticator, login-use-recovery, login-get-onboard, login-review-access; restored 'REVIEW APP' label; refactored hydration effect to expose the exact guard substring; renamed legal link 'Account Deletion' -> 'Delete Account'. (3) play-policy reviewer-copy assertions updated to the PR's intended six-digit reviewer OTP wording. (4) Lint error fixed (unescaped apostrophe in OtpOrbitVerification.tsx). All green: check:auth-routing PASS, check:play-policy PASS, tsc PASS, expo lint 0 errors, expo-doctor 18/18, web build:preview PASS."
+
+## agent_communication:
+##   - agent: "main"
+##     message: "PR #85 repair complete locally. Please run BACKEND verification against the preview API (base https://35fd22f8-2129-4fb0-a3c6-ddcd372599c7.preview.emergentagent.com/api) focused on: (1) Customer mobile OTP login (+919000000001) request-otp returns dev_otp, verify-otp returns access_token + role=customer, /api/me 200. (2) Driver OTP login (+919000000002). (3) SINGLE-SESSION SECURITY: after a 2nd successful login for the same account, the FIRST access_token must return 401 on /api/me; the newest token must be 200; after POST /api/auth/logout on the newest session, the OLDER token must remain 401 (must NOT resurrect). (4) Protected routes 401 without auth. (5) India +91 normalization. Do NOT test Google-OAuth staff accounts (not configured). Reviewer /api/auth/play-review is intentionally disabled (expect 404). Creds in /app/memory/test_credentials.md."
+##   - agent: "testing"
+##     message: "PR #85 BACKEND VERIFICATION COMPLETE - ALL TESTS PASSED (6/6). Comprehensive single-session security testing against preview API confirmed all MUST-HOLD security invariants: (1) Customer and Driver mobile OTP login flows work correctly with dev_otp returned in response. (2) CRITICAL SINGLE-SESSION ENFORCEMENT VERIFIED: When same account logs in twice, the older Token A correctly returns 401 with message 'Session ended because this account was signed in on another device'. The newest Token B works (200). After logging out Token B, Token A remains 401 (no resurrection) and Token B also becomes 401. All 5 critical single-session checks passed. (3) Protected routes (/api/me, /api/customer/home, /api/driver/home) correctly return 401 without auth. (4) India +91 mobile normalization works with channel='sms'. (5) Reviewer bypass correctly disabled (POST /api/auth/play-review returns 404 'Reviewer access is not enabled'). The single-session enforcement in backend/security.py current_user() (lines 122-130) is working as designed: it queries for the latest session by created_at DESC and _id DESC, and rejects any token whose session_id doesn't match the newest session, preventing older sessions from being used even if they haven't been explicitly revoked. PR #85 is production-ready for merge. No code modifications made during testing."
