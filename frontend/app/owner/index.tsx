@@ -13,6 +13,7 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { OrderCard, OrderData } from "@/src/components/OrderCard";
 import { WeeklyInsights } from "@/src/components/WeeklyInsights";
 import { ErrorView } from "@/src/components/StateViews";
+import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type OwnerHome = {
@@ -67,6 +68,7 @@ export default function OwnerHome() {
           ) : data ? (
             <>
               {/* KPI grid */}
+              <HomeHero />
               <View style={styles.grid}>
                 {CARD_DEFS.map((c) => (
                   <View key={c.key} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
