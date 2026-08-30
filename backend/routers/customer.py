@@ -1,5 +1,6 @@
 """Customer role endpoints (server-side authorized to the customer role)."""
 from datetime import datetime, time, timedelta, timezone
+import logging
 import math
 
 from bson import ObjectId
@@ -24,6 +25,7 @@ from database import (
     quotations,
     rate_cards,
     receiving_records,
+    users,
     vehicle_locations,
     next_sequence,
 )
@@ -37,8 +39,11 @@ from services.digilocker import (
     DigiLockerConfigurationError,
     DigiLockerProviderError,
     get_digilocker_session_status,
+    get_digilocker_user_profile,
     initiate_digilocker_session,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 customer_only = require_role(Role.CUSTOMER.value)
@@ -595,6 +600,42 @@ async def delete_pour_plan(plan_id: str, ctx: dict = Depends(customer_only)):
     return {"status": "deleted"}
 
 
+async def _sync_customer_verified_name(uid: str, kyc: dict) -> bool:
+    """Fetch the DigiLocker-verified name and persist it to the customer profile.
+
+    Provider success (VERIFIED) is authoritative and is never rolled back by a
+    name-fetch failure. If the verified name cannot be fetched right now we flag
+    the profile for a safe retry instead of fabricating a name. Returns True when
+    the verified name was persisted, False when it was deferred for retry.
+    """
+    session_id = kyc.get("provider_session_id")
+    if not session_id:
+        return False
+    now = datetime.now(timezone.utc)
+    try:
+        profile = await get_digilocker_user_profile(session_id)
+    except (DigiLockerConfigurationError, DigiLockerProviderError):
+        # Do not expose or log the raw provider payload / KYC data.
+        logger.warning("Customer KYC verified-name sync deferred (user=%s)", uid)
+        await kyc_profiles.update_one(
+            {"_id": kyc["_id"]},
+            {"$set": {"name_sync_pending": True, "updated_at": now}},
+        )
+        return False
+
+    verified_name = profile["name"]  # already trimmed/normalized in the service
+    await users.update_one(
+        {"_id": await _oid(uid)},
+        {"$set": {"name": verified_name, "updated_at": now}},
+    )
+    await kyc_profiles.update_one(
+        {"_id": kyc["_id"]},
+        {"$set": {"kyc_name": verified_name, "name_sync_pending": False, "updated_at": now}},
+    )
+    await write_audit(uid, "kyc.name_synced", "user", uid, {"source": "DIGILOCKER"})
+    return True
+
+
 @router.get("/kyc")
 async def get_kyc(ctx: dict = Depends(customer_only)):
     uid = ctx["user_id"]
@@ -604,6 +645,13 @@ async def get_kyc(ctx: dict = Depends(customer_only)):
 
     status = kyc.get("status", "NOT_STARTED")
     session_id = kyc.get("provider_session_id")
+
+    # Reconciliation: KYC is genuinely VERIFIED but the verified name could not
+    # be persisted earlier. Retry the profile sync without touching KYC status.
+    if status == "VERIFIED" and kyc.get("name_sync_pending") and session_id:
+        await _sync_customer_verified_name(uid, kyc)
+        return {"status": status, "provider": kyc.get("provider", "DIGILOCKER")}
+
     if status == "IN_PROGRESS" and session_id:
         try:
             provider = await get_digilocker_session_status(session_id)
@@ -613,18 +661,28 @@ async def get_kyc(ctx: dict = Depends(customer_only)):
             return {"status": "IN_PROGRESS", "provider": "DIGILOCKER", "refresh_failed": True}
 
         if provider["status"] == "SUCCEEDED":
-            status = "PENDING"
-            await kyc_profiles.update_one(
+            # Customer KYC: a provider-confirmed successful DigiLocker session is
+            # authoritative and transitions the customer straight to VERIFIED.
+            # Authority retains visibility/audit but is not a routine blocker.
+            status = "VERIFIED"
+            now = datetime.now(timezone.utc)
+            result = await kyc_profiles.update_one(
                 {"_id": kyc["_id"], "status": "IN_PROGRESS"},
                 {"$set": {
                     "status": status,
                     "provider_status": provider["provider_status"],
                     "provider_transaction_id": provider["transaction_id"],
-                    "consent_verified_at": datetime.now(timezone.utc),
-                    "updated_at": datetime.now(timezone.utc),
+                    "consent_verified_at": now,
+                    "verified_at": now,
+                    "verified_by": "DIGILOCKER_AUTO",
+                    "name_sync_pending": True,
+                    "updated_at": now,
                 }},
             )
-            await write_audit(uid, "kyc.digilocker.completed", "kyc_profile", str(kyc["_id"]), {"purpose": "CUSTOMER"})
+            if result.modified_count == 1:
+                await write_audit(uid, "kyc.digilocker.verified", "kyc_profile", str(kyc["_id"]), {"purpose": "CUSTOMER"})
+                fresh = await kyc_profiles.find_one({"_id": kyc["_id"]})
+                await _sync_customer_verified_name(uid, fresh or kyc)
         elif provider["status"] == "FAILED":
             status = "REQUIRES_REVERIFICATION"
             await kyc_profiles.update_one(

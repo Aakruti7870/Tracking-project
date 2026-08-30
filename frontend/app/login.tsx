@@ -8,8 +8,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
@@ -26,11 +24,9 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
+import { BrandHero } from "@/src/components/BrandHero";
 import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
-
-const HERO_LIGHT = require("../assets/images/login-hero-light.jpg");
-const HERO_DARK = require("../assets/images/login-hero-dark.jpg");
 
 type LoginMode = "user" | "plant";
 type LoginPhase = "enter" | "user_otp" | "staff_email_otp" | "staff_passkey" | "staff_totp" | "staff_recovery";
@@ -50,6 +46,13 @@ const CONTACT_ACTIONS: ContactAction[] = [
   { label: "Email", detail: "support@goldetech.com", icon: "mail-outline", url: "mailto:support@goldetech.com", tone: "brand" },
 ];
 
+// Compact social strip shown under the "Powered by GOLD e TECH" footer line.
+const FOOTER_SOCIALS: { icon: ContactAction["icon"]; url: string; tone: "brand" | "instagram" }[] = [
+  { icon: "logo-whatsapp", url: "https://wa.me/919594177870", tone: "brand" },
+  { icon: "logo-instagram", url: "https://www.instagram.com/trackmyrmc?igsi=MXQ5YnVpbmkyMmw1dA==", tone: "instagram" },
+  { icon: "mail-outline", url: "mailto:support@goldetech.com", tone: "brand" },
+];
+
 const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
 const DEMO_ROLES: { role: string; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
   { role: "customer", label: "User", icon: "person-outline" },
@@ -62,7 +65,6 @@ const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.tr
 
 export default function Login() {
   const { colors } = useTheme();
-  const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -554,11 +556,7 @@ export default function Login() {
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style={colors.isDark ? "light" : "dark"} />
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4" }]}> 
-          <Image source={heroSource} style={StyleSheet.absoluteFill} contentFit="contain" contentPosition="center" transition={180} />
-          <LinearGradient pointerEvents="none" colors={colors.isDark ? ["rgba(0,0,0,0.02)", "rgba(0,0,0,0)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0)", colors.surface]} locations={[0, 0.76, 1]} style={StyleSheet.absoluteFill} />
-          <View style={{ height: insets.top }} />
-        </View>
+        <BrandHero topInset={insets.top} />
 
         <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
           <View style={[styles.segmented, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
@@ -611,7 +609,7 @@ export default function Login() {
             return (
               <Pressable key={action.label} onPress={() => openExternal(action.url)} style={[styles.contactAction, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
                 <View style={[styles.contactIconWrap, { backgroundColor: action.tone === "instagram" ? "#FFF0F5" : colors.brandSoft }]}>
-                  <Ionicons name={action.icon} size={25} color={iconColor} />
+                  <Ionicons name={action.icon} size={18} color={iconColor} />
                 </View>
                 <AppText style={styles.contactLabel}>{action.label}</AppText>
                 <AppText style={styles.contactDetail} numberOfLines={1}>{action.detail}</AppText>
@@ -628,7 +626,21 @@ export default function Login() {
             <View style={styles.starsRow}>{[0, 1, 2, 3, 4].map((n) => <Ionicons key={n} name="star" size={16} color={colors.brand} />)}</View>
           </Pressable>
 
-          <AppText variant="caption" center style={styles.poweredBy}>Powered by <AppText variant="caption" style={styles.goldETech}>GOLD <AppText variant="caption" style={{ color: colors.brand, fontFamily: fonts.bold }}>e</AppText> TECH</AppText></AppText>
+          <View style={styles.footerBrand}>
+            <AppText variant="caption" center style={styles.poweredBy}>Powered by <AppText variant="caption" style={styles.goldETech}>GOLD <AppText variant="caption" style={{ color: colors.brand, fontFamily: fonts.bold }}>e</AppText> TECH</AppText></AppText>
+            <View style={styles.footerSocialRow}>
+              {FOOTER_SOCIALS.map((s) => (
+                <Pressable
+                  key={s.icon}
+                  onPress={() => openExternal(s.url)}
+                  hitSlop={8}
+                  style={[styles.footerSocialBtn, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                >
+                  <Ionicons name={s.icon} size={14} color={s.tone === "instagram" ? "#E1306C" : colors.brand} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
         </View>
       </KeyboardAwareScrollView>
     </View>
@@ -675,13 +687,17 @@ const styles = StyleSheet.create({
   helpTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg },
   contactRow: { gap: spacing.sm, paddingBottom: spacing.xs },
   contactAction: { width: 124, minHeight: 112, borderWidth: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: spacing.sm, paddingVertical: spacing.md },
-  contactIconWrap: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  contactIconWrap: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 2 },
   contactLabel: { fontFamily: fonts.semibold, fontSize: 12 },
   contactDetail: { fontFamily: fonts.regular, fontSize: 10, opacity: 0.72 },
   reviewCard: { minHeight: 82, borderWidth: 1, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
   reviewIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   reviewTitle: { fontFamily: fonts.bold, fontSize: fontSize.base },
   starsRow: { flexDirection: "row", gap: 1 },
-  poweredBy: { marginTop: spacing.sm },
+  footerBrand: { marginTop: spacing.sm, alignItems: "center", gap: 8 },
+  poweredBy: { marginTop: 0 },
   goldETech: { fontFamily: fonts.bold },
+  // Small social strip sized to roughly the "Powered by GOLD e TECH" width.
+  footerSocialRow: { flexDirection: "row", width: 150, justifyContent: "space-between", alignSelf: "center" },
+  footerSocialBtn: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });
