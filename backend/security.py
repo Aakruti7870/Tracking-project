@@ -115,6 +115,20 @@ async def current_user(
     if not session or as_aware(session["expires_at"]) <= utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or revoked")
 
+    # TrackMyRMC single-session policy: the newest session ever created for an
+    # account is the only session permitted to authorize API requests. We do
+    # not filter revoked sessions here on purpose: logging out of the newest
+    # session must never resurrect an older still-stored session.
+    latest_session = await sessions.find_one(
+        {"user_id": payload["sub"]},
+        sort=[("created_at", -1), ("_id", -1)],
+    )
+    if not latest_session or latest_session.get("_id") != payload["sid"]:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Session ended because this account was signed in on another device",
+        )
+
     if session.get("mfa_bootstrap_only"):
         # Normal FastAPI requests provide Request automatically. Direct/internal
         # calls remain compatible for regular sessions, but a bootstrap session
