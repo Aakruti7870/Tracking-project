@@ -29,8 +29,7 @@ import { Button } from "@/src/components/ui/Button";
 import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const HERO_LIGHT = require("../assets/images/login-hero-light.jpg");
-const HERO_DARK = require("../assets/images/login-hero-dark.jpg");
+const HERO = require("../assets/images/industrial-rmc-hero.jpg");
 
 type LoginMode = "user" | "plant";
 type LoginPhase = "enter" | "user_otp" | "staff_email_otp" | "staff_passkey" | "staff_totp" | "staff_recovery";
@@ -62,7 +61,6 @@ const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.tr
 
 export default function Login() {
   const { colors } = useTheme();
-  const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -552,11 +550,11 @@ export default function Login() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <StatusBar style={colors.isDark ? "light" : "dark"} />
+      <StatusBar style="light" />
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4" }]}> 
-          <Image source={heroSource} style={StyleSheet.absoluteFill} contentFit="contain" contentPosition="center" transition={180} />
-          <LinearGradient pointerEvents="none" colors={colors.isDark ? ["rgba(0,0,0,0.02)", "rgba(0,0,0,0)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0)", colors.surface]} locations={[0, 0.76, 1]} style={StyleSheet.absoluteFill} />
+        <View style={styles.hero}> 
+          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="center" transition={180} />
+          <LinearGradient pointerEvents="none" colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0)", colors.surface]} locations={[0, 0.76, 1]} style={StyleSheet.absoluteFill} />
           <View style={{ height: insets.top }} />
         </View>
 
@@ -636,7 +634,7 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  hero: { height: 300, justifyContent: "center", overflow: "hidden" },
+  hero: { height: 300, justifyContent: "flex-start", overflow: "hidden", backgroundColor: "#080A0C" },
   loginShell: { marginTop: -18, marginHorizontal: spacing.md, borderRadius: 30, borderWidth: 1, padding: spacing.md, shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   segmented: { flexDirection: "row", borderRadius: 22, borderWidth: 1, padding: 4, marginBottom: spacing.md },
   segment: { flex: 1, minHeight: 54, borderRadius: 18, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: spacing.sm },
