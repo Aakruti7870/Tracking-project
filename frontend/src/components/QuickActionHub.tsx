@@ -38,7 +38,7 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
   const roleLabel = ROLE_LABELS[role || ""] || "Quick";
 
   const runAction = (tab: TabDef) => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync();
     onClose();
     navigation.navigate(tab.name);
   };
@@ -46,29 +46,42 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close quick actions" />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close quick actions"
+        />
         <BlurView
-          intensity={scheme === "dark" ? 70 : 85}
+          intensity={scheme === "dark" ? 68 : 88}
           tint={scheme === "dark" ? "dark" : "light"}
           style={[
             styles.sheet,
             {
-              backgroundColor: scheme === "dark" ? "rgba(10,28,24,0.88)" : "rgba(246,255,251,0.90)",
-              borderColor: scheme === "dark" ? "rgba(127,255,211,0.22)" : "rgba(0,105,82,0.16)",
+              backgroundColor: scheme === "dark" ? "rgba(16,18,20,0.96)" : "rgba(255,255,255,0.96)",
+              borderColor: scheme === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,19,21,0.08)",
             },
           ]}
         >
-          <View style={styles.handle} />
+          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
           <View style={styles.headingRow}>
-            <View>
-              <AppText style={[styles.title, { color: colors.onSurface }]}>{roleLabel} Quick Actions</AppText>
-              <AppText style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Choose where you want to go</AppText>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <AppText style={[styles.eyebrow, { color: colors.brand }]}>{roleLabel.toUpperCase()}</AppText>
+              <AppText style={[styles.title, { color: colors.onSurface }]}>Quick Actions</AppText>
+              <AppText style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Jump to the task you need without hunting through menus.</AppText>
             </View>
             <Pressable
               onPress={onClose}
               accessibilityRole="button"
               accessibilityLabel="Close quick actions"
-              style={[styles.closeButton, { backgroundColor: colors.surfaceTertiary }]}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.closeButton,
+                {
+                  backgroundColor: pressed ? colors.brandSoft : colors.surfaceTertiary,
+                  borderColor: colors.border,
+                },
+              ]}
             >
               <Ionicons name="close" size={20} color={colors.onSurface} />
             </Pressable>
@@ -81,22 +94,23 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
                 onPress={() => runAction(tab)}
                 accessibilityRole="button"
                 accessibilityLabel={`${tab.label} quick action`}
+                accessibilityHint={`Open ${tab.label}`}
                 style={({ pressed }) => [
                   styles.action,
                   {
-                    backgroundColor: pressed
-                      ? colors.brandSoft
-                      : scheme === "dark"
-                        ? "rgba(255,255,255,0.07)"
-                        : "rgba(255,255,255,0.72)",
-                    borderColor: scheme === "dark" ? "rgba(255,255,255,0.10)" : "rgba(0,105,82,0.12)",
+                    backgroundColor: pressed ? colors.brandSoft : colors.surfaceSecondary,
+                    borderColor: pressed ? colors.brand + "4A" : colors.border,
+                    transform: [{ scale: pressed ? 0.985 : 1 }],
                   },
                 ]}
               >
-                <View style={[styles.actionIcon, { backgroundColor: colors.brandSoft }]}> 
+                <View style={[styles.actionIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "24" }]}> 
                   <Ionicons name={tab.active} size={23} color={colors.brand} />
                 </View>
-                <AppText style={[styles.actionLabel, { color: colors.onSurface }]}>{tab.label}</AppText>
+                <View style={styles.actionCopy}>
+                  <AppText style={[styles.actionLabel, { color: colors.onSurface }]}>{tab.label}</AppText>
+                  <Ionicons name="arrow-forward" size={16} color={colors.onSurfaceTertiary} />
+                </View>
               </Pressable>
             ))}
           </View>
@@ -110,7 +124,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.38)",
+    backgroundColor: "rgba(0,0,0,0.46)",
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.lg,
   },
@@ -122,31 +136,32 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.22,
-    shadowRadius: 28,
-    elevation: 18,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.24,
+    shadowRadius: 30,
+    elevation: 20,
   },
   handle: {
     alignSelf: "center",
     width: 42,
     height: 4,
     borderRadius: 999,
-    backgroundColor: "rgba(127,127,127,0.45)",
     marginBottom: spacing.md,
   },
   headingRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: spacing.lg,
   },
-  title: { fontFamily: fonts.displayBold, fontSize: 20 },
-  subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 2 },
+  eyebrow: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1.3, marginBottom: 4 },
+  title: { fontFamily: fonts.displayBold, fontSize: 24 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 4 },
   closeButton: {
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
     borderRadius: radius.pill,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -158,18 +173,25 @@ const styles = StyleSheet.create({
   },
   action: {
     width: "48%",
-    minHeight: 104,
+    minHeight: 112,
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.md,
     justifyContent: "space-between",
   },
   actionIcon: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: radius.md,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  actionLabel: { fontFamily: fonts.semibold, fontSize: 14 },
+  actionCopy: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  actionLabel: { fontFamily: fonts.semibold, fontSize: 14, flex: 1 },
 });
