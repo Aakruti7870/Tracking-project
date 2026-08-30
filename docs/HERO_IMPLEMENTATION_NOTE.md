@@ -1,1 +1,0 @@
-Implementation is intentionally limited to hero presentation. Existing authentication, role routing, KYC, order flow, signing, package identity, and backend contracts are untouched.
