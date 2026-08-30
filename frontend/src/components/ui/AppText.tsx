@@ -24,13 +24,52 @@ export function AppText({ variant = "body", color, center, style, children, ...r
   const { colors } = useTheme();
 
   const variants: Record<Variant, TextStyle> = {
-    display: { fontFamily: fonts.displayBold, fontSize: fontSize["3xl"], color: colors.onSurface },
-    title: { fontFamily: fonts.display, fontSize: fontSize["2xl"], color: colors.onSurface },
-    heading: { fontFamily: fonts.semibold, fontSize: fontSize.xl, color: colors.onSurface },
-    body: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
-    bodyMuted: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-    label: { fontFamily: fonts.medium, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
-    caption: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    display: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSize["3xl"],
+      lineHeight: 36,
+      letterSpacing: -0.6,
+      color: colors.onSurface,
+    },
+    title: {
+      fontFamily: fonts.display,
+      fontSize: fontSize["2xl"],
+      lineHeight: 30,
+      letterSpacing: -0.3,
+      color: colors.onSurface,
+    },
+    heading: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xl,
+      lineHeight: 26,
+      letterSpacing: -0.15,
+      color: colors.onSurface,
+    },
+    body: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      lineHeight: 21,
+      color: colors.onSurface,
+    },
+    bodyMuted: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      lineHeight: 21,
+      color: colors.onSurfaceTertiary,
+    },
+    label: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      lineHeight: 17,
+      letterSpacing: 0.05,
+      color: colors.onSurfaceSecondary,
+    },
+    caption: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      lineHeight: 18,
+      color: colors.onSurfaceTertiary,
+    },
   };
 
   return (
