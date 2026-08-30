@@ -13,7 +13,6 @@ import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
-import { Card } from "@/src/components/ui/Card";
 import { Input } from "@/src/components/ui/Input";
 import { PlantData } from "@/src/components/PlantCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
@@ -43,6 +42,7 @@ export default function NewOrder() {
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
+  const quotationLocked = Boolean(params.quotationId);
   const [plantId, setPlantId] = useState<string | null>(params.plantId || null);
   const [grade, setGrade] = useState<string | null>(params.grade || null);
   const [quantity, setQuantity] = useState(params.quantity || "6");
@@ -56,7 +56,6 @@ export default function NewOrder() {
   const [submitting, setSubmitting] = useState<null | "order" | "draft">(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Google Places (activates automatically when a server key is configured).
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [suggestions, setSuggestions] = useState<{ place_id: string; text: string }[]>([]);
   const sessionToken = useMemo(() => `rmc-${Date.now()}`, []);
@@ -71,7 +70,9 @@ export default function NewOrder() {
         const res = await apiGet<{ configured: boolean; suggestions: { place_id: string; text: string }[] }>(
           `/maps/autocomplete?input=${encodeURIComponent(q)}&session_token=${sessionToken}`, token!);
         setSuggestions(res.configured ? res.suggestions : []);
-      } catch { setSuggestions([]); }
+      } catch {
+        setSuggestions([]);
+      }
     }, 350);
     return () => clearTimeout(t);
   }, [address, token, sessionToken]);
@@ -84,7 +85,7 @@ export default function NewOrder() {
       setCoords({ lat: p.lat, lng: p.lng });
       setSuggestions([]);
     } catch {
-      /* keep manual entry */
+      /* Manual address remains available when place details cannot be resolved. */
     }
   };
 
@@ -142,64 +143,120 @@ export default function NewOrder() {
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       <View style={{ height: insets.top }} />
       <View style={[styles.header, { borderBottomColor: colors.divider }]}>
-        <Pressable testID="neworder-back" onPress={() => router.back()} style={[styles.iconBtn, { borderColor: colors.border }]}>
+        <Pressable
+          testID="neworder-back"
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.iconBtn, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}
+        >
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
         </Pressable>
-        <AppText variant="title">New Order</AppText>
+        <View style={{ flex: 1 }}>
+          <AppText variant="title">New Order</AppText>
+          <AppText variant="caption">Plant → mix → schedule → site</AppText>
+        </View>
       </View>
 
       <KeyboardAwareScrollView
         bottomOffset={24}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.lg }}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
-        {params.quotationId ? (
-          <View style={[styles.warn, { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}>
-            <Ionicons name="document-text-outline" size={18} color={colors.brand} />
-            <AppText variant="caption" style={{ flex: 1 }}>Creating this order from an accepted official quotation. Plant, grade and quantity must remain unchanged.</AppText>
+        {quotationLocked ? (
+          <View style={[styles.infoBanner, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "55" }]}>
+            <View style={[styles.bannerIcon, { backgroundColor: colors.brand + "16" }]}>
+              <Ionicons name="lock-closed-outline" size={18} color={colors.brand} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm }}>Quotation-linked order</AppText>
+              <AppText variant="caption">Plant, grade and quantity are locked to the accepted quotation. Schedule and site details remain editable.</AppText>
+            </View>
           </View>
         ) : null}
 
         {!kycOk ? (
-          <Pressable onPress={() => router.push("/kyc")} style={[styles.warn, { backgroundColor: colors.warning + "1A", borderColor: colors.warning + "55" }]}>
-            <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
-            <AppText variant="caption" style={{ flex: 1 }}>Complete KYC to place a live order. You can still save a draft.</AppText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Complete KYC"
+            accessibilityHint="Opens identity verification"
+            onPress={() => router.push("/kyc")}
+            style={({ pressed }) => [styles.infoBanner, { backgroundColor: colors.warning + "12", borderColor: colors.warning + "44", opacity: pressed ? 0.86 : 1 }]}
+          >
+            <View style={[styles.bannerIcon, { backgroundColor: colors.warning + "16" }]}>
+              <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm }}>KYC required for live ordering</AppText>
+              <AppText variant="caption">You can complete this order as a draft now and verify before placing it.</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
         ) : null}
 
-        {/* Plant */}
-        <Section title="Choose Plant">
+        <Section title="1. Choose Plant" subtitle={quotationLocked ? "Locked by quotation" : "Select the verified plant supplying this order"}>
           <View style={{ gap: spacing.sm }}>
             {plants.map((p) => {
               const sel = p.id === plantId;
+              const lockedOut = quotationLocked && !sel;
               return (
                 <Pressable
                   key={p.id}
                   testID={`neworder-plant-${p.id}`}
-                  onPress={() => { if (params.quotationId) return; setPlantId(p.id); setGrade(params.grade && p.grades?.includes(params.grade) ? params.grade : null); }}
-                  style={[styles.plantRow, { borderColor: sel ? colors.brand : colors.border, backgroundColor: sel ? colors.brandSoft : colors.surfaceSecondary }]}
+                  disabled={quotationLocked}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${p.name}, ${p.city}${p.verified ? ", verified" : ""}`}
+                  accessibilityState={{ selected: sel, disabled: quotationLocked }}
+                  onPress={() => {
+                    setPlantId(p.id);
+                    setGrade(params.grade && p.grades?.includes(params.grade) ? params.grade : null);
+                  }}
+                  style={({ pressed }) => [
+                    styles.plantRow,
+                    {
+                      borderColor: sel ? colors.brand : colors.border,
+                      backgroundColor: sel ? colors.brandSoft : colors.surfaceSecondary,
+                      opacity: lockedOut ? 0.5 : pressed ? 0.88 : 1,
+                    },
+                  ]}
                 >
                   <Ionicons name={sel ? "radio-button-on" : "radio-button-off"} size={20} color={sel ? colors.brand : colors.onSurfaceTertiary} />
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, gap: 2 }}>
                     <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }}>{p.name}</AppText>
                     <AppText variant="caption">{p.city}</AppText>
                   </View>
-                  <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+                  {p.verified ? <Ionicons name="shield-checkmark" size={17} color={colors.verified} /> : null}
+                  {quotationLocked && sel ? <Ionicons name="lock-closed" size={15} color={colors.onSurfaceTertiary} /> : null}
                 </Pressable>
               );
             })}
           </View>
         </Section>
 
-        {/* Grade */}
         {selectedPlant ? (
-          <Section title="Concrete Grade">
+          <Section title="2. Concrete Grade" subtitle={quotationLocked ? "Locked by quotation" : "Choose the specified structural grade"}>
             <View style={styles.chips}>
               {grades.map((g) => {
                 const sel = g === grade;
                 return (
-                  <Pressable key={g} testID={`grade-${g}`} onPress={() => { if (!params.quotationId) setGrade(g); }} style={[styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
+                  <Pressable
+                    key={g}
+                    testID={`grade-${g}`}
+                    disabled={quotationLocked}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${g} concrete grade`}
+                    accessibilityState={{ selected: sel, disabled: quotationLocked }}
+                    onPress={() => setGrade(g)}
+                    style={({ pressed }) => [
+                      styles.chip,
+                      {
+                        backgroundColor: sel ? colors.brand : colors.surfaceSecondary,
+                        borderColor: sel ? colors.brand : colors.border,
+                        opacity: !sel && quotationLocked ? 0.48 : pressed ? 0.86 : 1,
+                      },
+                    ]}
+                  >
                     <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{g}</AppText>
                   </Pressable>
                 );
@@ -208,66 +265,96 @@ export default function NewOrder() {
           </Section>
         ) : null}
 
-        {/* Quantity */}
-        <Section title="Quantity (m³)">
+        <Section title="3. Quantity" subtitle="Concrete volume in cubic metres (m³)">
           <View style={styles.stepper}>
-            <Stepper icon="remove" onPress={() => { if (!params.quotationId) setQuantity((q) => String(Math.max(1, Number(q) - 1))); }} colors={colors} />
+            <Stepper icon="remove" label="Decrease quantity" disabled={quotationLocked} onPress={() => setQuantity((q) => String(Math.max(1, Number(q) - 1)))} colors={colors} />
             <View style={{ flex: 1 }}>
-              <Input testID="neworder-quantity" value={quantity} onChangeText={(t) => { if (!params.quotationId) setQuantity(t.replace(/[^0-9.]/g, "")); }} keyboardType="numeric" center />
+              <Input
+                testID="neworder-quantity"
+                value={quantity}
+                onChangeText={(t) => setQuantity(t.replace(/[^0-9.]/g, ""))}
+                keyboardType="numeric"
+                editable={!quotationLocked}
+                center
+              />
             </View>
-            <Stepper icon="add" onPress={() => { if (!params.quotationId) setQuantity((q) => String(Number(q || "0") + 1)); }} colors={colors} />
+            <Stepper icon="add" label="Increase quantity" disabled={quotationLocked} onPress={() => setQuantity((q) => String(Number(q || "0") + 1))} colors={colors} />
           </View>
         </Section>
 
-        {/* Date */}
-        <Section title="Delivery Date">
-          <View style={styles.chips}>
-            {days.map((d) => {
-              const sel = d.value === date;
-              return (
-                <Pressable key={d.value} testID={`date-${d.value}`} onPress={() => setDate(d.value)} style={[styles.dateChip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: sel ? colors.onBrand : colors.onSurface }}>{d.label}</AppText>
-                  <AppText style={{ fontFamily: fonts.regular, fontSize: 10, color: sel ? colors.onBrand : colors.onSurfaceTertiary }}>{d.sub}</AppText>
-                </Pressable>
-              );
-            })}
+        <Section title="4. Delivery Schedule" subtitle="Choose the preferred date and arrival window">
+          <View style={styles.scheduleBlock}>
+            <AppText variant="label">Date</AppText>
+            <View style={styles.chips}>
+              {days.map((d) => {
+                const sel = d.value === date;
+                return (
+                  <Pressable
+                    key={d.value}
+                    testID={`date-${d.value}`}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${d.label}, ${d.sub}`}
+                    accessibilityState={{ selected: sel }}
+                    onPress={() => setDate(d.value)}
+                    style={({ pressed }) => [styles.dateChip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border, opacity: pressed ? 0.86 : 1 }]}
+                  >
+                    <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: sel ? colors.onBrand : colors.onSurface }}>{d.label}</AppText>
+                    <AppText style={{ fontFamily: fonts.regular, fontSize: 10, color: sel ? colors.onBrand : colors.onSurfaceTertiary }}>{d.sub}</AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <View style={styles.scheduleBlock}>
+            <AppText variant="label">Preferred time</AppText>
+            <View style={styles.chips}>
+              {TIME_SLOTS.map((t) => {
+                const sel = t === time;
+                return (
+                  <Pressable
+                    key={t}
+                    testID={`time-${t}`}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${t} delivery time`}
+                    accessibilityState={{ selected: sel }}
+                    onPress={() => setTime(t)}
+                    style={({ pressed }) => [styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border, opacity: pressed ? 0.86 : 1 }]}
+                  >
+                    <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{t}</AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </Section>
 
-        {/* Time */}
-        <Section title="Preferred Time">
-          <View style={styles.chips}>
-            {TIME_SLOTS.map((t) => {
-              const sel = t === time;
-              return (
-                <Pressable key={t} testID={`time-${t}`} onPress={() => setTime(t)} style={[styles.chip, { backgroundColor: sel ? colors.brand : colors.surfaceSecondary, borderColor: sel ? colors.brand : colors.border }]}>
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: sel ? colors.onBrand : colors.onSurfaceSecondary }}>{t}</AppText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Section>
-
-        {/* Site details */}
-        <Section title="Site Details">
+        <Section title="5. Site & Contact" subtitle="Where the concrete should arrive and who will receive it">
           <View style={{ gap: spacing.md }}>
             <Input testID="neworder-site" label="Site name" value={siteName} onChangeText={setSiteName} placeholder="e.g. Skyline Towers" autoCapitalize="words" />
             <View>
               <Input testID="neworder-address" label="Delivery address" value={address} onChangeText={(t) => { setAddress(t); setCoords(null); }} placeholder="Search or type full site address" autoCapitalize="sentences" />
               {suggestions.length > 0 ? (
-                <View style={[styles.suggestBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={[styles.suggestBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                   {suggestions.map((s) => (
-                    <Pressable key={s.place_id} testID={`suggest-${s.place_id}`} onPress={() => pickPlace(s.place_id)} style={[styles.suggestRow, { borderBottomColor: colors.divider }]}>
-                      <Ionicons name="location-outline" size={16} color={colors.brand} />
+                    <Pressable
+                      key={s.place_id}
+                      testID={`suggest-${s.place_id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Use address ${s.text}`}
+                      onPress={() => pickPlace(s.place_id)}
+                      style={({ pressed }) => [styles.suggestRow, { borderBottomColor: colors.divider, backgroundColor: pressed ? colors.surfaceTertiary : "transparent" }]}
+                    >
+                      <Ionicons name="location-outline" size={17} color={colors.brand} />
                       <AppText style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={2}>{s.text}</AppText>
+                      <Ionicons name="arrow-forward" size={15} color={colors.onSurfaceTertiary} />
                     </Pressable>
                   ))}
                 </View>
               ) : null}
               {coords ? (
-                <View style={styles.pinRow}>
-                  <Ionicons name="pin" size={14} color={colors.success} />
-                  <AppText style={{ fontFamily: fonts.medium, fontSize: 11, color: colors.success }}>Location pinned on map</AppText>
+                <View style={[styles.pinRow, { backgroundColor: colors.brandSoft }]}>
+                  <Ionicons name="pin" size={14} color={colors.brand} />
+                  <AppText style={{ fontFamily: fonts.semibold, fontSize: 11, color: colors.brand }}>Location pinned</AppText>
                 </View>
               ) : null}
             </View>
@@ -278,49 +365,68 @@ export default function NewOrder() {
         </Section>
 
         {error ? (
-          <View style={[styles.warn, { backgroundColor: colors.error + "1A", borderColor: colors.error + "55" }]}>
-            <Ionicons name="close-circle-outline" size={18} color={colors.error} />
+          <View accessibilityRole="alert" style={[styles.infoBanner, { backgroundColor: colors.error + "12", borderColor: colors.error + "44" }]}>
+            <View style={[styles.bannerIcon, { backgroundColor: colors.error + "12" }]}>
+              <Ionicons name="close-circle-outline" size={18} color={colors.error} />
+            </View>
             <AppText variant="caption" color={colors.error} style={{ flex: 1 }}>{error}</AppText>
           </View>
         ) : null}
 
-        <View style={{ gap: spacing.sm }}>
-          <Button testID="neworder-place" label="Place Order" onPress={() => submit(false)} loading={submitting === "order"} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} />
-          <Button testID="neworder-draft" label="Save Draft" variant="outline" onPress={() => submit(true)} loading={submitting === "draft"} />
+        <View style={[styles.submitPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <View style={{ gap: 3 }}>
+            <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base }}>Ready to continue?</AppText>
+            <AppText variant="caption">Review the plant, mix, quantity, delivery window and site before placing the order.</AppText>
+          </View>
+          <Button testID="neworder-place" label="Place Order" onPress={() => submit(false)} loading={submitting === "order"} disabled={submitting === "draft"} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} />
+          <Button testID="neworder-draft" label="Save Draft" variant="outline" onPress={() => submit(true)} loading={submitting === "draft"} disabled={submitting === "order"} />
         </View>
       </KeyboardAwareScrollView>
     </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <View style={{ gap: spacing.sm }}>
-      <AppText variant="heading">{title}</AppText>
+      <View style={{ gap: 2 }}>
+        <AppText variant="heading">{title}</AppText>
+        {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
+      </View>
       {children}
     </View>
   );
 }
 
-function Stepper({ icon, onPress, colors }: any) {
+function Stepper({ icon, label, onPress, colors, disabled = false }: any) {
   return (
-    <Pressable onPress={onPress} style={[styles.stepBtn, { backgroundColor: colors.surfaceTertiary }]}>
-      <Ionicons name={icon} size={20} color={colors.onSurface} />
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [styles.stepBtn, { backgroundColor: colors.surfaceTertiary, opacity: disabled ? 0.45 : pressed ? 0.78 : 1 }]}
+    >
+      <Ionicons name={disabled ? "lock-closed" : icon} size={20} color={disabled ? colors.onSurfaceTertiary : colors.onSurface} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
-  iconBtn: { width: 40, height: 40, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
-  warn: { flexDirection: "row", gap: spacing.sm, alignItems: "center", borderWidth: 1, borderRadius: radius.md, padding: spacing.md },
+  iconBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  infoBanner: { minHeight: 64, flexDirection: "row", gap: spacing.sm, alignItems: "center", borderWidth: 1, borderRadius: radius.lg, padding: spacing.md },
+  bannerIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  chip: { height: 40, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  dateChip: { width: 72, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, alignItems: "center", gap: 2 },
-  plantRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
+  chip: { minHeight: 42, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  dateChip: { width: 76, minHeight: 56, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center", gap: 2 },
+  plantRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1 },
   stepper: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  stepBtn: { width: 52, height: 52, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
-  suggestBox: { marginTop: 4, borderWidth: 1, borderRadius: radius.md, overflow: "hidden" },
-  suggestRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
-  pinRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  stepBtn: { width: 56, height: 56, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  scheduleBlock: { gap: spacing.sm },
+  suggestBox: { marginTop: 6, borderWidth: 1, borderRadius: radius.lg, overflow: "hidden" },
+  suggestRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  pinRow: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, marginTop: 7, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill },
+  submitPanel: { gap: spacing.md, borderWidth: 1, borderRadius: radius.xl, padding: spacing.lg },
 });
