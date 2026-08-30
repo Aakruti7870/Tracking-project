@@ -38,12 +38,13 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
   const status = (plant.status || "active").toLowerCase();
   const orderEnabled = plant.order_enabled ?? (status === "active" && plant.verified);
   const distance = formatDistanceKm(plant.distance_km);
+  const hasPhone = Boolean(plant.contact_phone?.trim());
 
   const openDirections = () => {
     const destination =
       plant.lat != null && plant.lng != null ? `${plant.lat},${plant.lng}` : plant.address;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
-    Linking.openURL(url);
+    void Linking.openURL(url);
   };
 
   return (
@@ -55,25 +56,28 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
         </View>
       ) : null}
       <View style={styles.row}>
-        <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flex: 1, gap: 5 }}>
           <View style={styles.nameRow}>
-            <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }} numberOfLines={1}>
+            <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }} numberOfLines={2}>
               {plant.name}
             </AppText>
             {plant.verified ? (
-              <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+              <Ionicons name="shield-checkmark" size={17} color={colors.verified} accessibilityLabel="Verified plant" />
             ) : null}
           </View>
-          <AppText variant="caption" numberOfLines={1}>
+          <AppText variant="caption" numberOfLines={2}>
             {plant.city}
             {plant.district ? ` · ${plant.district}` : ""}
             {distance ? ` · ${distance}` : ""}
           </AppText>
           <View style={styles.metaRow}>
-            <View style={[styles.statusDot, { backgroundColor: status === "active" ? colors.success : colors.warning }]} />
+            <View style={[styles.statusDot, { backgroundColor: status === "active" ? colors.brand : colors.warning }]} />
             <AppText variant="caption">{readableStatus(status)}</AppText>
             {plant.verified ? (
-              <AppText variant="caption" color={colors.success}>Verified</AppText>
+              <View style={[styles.verifiedBadge, { backgroundColor: colors.verified + "12", borderColor: colors.verified + "55" }]}>
+                <Ionicons name="checkmark-circle" size={13} color={colors.verified} />
+                <AppText style={{ fontFamily: fonts.semibold, fontSize: 11, color: colors.verified }}>Verified</AppText>
+              </View>
             ) : (
               <AppText variant="caption">Verification pending</AppText>
             )}
@@ -96,17 +100,24 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
           icon="call-outline"
           label="Call"
           colors={colors}
-          onPress={() => plant.contact_phone && Linking.openURL(`tel:${plant.contact_phone}`)}
+          disabled={!hasPhone}
+          onPress={() => hasPhone && void Linking.openURL(`tel:${plant.contact_phone}`)}
         />
         <Action icon="navigate-outline" label="Directions" colors={colors} onPress={openDirections} />
         <Pressable
           onPress={orderEnabled ? onOrder : undefined}
           disabled={!orderEnabled}
           testID={`plant-order-${plant.id}`}
+          accessibilityRole="button"
+          accessibilityLabel={orderEnabled ? `Order from ${plant.name}` : `${plant.name} ordering unavailable`}
           accessibilityState={{ disabled: !orderEnabled }}
-          style={[
+          style={({ pressed }) => [
             styles.orderBtn,
-            { backgroundColor: orderEnabled ? colors.brand : colors.surfaceTertiary, opacity: orderEnabled ? 1 : 0.72 },
+            {
+              backgroundColor: orderEnabled ? colors.brand : colors.surfaceTertiary,
+              opacity: orderEnabled ? (pressed ? 0.86 : 1) : 0.64,
+              transform: [{ scale: pressed && orderEnabled ? 0.98 : 1 }],
+            },
           ]}
         >
           <Ionicons
@@ -129,9 +140,23 @@ export function PlantCard({ plant, onOrder }: { plant: PlantData; onOrder?: () =
   );
 }
 
-function Action({ icon, label, colors, onPress }: any) {
+function Action({ icon, label, colors, onPress, disabled = false }: any) {
   return (
-    <Pressable onPress={onPress} style={[styles.action, { borderColor: colors.border }]}>
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        styles.action,
+        {
+          borderColor: colors.border,
+          backgroundColor: pressed && !disabled ? colors.surfaceTertiary : "transparent",
+          opacity: disabled ? 0.48 : 1,
+        },
+      ]}
+    >
       <Ionicons name={icon} size={16} color={colors.onSurfaceSecondary} />
       <AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: colors.onSurfaceSecondary }}>
         {label}
@@ -145,22 +170,25 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   metaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
+  verifiedBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 3 },
   grades: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   gradeChip: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
   actions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
   action: {
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
   },
   orderBtn: {
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
@@ -170,10 +198,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#D9A514",
     shadowColor: "#D9A514",
-    shadowOpacity: 0.32,
-    shadowRadius: 14,
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 7,
+    elevation: 6,
   },
   promotedBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#FFF1B8", borderColor: "#E2B93B", borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 },
   promotedText: { fontFamily: fonts.bold, fontSize: 10, color: "#7A4A00", letterSpacing: 0.6 },

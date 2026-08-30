@@ -18,11 +18,13 @@ export function Badge({ label, status, color, solid = false, testID }: Props) {
   return (
     <View
       testID={testID}
+      accessibilityRole="text"
+      accessibilityLabel={label}
       style={[
         styles.badge,
         solid
           ? { backgroundColor: c }
-          : { backgroundColor: c + "22", borderColor: c + "55", borderWidth: 1 },
+          : { backgroundColor: c + "16", borderColor: c + "44", borderWidth: 1 },
       ]}
     >
       <View style={[styles.dot, { backgroundColor: solid ? colors.onBrand : c }]} />
@@ -41,6 +43,7 @@ export function Badge({ label, status, color, solid = false, testID }: Props) {
 
 const styles = StyleSheet.create({
   badge: {
+    minHeight: 26,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
@@ -50,5 +53,5 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  text: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  text: { fontFamily: fonts.semibold, fontSize: fontSize.sm, lineHeight: 16 },
 });

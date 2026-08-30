@@ -20,7 +20,7 @@ import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const HERO = require("../../assets/images/transit-mixer.jpg");
+const HERO = require("../../assets/images/industrial-rmc-hero.jpg");
 
 type HomeData = {
   name: string;
@@ -108,16 +108,14 @@ export default function CustomerHome() {
             </>
           ) : data ? (
             <>
-              <View style={[styles.hero, { backgroundColor: colors.surfaceSecondary }]}> 
+              <View style={[styles.hero, { backgroundColor: "#0A0C0E" }]}> 
+                <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="right center" transition={180} />
+                <LinearGradient colors={["rgba(5,7,9,0.98)", "rgba(5,7,9,0.86)", "rgba(5,7,9,0.35)", "rgba(5,7,9,0.08)"]} locations={[0, 0.38, 0.7, 1]} style={StyleSheet.absoluteFill} />
                 <View style={styles.heroCopy}>
-                  <AppText style={[styles.heroLine, { color: colors.onSurface }]}>Track.</AppText>
-                  <AppText style={[styles.heroLine, { color: colors.onSurface }]}>Order.</AppText>
+                  <AppText style={[styles.heroLine, { color: "#FFFFFF" }]}>Track.</AppText>
+                  <AppText style={[styles.heroLine, { color: "#FFFFFF" }]}>Order.</AppText>
                   <AppText style={[styles.heroLine, { color: colors.brand }]}>Delivered.</AppText>
-                  <AppText style={[styles.heroSub, { color: colors.onSurfaceTertiary }]}>Your concrete. Our commitment.{"\n"}All in one place.</AppText>
-                </View>
-                <View style={styles.heroVisual}>
-                  <LinearGradient colors={[colors.brand + "00", colors.brand + "14"]} style={styles.heroGlow} />
-                  <Image source={HERO} style={styles.heroImage} contentFit="contain" transition={180} />
+                  <AppText style={[styles.heroSub, { color: "rgba(255,255,255,0.76)" }]}>Your concrete. Our commitment.{"\n"}All in one place.</AppText>
                 </View>
               </View>
 
@@ -222,13 +220,10 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   dot: { position: "absolute", top: 7, right: 7, width: 8, height: 8, borderRadius: 4 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120, gap: 24 },
-  hero: { minHeight: 430, borderRadius: 32, overflow: "hidden", position: "relative" },
-  heroCopy: { paddingTop: 28, paddingLeft: 24, zIndex: 3 },
+  hero: { minHeight: 430, borderRadius: 32, overflow: "hidden", position: "relative", backgroundColor: "#0A0C0E" },
+  heroCopy: { paddingTop: 30, paddingLeft: 24, zIndex: 3, maxWidth: "72%" },
   heroLine: { fontFamily: fonts.displayBold, fontSize: 48, lineHeight: 51, letterSpacing: -1.6 },
   heroSub: { marginTop: 18, fontFamily: fonts.medium, fontSize: 14, lineHeight: 21 },
-  heroVisual: { position: "absolute", right: -44, bottom: -2, width: "92%", height: "72%" },
-  heroGlow: { ...StyleSheet.absoluteFillObject, borderTopLeftRadius: 180 },
-  heroImage: { width: "100%", height: "100%" },
   section: { gap: 12 },
   sectionTitle: { fontFamily: fonts.displayBold, fontSize: 20 },
   actionGrid: { flexDirection: "row", gap: 10 },

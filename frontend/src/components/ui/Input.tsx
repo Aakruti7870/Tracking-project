@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   KeyboardTypeOptions,
   StyleSheet,
@@ -44,10 +44,20 @@ export function Input({
   testID,
 }: Props) {
   const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
+  const borderColor = error ? colors.error : focused ? colors.brand : colors.border;
+
   return (
-    <View style={{ gap: spacing.xs }}>
+    <View style={styles.wrap}>
       {label ? (
-        <Text style={[styles.label, { color: colors.onSurfaceSecondary }]}>{label}</Text>
+        <Text
+          style={[
+            styles.label,
+            { color: error ? colors.error : focused ? colors.brand : colors.onSurfaceSecondary },
+          ]}
+        >
+          {label}
+        </Text>
       ) : null}
       <TextInput
         testID={testID}
@@ -62,31 +72,46 @@ export function Input({
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
         secureTextEntry={secureTextEntry}
+        accessibilityLabel={label || placeholder || "Input field"}
+        accessibilityState={{ disabled: !editable }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={[
           styles.input,
           {
             backgroundColor: colors.surfaceSecondary,
-            borderColor: error ? colors.error : colors.border,
+            borderColor,
             color: colors.onSurface,
             textAlign: center ? "center" : "left",
             letterSpacing: center ? 8 : 0,
+            opacity: editable ? 1 : 0.58,
+            shadowColor: focused && !error ? colors.brand : "transparent",
+            shadowOpacity: focused && !error ? 0.12 : 0,
           },
         ]}
       />
-      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
+      {error ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.error, { color: colors.error }]}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  label: { fontFamily: fonts.medium, fontSize: fontSize.sm },
+  wrap: { gap: spacing.xs },
+  label: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   input: {
-    height: 52,
+    minHeight: 56,
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: spacing.lg,
     fontFamily: fonts.medium,
     fontSize: fontSize.lg,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 0,
   },
-  error: { fontFamily: fonts.medium, fontSize: fontSize.sm },
+  error: { fontFamily: fonts.medium, fontSize: fontSize.sm, lineHeight: 18 },
 });

@@ -29,8 +29,7 @@ import { Button } from "@/src/components/ui/Button";
 import { Input } from "@/src/components/ui/Input";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const HERO = require("../assets/images/transit-mixer.jpg");
-const APP_MARK = require("../assets/images/icon.png");
+const HERO = require("../assets/images/industrial-rmc-hero.jpg");
 
 type LoginMode = "user" | "plant";
 type LoginPhase = "enter" | "user_otp" | "staff_email_otp" | "staff_passkey" | "staff_totp" | "staff_recovery";
@@ -551,21 +550,12 @@ export default function Login() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <StatusBar style={colors.isDark ? "light" : "dark"} />
+      <StatusBar style="light" />
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { backgroundColor: colors.surface }]}> 
-          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="center" />
-          <LinearGradient pointerEvents="none" colors={[colors.surface, "rgba(255,255,255,0.20)", "rgba(255,255,255,0)", colors.surface]} locations={[0, 0.18, 0.68, 1]} style={StyleSheet.absoluteFill} />
-          <View style={[styles.heroHeader, { paddingTop: insets.top + spacing.md }]}> 
-            <View style={styles.brandRow}>
-              <Image source={APP_MARK} style={styles.appMark} contentFit="contain" />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <AppText style={[styles.brandTop, { color: colors.onSurface }]}>TRACK MY</AppText>
-                <AppText style={[styles.brandMain, { color: colors.brand }]}>RMC</AppText>
-              </View>
-            </View>
-            <AppText style={[styles.brandSub, { color: colors.onSurfaceSecondary }]}>Secure access for concrete operations</AppText>
-          </View>
+        <View style={styles.hero}> 
+          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="center" transition={180} />
+          <LinearGradient pointerEvents="none" colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0)", colors.surface]} locations={[0, 0.76, 1]} style={StyleSheet.absoluteFill} />
+          <View style={{ height: insets.top }} />
         </View>
 
         <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
@@ -644,14 +634,8 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  hero: { height: 420, justifyContent: "flex-start", overflow: "hidden" },
-  heroHeader: { paddingHorizontal: spacing.xl, gap: spacing.sm },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, maxWidth: 280 },
-  appMark: { width: 64, height: 64, borderRadius: 18 },
-  brandTop: { fontFamily: fonts.displayBold, fontSize: 19, letterSpacing: 1.2 },
-  brandMain: { fontFamily: fonts.displayBold, fontSize: 44, lineHeight: 46, letterSpacing: 0.4 },
-  brandSub: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, maxWidth: 230 },
-  loginShell: { marginTop: -22, marginHorizontal: spacing.md, borderRadius: 30, borderWidth: 1, padding: spacing.md, shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  hero: { height: 300, justifyContent: "flex-start", overflow: "hidden", backgroundColor: "#080A0C" },
+  loginShell: { marginTop: -18, marginHorizontal: spacing.md, borderRadius: 30, borderWidth: 1, padding: spacing.md, shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   segmented: { flexDirection: "row", borderRadius: 22, borderWidth: 1, padding: 4, marginBottom: spacing.md },
   segment: { flex: 1, minHeight: 54, borderRadius: 18, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: spacing.sm },
   segmentLabel: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2, textAlign: "center" },

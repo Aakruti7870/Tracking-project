@@ -37,17 +37,26 @@ export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] 
       <Pressable
         key={route.key}
         testID={`tab-${tab.label.toLowerCase()}`}
-        style={styles.item}
-        accessibilityRole="button"
+        style={({ pressed }) => [styles.item, { opacity: pressed ? 0.72 : 1 }]}
+        accessibilityRole="tab"
         accessibilityState={{ selected: focused }}
         accessibilityLabel={`${tab.label} tab`}
+        hitSlop={4}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          void Haptics.selectionAsync();
           const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
           if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
         }}
       >
-        <View style={[styles.iconWrap, focused && { backgroundColor: colors.brandSoft }]}> 
+        <View
+          style={[
+            styles.iconWrap,
+            focused && {
+              backgroundColor: colors.brandSoft,
+              borderColor: colors.brand + "33",
+            },
+          ]}
+        >
           <Ionicons
             name={focused ? tab.active : tab.icon}
             size={22}
@@ -55,6 +64,7 @@ export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] 
           />
         </View>
         <AppText
+          numberOfLines={1}
           style={{
             fontFamily: focused ? fonts.semibold : fonts.medium,
             fontSize: 11,
@@ -71,13 +81,13 @@ export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] 
     <>
       <View pointerEvents="box-none" style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
         <BlurView
-          intensity={scheme === "dark" ? 58 : 76}
+          intensity={scheme === "dark" ? 62 : 82}
           tint={scheme === "dark" ? "dark" : "light"}
           style={[
             styles.bar,
             {
-              borderColor: scheme === "dark" ? "rgba(127,255,211,0.18)" : "rgba(0,105,82,0.14)",
-              backgroundColor: scheme === "dark" ? "rgba(8,28,24,0.90)" : "rgba(248,255,252,0.90)",
+              borderColor: scheme === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,19,21,0.08)",
+              backgroundColor: scheme === "dark" ? "rgba(15,17,19,0.94)" : "rgba(255,255,255,0.92)",
             },
           ]}
         >
@@ -88,21 +98,23 @@ export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] 
               testID="tab-quick-actions"
               accessibilityRole="button"
               accessibilityLabel="Open quick actions"
+              accessibilityHint="Shows the fastest actions for your current role"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 setHubOpen(true);
               }}
               style={({ pressed }) => [
                 styles.centerButton,
                 {
-                  backgroundColor: pressed ? colors.brandSoft : colors.brand,
-                  borderColor: scheme === "dark" ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.86)",
+                  backgroundColor: colors.brand,
+                  borderColor: scheme === "dark" ? "#1B1E21" : "#FFFFFF",
+                  transform: [{ scale: pressed ? 0.94 : 1 }],
                 },
               ]}
             >
               <Ionicons name="add" size={30} color={colors.onBrand} />
             </Pressable>
-            <AppText style={[styles.centerLabel, { color: colors.onSurfaceTertiary }]}>Quick</AppText>
+            <AppText style={[styles.centerLabel, { color: colors.onSurfaceSecondary }]}>Quick</AppText>
           </View>
 
           {rightRoutes.map(renderTab)}
@@ -139,46 +151,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
     elevation: 16,
   },
   item: {
     flex: 1,
+    minHeight: 56,
     alignItems: "center",
+    justifyContent: "flex-end",
     gap: 4,
     paddingVertical: 2,
     minWidth: 0,
   },
   iconWrap: {
-    width: 40,
-    height: 32,
+    width: 44,
+    height: 34,
     borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   centerSlot: {
-    width: 66,
+    width: 70,
     alignItems: "center",
     justifyContent: "flex-end",
-    marginTop: -28,
+    marginTop: -30,
   },
   centerButton: {
-    width: 58,
-    height: 58,
+    width: 60,
+    height: 60,
     borderRadius: radius.pill,
-    borderWidth: 3,
+    borderWidth: 4,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 9 },
     shadowOpacity: 0.24,
-    shadowRadius: 12,
-    elevation: 14,
+    shadowRadius: 14,
+    elevation: 15,
   },
   centerLabel: {
     marginTop: 4,
-    fontFamily: fonts.medium,
+    fontFamily: fonts.semibold,
     fontSize: 10,
   },
 });

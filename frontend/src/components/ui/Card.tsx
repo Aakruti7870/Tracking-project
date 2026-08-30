@@ -22,7 +22,9 @@ export function Card({ children, style, padded = true, testID }: Props) {
           backgroundColor: colors.surfaceSecondary,
           borderColor: colors.border,
           padding: padded ? spacing.lg : 0,
-          shadowColor: colors.isDark ? "#000" : "#8A8A8A",
+          shadowColor: colors.isDark ? "#000000" : "#5B514A",
+          shadowOpacity: colors.isDark ? 0.24 : 0.08,
+          elevation: colors.isDark ? 3 : 2,
         },
         style,
       ]}
@@ -36,9 +38,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 18,
   },
 });
