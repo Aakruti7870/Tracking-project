@@ -5,9 +5,6 @@ import { Image } from "expo-image";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius } from "@/src/theme/tokens";
 
-// Dedicated light / dark artwork so the post-login banner follows the active
-// theme. Dark mode keeps the original dark scene; light mode uses a softly
-// light-washed variant so it feels native to the light surface.
 const HERO_LIGHT = require("../../assets/images/home-hero-light.jpg");
 const HERO_DARK = require("../../assets/images/home-hero-dark.jpg");
 
@@ -17,12 +14,12 @@ type Props = {
 };
 
 /**
- * Theme-aware "Track My RMC" brand banner shown at the top of every role home.
- * Uses contentFit="contain" so the full brand artwork (logo, mixer truck and
- * RMC plant) stays visible and never crops on any screen size, while the
- * matching backdrop colour keeps the edges seamless in both light and dark.
+ * Theme-aware 16:9 Track My RMC hero. The source artwork is always rendered
+ * with `contain`, so the logo, text, mixer and plant remain fully visible on
+ * phones, tablets and web without cropping. Local assets are given high
+ * priority and no transition delay to avoid a perceived lazy-load flash.
  */
-export function HomeHero({ height = 176, style }: Props) {
+export function HomeHero({ height, style }: Props) {
   const { colors } = useTheme();
   const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
 
@@ -30,9 +27,9 @@ export function HomeHero({ height = 176, style }: Props) {
     <View
       style={[
         styles.wrap,
+        height ? { height } : styles.ratio16x9,
         {
-          height,
-          backgroundColor: colors.isDark ? "#080A0C" : "#EFF1EE",
+          backgroundColor: colors.isDark ? "#080A0C" : "#F7F8F6",
           borderColor: colors.border,
         },
         style,
@@ -43,7 +40,9 @@ export function HomeHero({ height = 176, style }: Props) {
         style={StyleSheet.absoluteFill}
         contentFit="contain"
         contentPosition="center"
-        transition={200}
+        priority="high"
+        cachePolicy="memory-disk"
+        transition={0}
       />
     </View>
   );
@@ -55,5 +54,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     overflow: "hidden",
     borderWidth: 1,
+  },
+  ratio16x9: {
+    aspectRatio: 16 / 9,
   },
 });
