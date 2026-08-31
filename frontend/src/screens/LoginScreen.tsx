@@ -457,12 +457,14 @@ export default function LoginScreen() {
       return (
         <View style={styles.formGap}>
           <View style={styles.headingBlock}>
-            <Ionicons name="phone-portrait-outline" size={28} color={colors.brand} />
-            <AppText variant="heading" center>Mobile Login</AppText>
-            <AppText variant="bodyMuted" center>Enter your mobile number to continue securely.</AppText>
+            <View style={[styles.iconBubble, { backgroundColor: colors.brandSoft, borderColor: `${colors.brand}42` }]}>
+              <Ionicons name="phone-portrait-outline" size={24} color={colors.brand} />
+            </View>
+            <AppText variant="heading" center>Welcome back</AppText>
+            <AppText variant="bodyMuted" center>Secure access to Track My RMC</AppText>
           </View>
           <View style={[styles.phoneInputWrap, { borderColor: error ? colors.error : colors.border, backgroundColor: colors.surface }]}> 
-            <View style={[styles.prefix, { borderRightColor: colors.border }]}><AppText>+91</AppText></View>
+            <View style={[styles.prefix, { borderRightColor: colors.border }]}><AppText style={styles.prefixText}>+91</AppText></View>
             <TextInput
               testID="login-mobile-input"
               value={mobile}
@@ -476,7 +478,11 @@ export default function LoginScreen() {
             />
           </View>
           {error ? <AppText variant="caption" color={colors.error}>{error}</AppText> : null}
-          <Button label="SEND OTP" onPress={handleSendUserOtp} loading={loading} disabled={mobile.length !== 10} icon={<Ionicons name="shield-checkmark-outline" size={19} color={colors.onBrand} />} />
+          <Button label="CONTINUE" onPress={handleSendUserOtp} loading={loading} disabled={mobile.length !== 10} icon={<Ionicons name="shield-checkmark-outline" size={19} color={colors.onBrand} />} />
+          <View style={styles.securityNote}>
+            <Ionicons name="lock-closed-outline" size={14} color={colors.onSurfaceTertiary} />
+            <AppText variant="caption" color={colors.onSurfaceTertiary}>6-digit OTP verification</AppText>
+          </View>
         </View>
       );
     }
@@ -484,7 +490,9 @@ export default function LoginScreen() {
     return (
       <View style={styles.formGap}>
         <View style={styles.headingBlock}>
-          <Ionicons name="people-outline" size={28} color={colors.brand} />
+          <View style={[styles.iconBubble, { backgroundColor: colors.brandSoft, borderColor: `${colors.brand}42` }]}>
+            <Ionicons name="business-outline" size={24} color={colors.brand} />
+          </View>
           <AppText variant="heading" center>Plant Staff Secure Login</AppText>
           <AppText variant="bodyMuted" center>Use your approved work email.</AppText>
         </View>
@@ -500,6 +508,22 @@ export default function LoginScreen() {
           error={error}
         />
         <Button testID="login-plant-send-otp" label="Continue Securely" onPress={handleStartPlantLogin} loading={loading} disabled={!validEmail(plantEmail)} icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.onBrand} />} />
+        <View style={styles.altAuthRow}>
+          <View style={[styles.altAuthCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Ionicons name="key-outline" size={18} color={colors.brand} />
+            <View style={styles.altAuthText}>
+              <AppText variant="label">Authenticator</AppText>
+              <AppText variant="caption" color={colors.onSurfaceTertiary}>Available after approved email</AppText>
+            </View>
+          </View>
+          <View style={[styles.altAuthCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Ionicons name="finger-print-outline" size={18} color={colors.brand} />
+            <View style={styles.altAuthText}>
+              <AppText variant="label">Passkey</AppText>
+              <AppText variant="caption" color={colors.onSurfaceTertiary}>Trusted-device verification</AppText>
+            </View>
+          </View>
+        </View>
         {onboardingRequired ? (
           <View style={[styles.onboardingCard, { borderColor: `${colors.brand}55`, backgroundColor: colors.brandSoft }]}> 
             <AppText style={styles.onboardingTitle}>Welcome to TrackMyRMC</AppText>
@@ -521,26 +545,35 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4", paddingTop: insets.top }]}>
-          <Image source={heroSource} style={StyleSheet.absoluteFill} contentFit="contain" contentPosition="center" transition={180} />
+          <Image source={heroSource} style={styles.heroImage} contentFit="contain" contentPosition="center" transition={180} />
           <LinearGradient
             pointerEvents="none"
-            colors={colors.isDark ? ["rgba(0,0,0,0)", "rgba(0,0,0,0)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0)", colors.surface]}
-            locations={[0, 0.72, 1]}
+            colors={colors.isDark ? ["rgba(0,0,0,0)", "rgba(0,0,0,0.02)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0.02)", colors.surface]}
+            locations={[0, 0.73, 1]}
             style={StyleSheet.absoluteFill}
           />
         </View>
 
-        <View style={[styles.loginShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+        <View style={[styles.loginShell, {
+          backgroundColor: colors.surfaceSecondary,
+          borderColor: colors.isDark ? "rgba(255,255,255,0.10)" : "rgba(15,23,42,0.08)",
+          shadowColor: colors.isDark ? "#000000" : "#111827",
+        }]}> 
+          <View style={styles.sheetHandleWrap}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.isDark ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.12)" }]} />
+          </View>
+
           <View style={[styles.segmented, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
-              <Ionicons name="person-outline" size={17} color={mode === "user" ? colors.brand : colors.onSurfaceTertiary} />
+            <Pressable testID="login-user-tab" onPress={() => resetEntry("user")} style={[styles.segment, mode === "user" && { backgroundColor: colors.brandSoft, borderColor: `${colors.brand}88` }]}> 
+              <Ionicons name="person-outline" size={18} color={mode === "user" ? colors.brand : colors.onSurfaceTertiary} />
               <AppText style={styles.segmentLabel} color={mode === "user" ? colors.onSurface : colors.onSurfaceTertiary}>USER LOGIN</AppText>
             </Pressable>
-            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}> 
-              <Ionicons name="people-outline" size={17} color={mode === "plant" ? colors.brand : colors.onSurfaceTertiary} />
+            <Pressable testID="login-plant-tab" onPress={() => resetEntry("plant")} style={[styles.segment, mode === "plant" && { backgroundColor: colors.brandSoft, borderColor: `${colors.brand}88` }]}> 
+              <Ionicons name="people-outline" size={18} color={mode === "plant" ? colors.brand : colors.onSurfaceTertiary} />
               <AppText style={styles.segmentLabel} color={mode === "plant" ? colors.onSurface : colors.onSurfaceTertiary}>PLANT STAFF</AppText>
             </Pressable>
           </View>
+
           {renderForm()}
 
           {DEMO_LOGIN_ENABLED ? (
@@ -583,6 +616,16 @@ export default function LoginScreen() {
               onPress={() => void openExternal(ACCOUNT_DELETION_URL)}
             >Delete Account</AppText>
           </AppText>
+
+          <View style={styles.poweredBlock}>
+            <AppText variant="caption" center color={colors.onSurfaceTertiary}>Powered by <AppText variant="label">Gold e Tech</AppText></AppText>
+            <View style={styles.supportRow}>
+              <Ionicons name="mail-outline" size={14} color={colors.onSurfaceTertiary} />
+              <AppText variant="caption" color={colors.onSurfaceTertiary}>support@trackmyrmc.com</AppText>
+              <AppText variant="caption" color={colors.onSurfaceTertiary}>•</AppText>
+              <AppText variant="caption" color={colors.onSurfaceTertiary}>support@goldetech.com</AppText>
+            </View>
+          </View>
         </View>
 
         <Pressable testID="login-review-access" onPress={() => router.push("/review-access" as any)} style={styles.reviewLink} hitSlop={10}>
@@ -595,31 +638,118 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, alignItems: "center" },
-  hero: { width: "100%", maxWidth: 760, height: 250, overflow: "hidden" },
+  hero: {
+    width: "100%",
+    maxWidth: 760,
+    height: 292,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroImage: {
+    width: "100%",
+    height: "100%",
+  },
   loginShell: {
     width: "92%",
     maxWidth: 470,
-    marginTop: -10,
+    marginTop: -24,
     borderWidth: 1,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
+    borderRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm,
     gap: spacing.lg,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 28,
+    elevation: 8,
   },
-  segmented: { flexDirection: "row", borderWidth: 1, borderRadius: radius.pill, padding: 4, gap: 4 },
-  segment: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: "transparent", borderRadius: radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.sm },
-  segmentLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  sheetHandleWrap: { alignItems: "center", paddingTop: 2, marginBottom: -2 },
+  sheetHandle: { width: 44, height: 5, borderRadius: radius.pill },
+  segmented: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 5,
+    gap: 5,
+  },
+  segment: {
+    flex: 1,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  segmentLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, letterSpacing: 0.2 },
   formGap: { gap: spacing.md },
-  headingBlock: { alignItems: "center", gap: spacing.xs, paddingVertical: spacing.sm },
-  phoneInputWrap: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, flexDirection: "row", alignItems: "center", overflow: "hidden" },
-  prefix: { height: "100%", minWidth: 58, alignItems: "center", justifyContent: "center", borderRightWidth: 1 },
-  phoneInput: { flex: 1, height: 52, paddingHorizontal: spacing.md, fontFamily: fonts.regular, fontSize: fontSize.base },
+  headingBlock: { alignItems: "center", gap: spacing.xs, paddingVertical: spacing.xs },
+  iconBubble: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  phoneInputWrap: {
+    minHeight: 56,
+    borderWidth: 1,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  prefix: {
+    height: "100%",
+    minWidth: 62,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRightWidth: 1,
+  },
+  prefixText: { fontFamily: fonts.semibold },
+  phoneInput: {
+    flex: 1,
+    height: 56,
+    paddingHorizontal: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+  },
+  securityNote: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    marginTop: -2,
+  },
+  altAuthRow: { flexDirection: "row", gap: spacing.sm },
+  altAuthCard: {
+    flex: 1,
+    minHeight: 62,
+    borderWidth: 1,
+    borderRadius: 15,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  altAuthText: { flex: 1, gap: 1 },
   linkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md, flexWrap: "wrap" },
   onboardingCard: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, alignItems: "center" },
   onboardingTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg },
   demoBox: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
   demoRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, justifyContent: "center" },
   demoChip: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  legalArea: { width: "92%", maxWidth: 470, paddingTop: spacing.lg, paddingHorizontal: spacing.sm },
+  legalArea: { width: "92%", maxWidth: 470, paddingTop: spacing.lg, paddingHorizontal: spacing.sm, gap: spacing.md },
   legalLink: { fontFamily: fonts.semibold, textDecorationLine: "underline", textDecorationStyle: "solid" },
+  poweredBlock: { alignItems: "center", gap: 7 },
+  supportRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" },
   reviewLink: { marginTop: spacing.md, paddingVertical: spacing.sm },
 });
