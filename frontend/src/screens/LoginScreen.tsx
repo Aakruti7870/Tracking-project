@@ -33,6 +33,9 @@ const HERO_DARK = require("../../assets/images/login-hero-dark.jpg");
 
 const PRIVACY_POLICY_URL = "https://trackmyrmc.com/privacy_policy";
 const ACCOUNT_DELETION_URL = "https://trackmyrmc.com/account-deletion";
+const SUPPORT_EMAIL_URL = "mailto:support@trackmyrmc.com";
+const CUSTOMER_CARE_URL = "tel:+917498286760";
+const WHATSAPP_URL = "https://wa.me/919082189911";
 const SUCCESS = "#28C48D";
 const ERROR = "#E5484D";
 const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
@@ -86,12 +89,8 @@ export default function LoginScreen() {
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
-  // Hydrated sessions should return to the correct role. During an active OTP
-  // animation the screen owns navigation so the verified state is actually seen.
   useEffect(() => {
     if (!hydrating && token && user) {
-      // During an active OTP animation the screen owns navigation so the
-      // verified state is actually seen before we redirect the session.
       if (phase !== "enter" || otpVisual === "success") return;
       if (user.mfa_configured && !user.mfa_enabled && user.role !== "customer" && user.role !== "driver") {
         router.replace("/mfa-setup" as any);
@@ -544,12 +543,20 @@ export default function LoginScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F5F6F4", paddingTop: insets.top }]}>
-          <Image source={heroSource} style={styles.heroImage} contentFit="contain" contentPosition="center" transition={180} />
+        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F7F8F6", paddingTop: insets.top }]}>
+          <Image
+            source={heroSource}
+            style={styles.heroImage}
+            contentFit="contain"
+            contentPosition="center"
+            priority="high"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
           <LinearGradient
             pointerEvents="none"
             colors={colors.isDark ? ["rgba(0,0,0,0)", "rgba(0,0,0,0.02)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0.02)", colors.surface]}
-            locations={[0, 0.73, 1]}
+            locations={[0, 0.80, 1]}
             style={StyleSheet.absoluteFill}
           />
         </View>
@@ -619,11 +626,34 @@ export default function LoginScreen() {
 
           <View style={styles.poweredBlock}>
             <AppText variant="caption" center color={colors.onSurfaceTertiary}>Powered by <AppText variant="label">Gold e Tech</AppText></AppText>
-            <View style={styles.supportRow}>
-              <Ionicons name="mail-outline" size={14} color={colors.onSurfaceTertiary} />
-              <AppText variant="caption" color={colors.onSurfaceTertiary}>support@trackmyrmc.com</AppText>
-              <AppText variant="caption" color={colors.onSurfaceTertiary}>•</AppText>
-              <AppText variant="caption" color={colors.onSurfaceTertiary}>support@goldetech.com</AppText>
+            <View style={styles.contactIconRow}>
+              <Pressable
+                testID="login-support-email"
+                accessibilityRole="link"
+                accessibilityLabel="Email Track My RMC support"
+                onPress={() => void openExternal(SUPPORT_EMAIL_URL)}
+                style={({ pressed }) => [styles.contactIconButton, { borderColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.72 : 1 }]}
+              >
+                <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+              </Pressable>
+              <Pressable
+                testID="login-customer-care"
+                accessibilityRole="link"
+                accessibilityLabel="Call Track My RMC customer care"
+                onPress={() => void openExternal(CUSTOMER_CARE_URL)}
+                style={({ pressed }) => [styles.contactIconButton, { borderColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.72 : 1 }]}
+              >
+                <Ionicons name="call-outline" size={20} color={colors.onSurface} />
+              </Pressable>
+              <Pressable
+                testID="login-whatsapp"
+                accessibilityRole="link"
+                accessibilityLabel="Open Track My RMC WhatsApp support"
+                onPress={() => void openExternal(WHATSAPP_URL)}
+                style={({ pressed }) => [styles.contactIconButton, { borderColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.72 : 1 }]}
+              >
+                <Ionicons name="logo-whatsapp" size={21} color={colors.onSurface} />
+              </Pressable>
             </View>
           </View>
         </View>
@@ -641,7 +671,7 @@ const styles = StyleSheet.create({
   hero: {
     width: "100%",
     maxWidth: 760,
-    height: 292,
+    aspectRatio: 16 / 9,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -749,7 +779,15 @@ const styles = StyleSheet.create({
   demoChip: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   legalArea: { width: "92%", maxWidth: 470, paddingTop: spacing.lg, paddingHorizontal: spacing.sm, gap: spacing.md },
   legalLink: { fontFamily: fonts.semibold, textDecorationLine: "underline", textDecorationStyle: "solid" },
-  poweredBlock: { alignItems: "center", gap: 7 },
-  supportRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" },
+  poweredBlock: { alignItems: "center", gap: 9 },
+  contactIconRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
+  contactIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   reviewLink: { marginTop: spacing.md, paddingVertical: spacing.sm },
 });
