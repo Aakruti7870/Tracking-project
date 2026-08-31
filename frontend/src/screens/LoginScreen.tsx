@@ -534,6 +534,8 @@ export default function LoginScreen() {
     );
   };
 
+  const heroBackground = colors.isDark ? "#080A0C" : "#F7F8F6";
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style={colors.isDark ? "light" : "dark"} />
@@ -543,7 +545,8 @@ export default function LoginScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { backgroundColor: colors.isDark ? "#080A0C" : "#F7F8F6", paddingTop: insets.top }]}>
+        <View style={{ width: "100%", height: insets.top, backgroundColor: heroBackground }} />
+        <View style={[styles.hero, { backgroundColor: heroBackground }]}>
           <Image
             source={heroSource}
             style={styles.heroImage}
