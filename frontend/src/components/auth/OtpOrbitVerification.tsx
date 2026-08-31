@@ -99,15 +99,6 @@ export function OtpOrbitVerification({
     [value],
   );
 
-  const resetMotion = () => {
-    animationRef.current?.stop();
-    animationRef.current = null;
-    assembly.setValue(0);
-    turn.setValue(0);
-    collapse.setValue(0);
-    setAnimating(false);
-  };
-
   useEffect(() => {
     if (state === "checking") {
       checkingSpin.setValue(0);
@@ -128,7 +119,12 @@ export function OtpOrbitVerification({
 
   useEffect(() => {
     if (state === "error") {
-      resetMotion();
+      animationRef.current?.stop();
+      animationRef.current = null;
+      assembly.setValue(0);
+      turn.setValue(0);
+      collapse.setValue(0);
+      setAnimating(false);
       shake.setValue(0);
       Animated.sequence([
         Animated.timing(shake, { toValue: -7, duration: 70, useNativeDriver: true }),
@@ -137,7 +133,7 @@ export function OtpOrbitVerification({
         Animated.timing(shake, { toValue: 0, duration: 70, useNativeDriver: true }),
       ]).start();
     }
-  }, [shake, state]);
+  }, [assembly, collapse, shake, state, turn]);
 
   useEffect(() => {
     if (state === "success") {
@@ -156,12 +152,17 @@ export function OtpOrbitVerification({
     if (state !== "idle") return;
 
     if (value.length < OTP_LENGTH) {
-      if (lastCompleted.current) lastCompleted.current = "";
-      if (animating) resetMotion();
+      lastCompleted.current = "";
+      animationRef.current?.stop();
+      animationRef.current = null;
+      assembly.setValue(0);
+      turn.setValue(0);
+      collapse.setValue(0);
+      setAnimating(false);
       return;
     }
 
-    if (value.length !== OTP_LENGTH || value === lastCompleted.current || animating) return;
+    if (value.length !== OTP_LENGTH || value === lastCompleted.current || animationRef.current) return;
 
     lastCompleted.current = value;
     setAnimating(true);
@@ -202,7 +203,7 @@ export function OtpOrbitVerification({
       animationRef.current?.stop();
       animationRef.current = null;
     };
-  }, [animating, assembly, collapse, onComplete, state, turn, value]);
+  }, [assembly, collapse, onComplete, state, turn, value]);
 
   const sanitize = (text: string) => text.replace(/\D/g, "").slice(0, OTP_LENGTH);
   const canvasRotate = turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
