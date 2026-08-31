@@ -1,1 +1,1 @@
-export { default } from "@/src/screens/PremiumLoginScreen";
+export { default } from "@/src/screens/LoginScreen";
