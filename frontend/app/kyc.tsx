@@ -54,6 +54,20 @@ export default function KycScreen() {
     return () => subscription.remove();
   }, [refetch]);
 
+  // Once the backend confirms KYC is VERIFIED, refresh the authenticated
+  // profile so the DigiLocker-verified name and unlocked ordering appear
+  // everywhere without a manual reload. Runs once per verification.
+  const syncedRef = React.useRef(false);
+  useEffect(() => {
+    if (data?.status === "VERIFIED" && !syncedRef.current) {
+      syncedRef.current = true;
+      void refreshMe();
+    }
+    if (data?.status && data.status !== "VERIFIED") {
+      syncedRef.current = false;
+    }
+  }, [data?.status, refreshMe]);
+
   const status = data?.status || "NOT_STARTED";
   const meta = STATE_META[status] || STATE_META.NOT_STARTED;
   const tone = { success: colors.success, warning: colors.warning, error: colors.error, info: colors.brand }[meta.tone];

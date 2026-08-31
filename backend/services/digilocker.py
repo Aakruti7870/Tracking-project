@@ -102,6 +102,50 @@ async def initiate_digilocker_session() -> dict[str, str]:
         }
 
 
+def normalize_verified_name(raw_name: Any) -> str:
+    """Normalize a provider-supplied verified name.
+
+    Trims leading/trailing whitespace, collapses internal runs of whitespace,
+    preserves the customer's real verified spelling, and returns "" for any
+    blank/missing/non-string value so callers can reject it safely.
+    """
+    if not isinstance(raw_name, str):
+        return ""
+    return " ".join(raw_name.split())
+
+
+async def get_digilocker_user_profile(session_id: str) -> dict[str, str]:
+    """Fetch the DigiLocker-verified identity for a consented session.
+
+    Official Sandbox contract (non-SDK DigiLocker flow):
+      GET {base_url}/kyc/digilocker/sessions/{session_id}/user/profile
+      -> data.name holds the verified full name.
+
+    This is only callable after the session status is SUCCEEDED and the user
+    granted consent. The raw provider payload (name/DOB/mobile/etc.) is never
+    logged. Returns only the normalized verified name.
+    """
+    if not session_id or "/" in session_id or ".." in session_id:
+        raise DigiLockerProviderError("Invalid DigiLocker session ID.")
+    timeout = httpx.Timeout(20.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        headers, base_url, _ = await _headers(client)
+        response = await client.get(
+            f"{base_url}/kyc/digilocker/sessions/{session_id}/user/profile",
+            headers=headers,
+        )
+        if response.is_error:
+            raise DigiLockerProviderError(
+                f"Could not read DigiLocker profile ({response.status_code})."
+            )
+        data = _data(response.json())
+        # Verified full name lives at data.name per the Sandbox API reference.
+        name = normalize_verified_name(data.get("name"))
+        if not name:
+            raise DigiLockerProviderError("DigiLocker profile did not include a verified name.")
+        return {"name": name}
+
+
 async def get_digilocker_session_status(session_id: str) -> dict[str, str]:
     if not session_id or "/" in session_id or ".." in session_id:
         raise DigiLockerProviderError("Invalid DigiLocker session ID.")
