@@ -14,12 +14,13 @@ type Props = {
 };
 
 /**
- * Theme-aware 16:9 Track My RMC hero. The source artwork is always rendered
- * with `contain`, so the logo, text, mixer and plant remain fully visible on
- * phones, tablets and web without cropping. Local assets are given high
- * priority and no transition delay to avoid a perceived lazy-load flash.
+ * Theme-aware 16:9 Track My RMC hero. The artwork always keeps its native
+ * 16:9 frame, even when older callers still pass a legacy height value. This
+ * prevents letterboxing/cropping and keeps the logo, text, mixer and plant
+ * fully visible on phones, tablets and web. Local assets render immediately
+ * from the Expo image cache with no transition flash.
  */
-export function HomeHero({ height, style }: Props) {
+export function HomeHero({ style }: Props) {
   const { colors } = useTheme();
   const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
 
@@ -27,7 +28,6 @@ export function HomeHero({ height, style }: Props) {
     <View
       style={[
         styles.wrap,
-        height ? { height } : styles.ratio16x9,
         {
           backgroundColor: colors.isDark ? "#080A0C" : "#F7F8F6",
           borderColor: colors.border,
@@ -51,11 +51,11 @@ export function HomeHero({ height, style }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     width: "100%",
+    aspectRatio: 16 / 9,
     borderRadius: radius.xl,
     overflow: "hidden",
     borderWidth: 1,
-  },
-  ratio16x9: {
-    aspectRatio: 16 / 9,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
