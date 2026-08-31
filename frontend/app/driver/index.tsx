@@ -12,6 +12,7 @@ import { Card } from "@/src/components/ui/Card";
 import { Badge } from "@/src/components/ui/Badge";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
+import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Trip = { id: string; order_number: string; status: string; grade: string; quantity: number; tm_number: string; site_name: string };
@@ -56,6 +57,7 @@ export default function DriverHome() {
           ) : data ? (
             <>
               {/* Attendance + stats */}
+              <HomeHero />
               <View style={{ flexDirection: "row", gap: spacing.sm }}>
                 <Pressable onPress={() => router.push("/driver/attendance")} style={[styles.stat, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                   <Ionicons name={data.checked_in ? "checkmark-circle" : "time-outline"} size={20} color={data.checked_in ? colors.success : colors.warning} />

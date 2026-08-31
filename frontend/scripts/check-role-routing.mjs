@@ -7,7 +7,20 @@ const root = path.resolve(here, "..");
 
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 const roleRoutes = read("src/auth/roleRoutes.ts");
-const login = read("app/login.tsx");
+// The login route (app/login.tsx) may host the implementation inline or be a
+// thin re-export of the real screen (src/screens/LoginScreen.tsx). Resolve to
+// the actual implementation source so the guard always inspects the live login
+// UI regardless of where the code physically lives.
+const readLoginSource = () => {
+  const entry = read("app/login.tsx");
+  const reexport = entry.match(/from ["']@\/(src\/[^"']+)["']/);
+  if (reexport) {
+    const rel = reexport[1].endsWith(".tsx") ? reexport[1] : `${reexport[1]}.tsx`;
+    return `${entry}\n${read(rel)}`;
+  }
+  return entry;
+};
+const login = readLoginSource();
 const onboarding = read("app/plant-onboarding.tsx");
 const mfaSetup = read("app/mfa-setup.tsx");
 const passkeySetup = read("app/passkey-setup.tsx");

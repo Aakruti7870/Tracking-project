@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
@@ -13,10 +14,11 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { MapPlaceholder } from "@/src/components/ui/MapPlaceholder";
 import { KycBanner } from "@/src/components/KycBanner";
 import { ErrorView } from "@/src/components/StateViews";
+import { HomeHero } from "@/src/components/HomeHero";
 import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
-import { BrandHero } from "@/src/components/BrandHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+
 
 type HomeData = {
   name: string;
@@ -36,6 +38,7 @@ const ACTIONS: { key: "new" | "track" | "plants" | "orders"; label: string; icon
 
 export default function CustomerHome() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -103,7 +106,7 @@ export default function CustomerHome() {
             </>
           ) : data ? (
             <>
-              <BrandHero style={styles.heroCard} />
+              <HomeHero height={210} />
 
               {data.kyc_status !== "VERIFIED" ? <KycBanner status={data.kyc_status} /> : null}
 
@@ -206,7 +209,6 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   dot: { position: "absolute", top: 7, right: 7, width: 8, height: 8, borderRadius: 4 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120, gap: 24 },
-  heroCard: { borderRadius: 24, marginBottom: spacing.xs },
   section: { gap: 12 },
   sectionTitle: { fontFamily: fonts.displayBold, fontSize: 20 },
   actionGrid: { flexDirection: "row", gap: 10 },

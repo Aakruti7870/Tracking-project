@@ -34,8 +34,8 @@ export default function ReviewAccess() {
 
   const login = async () => {
     setError(null);
-    if (code.trim().length < 10) {
-      setError("Enter the reusable review access code supplied in Google Play Console.");
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("Enter the 6-digit fixed reviewer OTP supplied in Google Play Console.");
       return;
     }
     setBusy(true);
@@ -59,7 +59,7 @@ export default function ReviewAccess() {
         </Pressable>
         <View style={{ flex: 1 }}>
           <AppText variant="title">Google Play Review Access</AppText>
-          <AppText variant="caption">Reusable reviewer login — no OTP or Google account required</AppText>
+          <AppText variant="caption">Reusable reviewer OTP — isolated review accounts only</AppText>
         </View>
       </View>
 
@@ -67,7 +67,7 @@ export default function ReviewAccess() {
         <Card style={{ gap: spacing.sm }}>
           <AppText variant="heading">Choose a review role</AppText>
           <AppText variant="bodyMuted">
-            These isolated accounts contain review-only demo data and are available only with the access code supplied to Google Play reviewers.
+            These accounts contain review-only demo data. The fixed six-digit reviewer OTP works only while Play reviewer access is explicitly enabled on the server.
           </AppText>
         </Card>
 
@@ -107,21 +107,22 @@ export default function ReviewAccess() {
         </View>
 
         <Input
-          label="Review access code"
+          label="6-digit reviewer OTP"
           value={code}
           onChangeText={(value) => {
-            setCode(value);
+            setCode(value.replace(/\D/g, "").slice(0, 6));
             setError(null);
           }}
-          placeholder="Code from Play Console app access"
-          autoCapitalize="none"
+          placeholder="••••••"
+          keyboardType="number-pad"
+          maxLength={6}
           secureTextEntry
           error={error || undefined}
         />
-        <Button label={`Open ${ROLES.find((item) => item.role === role)?.label}`} onPress={login} loading={busy} />
+        <Button label={`Open ${ROLES.find((item) => item.role === role)?.label}`} onPress={login} loading={busy} disabled={code.length !== 6} />
 
         <AppText variant="caption" center>
-          Review access is restricted to Google Play testing. Normal users should use User Login or Plant User Login.
+          Normal users must use the standard User Login or Plant Staff Login flow. Reviewer OTP access does not bypass normal accounts.
         </AppText>
       </ScrollView>
     </View>

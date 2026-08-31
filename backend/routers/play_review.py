@@ -2,7 +2,7 @@
 
 This bypass exists solely to satisfy Play review requirements for apps whose
 normal authentication uses OTP or third-party sign-in. It is disabled by
-default, guarded by a strong server-side access code, limited to four review
+default, guarded by a server-side fixed review OTP, limited to four review
 roles and issues an ordinary revocable TrackMyRMC session.
 """
 from secrets import compare_digest
@@ -25,7 +25,10 @@ ReviewRole = Literal["customer", "plant_owner", "authority", "driver"]
 
 class PlayReviewAccessBody(BaseModel):
     role: ReviewRole
-    access_code: str = Field(min_length=10, max_length=128)
+    # The configured Play Console reviewer credential is a reusable six-digit
+    # OTP. The value remains server-side in PLAY_REVIEW_ACCESS_CODE; 123456 is
+    # not hard-coded as a universal application bypass.
+    access_code: str = Field(min_length=6, max_length=128)
 
 
 @router.post("/play-review")
@@ -34,7 +37,7 @@ async def play_review_access(body: PlayReviewAccessBody):
         # Do not expose whether a code is configured when review access is off.
         raise HTTPException(404, "Reviewer access is not enabled")
     if not compare_digest(body.access_code, settings.PLAY_REVIEW_ACCESS_CODE):
-        raise HTTPException(401, "Invalid reviewer access code")
+        raise HTTPException(401, "Invalid reviewer OTP")
 
     allowed = {
         Role.CUSTOMER.value,
