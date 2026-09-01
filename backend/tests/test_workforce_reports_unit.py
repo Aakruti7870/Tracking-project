@@ -14,6 +14,15 @@ from routers.workforce_reports import month_bounds, overlap_days, payroll_net
 from server import app
 
 
+def _iter_registered_routes(routes):
+    """Yield routes recursively across FastAPI included-router wrappers."""
+    for route in routes:
+        yield route
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from _iter_registered_routes(nested)
+
+
 def test_month_bounds_handles_leap_year_and_rejects_invalid_format():
     first, last = month_bounds("2028-02")
     assert first == date(2028, 2, 1)
@@ -39,7 +48,7 @@ def test_payroll_net_uses_explicit_components_only():
 
 def test_legacy_direct_payroll_write_fails_closed_before_finance_route():
     routes = [
-        route for route in app.routes
+        route for route in _iter_registered_routes(app.routes)
         if getattr(route, "path", None) == "/api/ops/plants/{plant_id}/payroll"
         and "PUT" in getattr(route, "methods", set())
     ]
@@ -55,7 +64,7 @@ def test_pr32_mutations_are_shadowed_by_concurrency_safe_routes():
     }
     for (path, method), endpoint_name in expected.items():
         routes = [
-            route for route in app.routes
+            route for route in _iter_registered_routes(app.routes)
             if getattr(route, "path", None) == path and method in getattr(route, "methods", set())
         ]
         assert len(routes) >= 2
