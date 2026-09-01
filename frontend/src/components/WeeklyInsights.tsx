@@ -2,7 +2,6 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
@@ -23,7 +22,6 @@ const CHART_H = 96;
 /** Weekly volume ordered vs delivered + payments received — for plant owners. */
 export function WeeklyInsights() {
   const { colors } = useTheme();
-  const { token } = useAuth();
   const { data, loading } = useGet<Insights>("/owner/insights");
 
   if (loading && !data) return <Skeleton height={230} style={{ borderRadius: radius.lg }} />;
@@ -36,14 +34,12 @@ export function WeeklyInsights() {
     <View style={{ gap: spacing.sm }}>
       <AppText variant="heading">This Week</AppText>
       <Card style={{ gap: spacing.md }}>
-        {/* Totals */}
         <View style={styles.totals}>
-          <Total label="Ordered" value={`${data.totals.ordered} m³`} color={colors.brand} colors={colors} />
-          <Total label="Delivered" value={`${data.totals.delivered} m³`} color={colors.success} colors={colors} />
-          <Total label="Received" value={`₹${Number(data.totals.payments).toLocaleString("en-IN")}`} color={colors.onSurface} colors={colors} />
+          <Total label="Ordered" value={`${data.totals.ordered} m³`} color={colors.brand} />
+          <Total label="Delivered" value={`${data.totals.delivered} m³`} color={colors.success} />
+          <Total label="Received" value={`₹${Number(data.totals.payments).toLocaleString("en-IN")}`} color={colors.onSurface} />
         </View>
 
-        {/* Volume bars: ordered vs delivered */}
         <View style={styles.chart}>
           {data.labels.map((lbl, i) => (
             <View key={lbl + i} style={styles.col}>
@@ -56,13 +52,11 @@ export function WeeklyInsights() {
           ))}
         </View>
 
-        {/* Legend */}
         <View style={styles.legend}>
           <Dot color={colors.brand} label="Ordered" colors={colors} />
           <Dot color={colors.success} label="Delivered" colors={colors} />
         </View>
 
-        {/* Payments sparkline */}
         <View style={{ gap: 4 }}>
           <View style={styles.rowBetween}>
             <AppText variant="label">Payments received</AppText>
@@ -81,7 +75,7 @@ export function WeeklyInsights() {
   );
 }
 
-function Total({ label, value, color, colors }: any) {
+function Total({ label, value, color }: any) {
   return (
     <View style={{ flex: 1, gap: 2 }}>
       <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.lg, color }}>{value}</AppText>
