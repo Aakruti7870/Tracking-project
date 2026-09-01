@@ -6,7 +6,7 @@ import * as Haptics from "expo-haptics";
 
 import { AppText } from "@/src/components/ui/AppText";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { fonts, radius, spacing } from "@/src/theme/tokens";
+import { control, fonts, radius, spacing } from "@/src/theme/tokens";
 import type { TabDef } from "@/src/components/GlassTabBar";
 
 type Props = {
@@ -43,7 +43,7 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, { backgroundColor: colors.scrim }]}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onClose}
@@ -51,22 +51,23 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
           accessibilityLabel="Close quick actions"
         />
         <BlurView
-          intensity={scheme === "dark" ? 68 : 88}
+          intensity={scheme === "dark" ? 70 : 90}
           tint={scheme === "dark" ? "dark" : "light"}
           style={[
             styles.sheet,
             {
-              backgroundColor: scheme === "dark" ? "rgba(16,18,20,0.96)" : "rgba(255,255,255,0.96)",
-              borderColor: scheme === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,19,21,0.08)",
+              backgroundColor: colors.isDark ? "rgba(18,20,22,0.97)" : "rgba(255,255,255,0.97)",
+              borderColor: colors.isDark ? "rgba(255,255,255,0.11)" : "rgba(17,19,21,0.09)",
+              shadowColor: colors.shadow,
             },
           ]}
         >
           <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
           <View style={styles.headingRow}>
-            <View style={{ flex: 1, paddingRight: spacing.md }}>
-              <AppText style={[styles.eyebrow, { color: colors.brand }]}>{roleLabel.toUpperCase()}</AppText>
-              <AppText style={[styles.title, { color: colors.onSurface }]}>Quick Actions</AppText>
-              <AppText style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Jump to the task you need without hunting through menus.</AppText>
+            <View style={styles.headingCopy}>
+              <AppText variant="eyebrow">{roleLabel} COMMANDS</AppText>
+              <AppText variant="sectionTitle">Quick Actions</AppText>
+              <AppText variant="bodyMuted">Jump directly to the task you need without hunting through menus.</AppText>
             </View>
             <Pressable
               onPress={onClose}
@@ -86,7 +87,7 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
           </View>
 
           <View style={styles.grid}>
-            {tabs.map((tab) => (
+            {tabs.map((tab, index) => (
               <Pressable
                 key={tab.name}
                 onPress={() => runAction(tab)}
@@ -102,11 +103,14 @@ export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Pro
                   },
                 ]}
               >
-                <View style={[styles.actionIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "24" }]}> 
-                  <Ionicons name={tab.active} size={23} color={colors.brand} />
+                <View style={styles.actionTopRow}>
+                  <View style={[styles.actionIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "28" }]}>
+                    <Ionicons name={tab.active} size={23} color={colors.brand} />
+                  </View>
+                  <AppText style={[styles.index, { color: colors.onSurfaceTertiary }]}>{String(index + 1).padStart(2, "0")}</AppText>
                 </View>
                 <View style={styles.actionCopy}>
-                  <AppText style={[styles.actionLabel, { color: colors.onSurface }]}>{tab.label}</AppText>
+                  <AppText style={[styles.actionLabel, { color: colors.onSurface }]} numberOfLines={1}>{tab.label}</AppText>
                   <Ionicons name="arrow-forward" size={16} color={colors.onSurfaceTertiary} />
                 </View>
               </Pressable>
@@ -122,7 +126,6 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.46)",
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.lg,
   },
@@ -133,17 +136,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
-    shadowColor: "#000",
     shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.24,
-    shadowRadius: 30,
+    shadowOpacity: 0.26,
+    shadowRadius: 32,
     elevation: 20,
   },
   handle: {
     alignSelf: "center",
     width: 42,
     height: 4,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginBottom: spacing.md,
   },
   headingRow: {
@@ -152,12 +154,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: spacing.lg,
   },
-  eyebrow: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1.3, marginBottom: 4 },
-  title: { fontFamily: fonts.displayBold, fontSize: 24 },
-  subtitle: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  headingCopy: { flex: 1, paddingRight: spacing.md, gap: 4 },
   closeButton: {
-    width: 42,
-    height: 42,
+    width: control.iconButton,
+    height: control.iconButton,
     borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: "center",
@@ -171,20 +171,22 @@ const styles = StyleSheet.create({
   },
   action: {
     width: "48%",
-    minHeight: 112,
+    minHeight: 118,
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.md,
     justifyContent: "space-between",
   },
+  actionTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   actionIcon: {
-    width: 44,
-    height: 44,
+    width: 46,
+    height: 46,
     borderRadius: radius.md,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
+  index: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.6 },
   actionCopy: {
     flexDirection: "row",
     alignItems: "center",
