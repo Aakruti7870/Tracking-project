@@ -40,6 +40,12 @@ jobs:
       OTP_PEPPER: ci-only-tracking-project-otp-pepper-32chars-minimum
       DEBUG_OTP: "true"
       OTP_RESEND_SECONDS: "1"
+      # The full integration suite intentionally performs many requests from
+      # one loopback client; production retains the secure config defaults.
+      RATE_LIMIT_AUTH_IP: "10000"
+      RATE_LIMIT_AUTH_ACCOUNT: "10000"
+      RATE_LIMIT_PUBLIC: "10000"
+      RATE_LIMIT_AUTHENTICATED: "10000"
       CORS_ORIGINS: http://127.0.0.1:8081
       EXPO_PUBLIC_BACKEND_URL: http://127.0.0.1:8000
       STORAGE_MODE: local

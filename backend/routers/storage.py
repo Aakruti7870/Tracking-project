@@ -20,7 +20,7 @@ import requests
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
 from config import settings
@@ -181,7 +181,8 @@ def _validate_image(data: bytes) -> tuple[bytes, str, str]:
             # Re-encoding, rather than retaining attacker-controlled bytes,
             # strips metadata and any trailing polyglot/code payload.
             clean = BytesIO()
-            save_image = image.convert("RGB") if fmt == "JPEG" else image.copy()
+            oriented = ImageOps.exif_transpose(image)
+            save_image = oriented.convert("RGB") if fmt == "JPEG" else oriented.copy()
             save_image.save(clean, format=fmt)
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         raise HTTPException(422, "Invalid image file")

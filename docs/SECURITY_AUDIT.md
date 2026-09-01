@@ -16,7 +16,7 @@ Every API request is limited. Authentication/deletion routes use independent per
 
 `pip-audit` initially reported nine Starlette advisories (severity was not supplied by that data source). FastAPI and Starlette were upgraded to 0.141.1 and 1.6.0 respectively, clearing the Python runtime audit. npm overrides safely update vulnerable transitive `@eslint/plugin-kit`, PostCSS, UUID, and `decode-uri-component` versions.
 
-Eight **high** npm findings remain, all from two denial-of-service advisories against `image-size` through Expo 54/Metro. npm reports that remediation requires the breaking Expo 57 upgrade, so it was intentionally not forced into this security patch. The package is build tooling rather than backend request-processing code; schedule and test the Expo SDK migration separately.
+Eight **high** npm findings remain, all from two denial-of-service advisories against `image-size` through Expo 54/Metro. npm reports that remediation requires the breaking Expo 57 upgrade, so it was intentionally not forced into this security patch. Overriding `image-size` alone is unsafe because Expo 54's Metro version requires the 1.x CommonJS API. The package is build tooling rather than backend request-processing code; schedule and test the coordinated Expo SDK migration separately.
 
 ## Secrets
 
