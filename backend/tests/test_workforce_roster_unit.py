@@ -1,21 +1,10 @@
 """Unit coverage for PR35 shift, roster and geofence attendance controls."""
 from datetime import datetime, timezone
 
+from fastapi.routing import iter_route_contexts
+
 from routers.workforce_roster import classify_shift, haversine_distance_m, shift_window
 from server import app
-
-
-def _iter_registered_routes(routes):
-    """Yield effective leaf routes across old and lazy FastAPI router layouts."""
-    for route in routes:
-        effective_candidates = getattr(route, "effective_candidates", None)
-        if callable(effective_candidates):
-            yield from _iter_registered_routes(effective_candidates())
-            continue
-        yield route
-        nested = getattr(route, "routes", None)
-        if nested:
-            yield from _iter_registered_routes(nested)
 
 
 def test_haversine_distance_handles_geofence_boundary_scale():
@@ -66,8 +55,8 @@ def test_geofence_attendance_routes_shadow_original_workforce_punch_routes():
     }
     for (path, method), endpoint_name in expected.items():
         routes = [
-            route for route in _iter_registered_routes(app.routes)
-            if getattr(route, "path", None) == path and method in getattr(route, "methods", set())
+            route for route in iter_route_contexts(app.routes)
+            if route.path == path and method in route.methods
         ]
         assert len(routes) >= 2
         assert routes[0].endpoint.__name__ == endpoint_name
