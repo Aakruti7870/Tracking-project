@@ -17,7 +17,6 @@ from security import identifier_key
 REVIEW_ROLES = {
     Role.CUSTOMER.value,
     Role.PLANT_OWNER.value,
-    Role.AUTHORITY.value,
     Role.DRIVER.value,
 }
 
@@ -33,10 +32,6 @@ _REVIEW_IDENTITIES = {
     Role.PLANT_OWNER.value: {
         "name": "Google Play Review Owner",
         "email": "play-review-owner@trackmyrmc.test",
-    },
-    Role.AUTHORITY.value: {
-        "name": "Google Play Review Authority",
-        "email": "play-review-authority@trackmyrmc.test",
     },
 }
 
@@ -89,7 +84,6 @@ async def _ensure_fixture() -> dict[str, dict]:
         Role.PLANT_OWNER.value,
         Role.CUSTOMER.value,
         Role.DRIVER.value,
-        Role.AUTHORITY.value,
     ):
         accounts[role] = await _ensure_user(role)
 

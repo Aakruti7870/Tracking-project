@@ -18,7 +18,6 @@ import { radius, spacing } from "@/src/theme/tokens";
 const ROLES: { role: PlayReviewRole; label: string; description: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { role: "customer", label: "User / Customer", description: "Customer ordering and delivery experience", icon: "person-outline" },
   { role: "plant_owner", label: "Plant Owner", description: "Plant operations and owner dashboard", icon: "business-outline" },
-  { role: "authority", label: "Authority", description: "Verification and authority workflow", icon: "shield-checkmark-outline" },
   { role: "driver", label: "Driver", description: "Trip, live delivery tracking and POD", icon: "car-outline" },
 ];
 

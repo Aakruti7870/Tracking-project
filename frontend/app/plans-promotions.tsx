@@ -11,7 +11,6 @@ import { AppText } from "@/src/components/ui/AppText";
 import { Badge } from "@/src/components/ui/Badge";
 import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
-import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { useToast } from "@/src/components/ui/Toast";
 import { useGet } from "@/src/hooks/useApi";
@@ -31,14 +30,14 @@ type Quote = { product: string; plan: string; price: number; discount: number; p
 type PaymentStatus = "PAYMENT_PENDING" | "PAID" | "FAILED" | "USER_DROPPED";
 type PaymentOrder = { order_number: string; status: PaymentStatus; product: string; plan: string; payable: number; activation_id?: string };
 type CheckoutResult = { status: PaymentStatus; order_number: string; payable: number; payment_session_id?: string; cashfree_environment?: string };
-type Tab = "PREMIUM" | "PROMOTION" | "PROMO_CODES";
+type Tab = "PREMIUM" | "PROMOTION";
 
 const money = (value: number) => `₹${value.toLocaleString("en-IN")}`;
 const prettyPlan = (value?: string) => (value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 export default function PlansPromotions() {
   const { colors } = useTheme();
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -54,17 +53,10 @@ export default function PlansPromotions() {
   const [promoCode, setPromoCode] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
-  const [freeMode, setFreeMode] = useState(false);
-  const [reason, setReason] = useState("");
-  const [paymentReference, setPaymentReference] = useState("");
-  const [codeName, setCodeName] = useState("");
-  const [codeValue, setCodeValue] = useState("25");
-  const [codeDays, setCodeDays] = useState("30");
   const [paymentOrder, setPaymentOrder] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
   const refetchRef = useRef(refetch);
 
-  const authority = user?.role === "authority" || user?.role === "central_admin";
   const location = (value?: string) => value?.trim() || "Not specified";
   const stateOptions = useMemo(() => Array.from(new Set((data?.plants || []).map((p) => location(p.state)))).sort(), [data]);
   const districtOptions = useMemo(() => Array.from(new Set((data?.plants || [])
@@ -133,11 +125,9 @@ export default function PlansPromotions() {
     finally { setBusy(false); }
   };
 
-  const activate = async (mode: "ONLINE_PAYMENT" | "OFFLINE_PAYMENT" | "AUTHORITY_FREE") => {
+  const activate = async () => {
     if (!token || !plant) return;
-    if (mode === "ONLINE_PAYMENT" && !cashfreeCheckout.available) return toast("Secure payment is available in the Android app.", "error");
-    if (mode === "AUTHORITY_FREE" && !reason.trim()) return toast("Enter a reason for free activation", "error");
-    if (mode === "OFFLINE_PAYMENT" && !paymentReference.trim()) return toast("Enter the verified payment reference", "error");
+    if (!cashfreeCheckout.available) return toast("Secure payment is available in the Android app.", "error");
     setBusy(true);
     try {
       const result = await apiPost<CheckoutResult>("/plant-plans/activate", token, {
@@ -145,8 +135,7 @@ export default function PlansPromotions() {
         duration_days: tab === "PROMOTION" ? duration : undefined,
         premium_plan: tab === "PREMIUM" ? premiumPlan : undefined,
         promo_code: promoCode.trim() || undefined,
-        activation_mode: mode, reason: reason.trim() || undefined,
-        payment_reference: paymentReference.trim() || undefined,
+        activation_mode: "ONLINE_PAYMENT",
       });
       if (result.status === "PAYMENT_PENDING") {
         if (!result.payment_session_id) throw { detail: "Cashfree did not return a payment session" };
@@ -160,16 +149,7 @@ export default function PlansPromotions() {
     finally { setBusy(false); }
   };
 
-  const createCode = async () => {
-    if (!token || !codeName.trim()) return toast("Enter a promo code", "error");
-    const ends = new Date(Date.now() + Math.max(1, Number(codeDays || 30)) * 86400000).toISOString();
-    setBusy(true);
-    try {
-      await apiPost("/plant-plans/promo-codes", token, { code: codeName.trim(), product: "PROMOTION", discount_type: "PERCENT", discount_value: Number(codeValue), max_uses: 100, ends_at: ends });
-      toast("Promo code created", "success"); setCodeName("");
-    } catch (e: any) { toast(e.detail || "Could not create promo code", "error"); }
-    finally { setBusy(false); }
-  };
+
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   return (
@@ -177,8 +157,8 @@ export default function PlansPromotions() {
       <View style={{ height: insets.top }} />
       <View style={[styles.header, { backgroundColor: "#01153E" }]}>
         <Pressable testID="plans-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#fff" /></Pressable>
-        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Plans &amp; Promotions</AppText><AppText style={styles.headerSub}>{authority ? "Authority control centre" : "Grow your RMC business"}</AppText></View>
-        <Ionicons name={authority ? "shield-checkmark-outline" : "diamond-outline"} size={26} color="#FF6A00" />
+        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Plans &amp; Promotions</AppText><AppText style={styles.headerSub}>Grow your RMC business</AppText></View>
+        <Ionicons name="diamond-outline" size={26} color="#FF6A00" />
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 80, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
         {loading && !data ? <><Skeleton height={72} /><Skeleton height={220} /></> : !plant ? <Card><AppText>No plant is assigned to this account.</AppText></Card> : <>
@@ -201,7 +181,7 @@ export default function PlansPromotions() {
           />
 
           <View style={[styles.tabs, { borderColor: colors.border }]}>
-            {(["PREMIUM", "PROMOTION", ...(authority ? ["PROMO_CODES"] : [])] as Tab[]).map((value) => <Pressable key={value} onPress={() => setTab(value)} style={[styles.tab, tab === value && { backgroundColor: colors.brand }]}><AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: tab === value ? colors.onBrand : colors.onSurfaceSecondary }}>{value === "PROMO_CODES" ? "Promo Codes" : prettyPlan(value)}</AppText></Pressable>)}
+            {(["PREMIUM", "PROMOTION"] as Tab[]).map((value) => <Pressable key={value} onPress={() => setTab(value)} style={[styles.tab, tab === value && { backgroundColor: colors.brand }]}><AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: tab === value ? colors.onBrand : colors.onSurfaceSecondary }}>{prettyPlan(value)}</AppText></Pressable>)}
           </View>
 
           <View style={styles.statusRow}>
@@ -209,17 +189,17 @@ export default function PlansPromotions() {
             <Card style={{ flex: 1, gap: 5 }}><AppText variant="label">Plant Promotion</AppText><Badge label={plant.promotion ? "Promoted" : "Not active"} status={plant.promotion ? "DELIVERED" : "PENDING"} /><AppText variant="caption">Separate from Premium</AppText></Card>
           </View>
 
-          {tab === "PROMO_CODES" ? <Card style={{ gap: spacing.md }}><AppText variant="heading">Create Promo Code</AppText><AppText variant="caption">Authority-only. Plant Owners can apply issued codes but cannot create or activate free.</AppText><Input label="Code" value={codeName} onChangeText={setCodeName} autoCapitalize="characters" placeholder="RMCGOLD25" /><View style={styles.statusRow}><View style={{ flex: 1 }}><Input label="Discount %" value={codeValue} onChangeText={setCodeValue} keyboardType="number-pad" /></View><View style={{ flex: 1 }}><Input label="Valid days" value={codeDays} onChangeText={setCodeDays} keyboardType="number-pad" /></View></View><Button label="Create Promo Code" onPress={createCode} loading={busy} /></Card> : <>
+          <>
             <View style={{ gap: spacing.sm }}><AppText variant="heading">{tab === "PROMOTION" ? "Activate Plant Promotion" : "Choose Premium Plan"}</AppText><View style={styles.planRow}>
               {tab === "PROMOTION" ? [7, 15, 30].map((d) => <PlanCard key={d} selected={duration === d} label={`${d} Days`} price={data!.promotion_prices[String(d)]} onPress={() => setDuration(d)} colors={colors} />) : Object.entries(data!.premium_plans).map(([key, value]) => <PlanCard key={key} selected={premiumPlan === key} label={`${prettyPlan(key)} · ${value.months}M`} price={value.price} onPress={() => setPremiumPlan(key)} colors={colors} />)}
             </View></View>
             <Card style={{ gap: spacing.sm }}><View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}><View style={{ flex: 1 }}><AppText variant="label">Promo code (optional)</AppText><TextInput value={promoCode} onChangeText={setPromoCode} autoCapitalize="characters" placeholder="Enter Authority-issued code" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.textInput, { borderColor: colors.border, color: colors.onSurface }]} /></View><Pressable onPress={requestQuote} style={[styles.apply, { borderColor: colors.brand }]}><AppText color={colors.brand} style={{ fontFamily: fonts.semibold }}>Apply</AppText></Pressable></View>
               {quote ? <View style={[styles.quote, { borderTopColor: colors.divider }]}><Line label="Plan price" value={money(quote.price)} /><Line label="Promo discount" value={`−${money(quote.discount)}`} green /><Line label="Payable" value={money(quote.payable)} bold /></View> : null}
             </Card>
-            {authority ? <Card style={{ gap: spacing.md }}><View style={styles.toggleRow}><Pressable onPress={() => setFreeMode(false)}><Ionicons name={freeMode ? "radio-button-off" : "radio-button-on"} size={22} color={colors.brand} /></Pressable><AppText style={{ flex: 1 }}>Verified offline payment</AppText><Pressable onPress={() => setFreeMode(true)}><Ionicons name={freeMode ? "radio-button-on" : "radio-button-off"} size={22} color={colors.brand} /></Pressable><AppText>Free by Authority</AppText></View>{freeMode ? <Input label="Reason (required)" value={reason} onChangeText={setReason} placeholder="Authority approval reason" /> : <Input label="Payment reference (required)" value={paymentReference} onChangeText={setPaymentReference} placeholder="UPI / bank / receipt reference" />}<Button label={freeMode ? "Activate Free as Authority" : "Activate Verified Payment"} onPress={() => activate(freeMode ? "AUTHORITY_FREE" : "OFFLINE_PAYMENT")} loading={busy} /></Card> : <Button label={`Continue to Secure Payment${quote ? ` · ${money(quote.payable)}` : ""}`} onPress={() => activate("ONLINE_PAYMENT")} loading={busy} disabled={paymentStatus === "PAYMENT_PENDING"} />}
+            <Button label={`Continue to Secure Payment${quote ? ` · ${money(quote.payable)}` : ""}`} onPress={activate} loading={busy} disabled={paymentStatus === "PAYMENT_PENDING"} />
             {paymentOrder ? <Card style={{ gap: spacing.sm }}><View style={styles.line}><AppText variant="label">Payment order</AppText><Badge label={prettyPlan(paymentStatus || "PAYMENT_PENDING")} status={paymentStatus === "PAID" ? "DELIVERED" : paymentStatus === "FAILED" || paymentStatus === "USER_DROPPED" ? "CANCELLED" : "PENDING"} /></View><AppText>{paymentOrder}</AppText><AppText variant="caption">{paymentStatus === "PAID" ? "Cashfree verified the payment and access is active." : paymentStatus === "FAILED" || paymentStatus === "USER_DROPPED" ? "No access was activated. You can safely retry payment." : "Waiting for Cashfree's signed webhook. Access remains locked until verification."}</AppText></Card> : null}
-            <View style={styles.audit}><Ionicons name="shield-checkmark-outline" size={18} color={colors.brand} /><AppText variant="caption" style={{ flex: 1 }}>Free or discounted activation records Authority, reason and expiry. Payment orders do not grant access until payment is verified.</AppText></View>
-          </>}
+            <View style={styles.audit}><Ionicons name="shield-checkmark-outline" size={18} color={colors.brand} /><AppText variant="caption" style={{ flex: 1 }}>Payment orders do not grant access until payment is verified by Cashfree.</AppText></View>
+          </>
         </>}
       </ScrollView>
     </View>

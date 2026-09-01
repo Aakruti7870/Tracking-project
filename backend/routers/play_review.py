@@ -2,7 +2,7 @@
 
 This bypass exists solely to satisfy Play review requirements for apps whose
 normal authentication uses OTP or third-party sign-in. It is disabled by
-default, guarded by a server-side fixed review OTP, limited to four review
+default, guarded by a server-side fixed review OTP, limited to three review
 roles and issues an ordinary revocable TrackMyRMC session.
 """
 from secrets import compare_digest
@@ -20,7 +20,7 @@ from security import issue_jwt, new_session_id, utcnow
 
 router = APIRouter(prefix="/api/auth", tags=["auth", "play-review"])
 
-ReviewRole = Literal["customer", "plant_owner", "authority", "driver"]
+ReviewRole = Literal["customer", "plant_owner", "driver"]
 
 
 class PlayReviewAccessBody(BaseModel):
@@ -42,7 +42,6 @@ async def play_review_access(body: PlayReviewAccessBody):
     allowed = {
         Role.CUSTOMER.value,
         Role.PLANT_OWNER.value,
-        Role.AUTHORITY.value,
         Role.DRIVER.value,
     }
     if body.role not in allowed:

@@ -556,7 +556,7 @@ export function BusinessModule({ kind }: { kind: string }) {
                     <View style={{ flex: 1 }}><Button label="Stock Out" variant="outline" onPress={() => openAdjustment(r, -1)} /></View>
                   </View>
                 ) : null}
-                {kind === "staff" && !["plant_owner", "central_admin", "customer"].includes(r.raw?.role) ? (
+                {kind === "staff" && STAFF_ROLE_OPTIONS.some((option) => option.value === r.raw?.role) ? (
                   <Button label={(r.raw?.status || "active") === "active" ? "Suspend" : "Activate"} variant="outline" onPress={() => toggleStaff(r)} />
                 ) : null}
               </Card>

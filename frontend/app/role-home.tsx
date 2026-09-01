@@ -25,8 +25,6 @@ const NAV_BLUEPRINT: Record<string, string[]> = {
   quality_engineer: ["Home", "Quality", "Mix Design", "More"],
   fleet_manager: ["Home", "Fleet", "Drivers", "More"],
   store_manager: ["Home", "Stock", "Purchase", "More"],
-  authority: ["Home", "Plants", "KYC", "More"],
-  central_admin: ["Dashboard", "Plants", "Users", "Compliance", "System"],
 };
 
 export default function RoleHome() {

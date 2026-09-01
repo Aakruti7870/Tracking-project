@@ -43,7 +43,6 @@ const DEMO_LOGIN_ENABLED = process.env.EXPO_PUBLIC_ENABLE_DEMO_LOGIN === "1";
 const DEMO_ROLES = [
   { role: "customer", label: "User" },
   { role: "plant_owner", label: "Owner" },
-  { role: "authority", label: "Authority" },
   { role: "driver", label: "Driver" },
 ];
 

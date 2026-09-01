@@ -103,10 +103,11 @@ const login = (() => {
   return entry;
 })();
 const config = read('backend/config.py');
-for (const role of ['customer', 'plant_owner', 'authority', 'driver']) {
+for (const role of ['customer', 'plant_owner', 'driver']) {
   expectIncludes(reviewScreen, `role: "${role}"`, `Review screen is missing ${role}.`);
   expectIncludes(reviewRouter, role, `Reviewer backend is missing ${role}.`);
 }
+expect(!reviewScreen.includes('role: "authority"'), 'Authority must not be exposed through mobile reviewer access.');
 expectIncludes(login, 'testID="login-review-access"', 'Reviewer access control must be present on sign-in.');
 expectIncludes(login, 'router.push("/review-access"', 'Reviewer access control must route directly from sign-in to the reviewer login screen.');
 expectIncludes(login, 'REVIEW APP', 'Reviewer access must remain visibly labeled on sign-in.');
