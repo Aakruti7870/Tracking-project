@@ -4,7 +4,8 @@ from typing import Literal, Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from database import notifications
 from push_notifications import device_push_tokens, ensure_push_indexes
@@ -13,14 +14,14 @@ from security import current_user
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
-class DeviceTokenBody(BaseModel):
+class DeviceTokenBody(StrictModel):
     token: str = Field(min_length=20, max_length=4096)
     platform: Literal["android", "ios"] = "android"
     device_id: Optional[str] = Field(default=None, max_length=256)
     app_version: Optional[str] = Field(default=None, max_length=64)
 
 
-class DeviceTokenRemoveBody(BaseModel):
+class DeviceTokenRemoveBody(StrictModel):
     token: str = Field(min_length=20, max_length=4096)
 
 

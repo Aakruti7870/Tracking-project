@@ -35,7 +35,6 @@ STORAGE_MODE = os.environ.get("STORAGE_MODE", "remote").strip().lower()
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "").strip()
 LOCAL_STORAGE_DIR = Path(os.environ.get("LOCAL_STORAGE_DIR", "/tmp/trackmyrmc-storage"))
 APP_NAME = "trackmyrmc"
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_FORMATS = {
     "JPEG": ("jpg", "image/jpeg"),
     "PNG": ("png", "image/png"),
@@ -166,20 +165,39 @@ def _get(path: str) -> tuple[bytes, str]:
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
-def _validate_image(data: bytes) -> tuple[str, str]:
+def _validate_image(data: bytes) -> tuple[bytes, str, str]:
     if not data:
         raise HTTPException(422, "Empty image upload")
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(413, "Image too large (max 8MB)")
+    if len(data) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Image exceeds the configured upload limit")
     try:
         with Image.open(BytesIO(data)) as image:
             fmt = (image.format or "").upper()
-            image.verify()
+            if image.width * image.height > settings.MAX_IMAGE_PIXELS:
+                raise HTTPException(413, "Image dimensions exceed the configured limit")
+            image.load()
+            if fmt not in ALLOWED_IMAGE_FORMATS:
+                raise HTTPException(422, "Only JPEG, PNG or WebP images are allowed")
+            # Re-encoding, rather than retaining attacker-controlled bytes,
+            # strips metadata and any trailing polyglot/code payload.
+            clean = BytesIO()
+            save_image = image.convert("RGB") if fmt == "JPEG" else image.copy()
+            save_image.save(clean, format=fmt)
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         raise HTTPException(422, "Invalid image file")
-    if fmt not in ALLOWED_IMAGE_FORMATS:
-        raise HTTPException(422, "Only JPEG, PNG or WebP images are allowed")
-    return ALLOWED_IMAGE_FORMATS[fmt]
+    ext, content_type = ALLOWED_IMAGE_FORMATS[fmt]
+    return clean.getvalue(), ext, content_type
+
+
+async def _read_upload_limited(file: UploadFile) -> bytes:
+    chunks = []
+    size = 0
+    while chunk := await file.read(64 * 1024):
+        size += len(chunk)
+        if size > settings.MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "Image exceeds the configured upload limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _oid(value: str | None):
@@ -271,8 +289,8 @@ async def upload(
     if not trip or trip.get("status") not in ("ARRIVED", "UNLOADING", "POD_PENDING"):
         raise HTTPException(404, "Active trip not found")
 
-    data = await file.read()
-    ext, detected_content_type = _validate_image(data)
+    data = await _read_upload_limited(file)
+    data, ext, detected_content_type = _validate_image(data)
     supplied_type = (file.content_type or "").lower()
     if supplied_type and supplied_type not in {detected_content_type, "application/octet-stream"}:
         raise HTTPException(422, "File content does not match declared image type")
@@ -315,5 +333,10 @@ async def files(path: str, authorization: str = Header(default="")):
     return Response(
         content=content,
         media_type=ct,
-        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": "attachment",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
     )

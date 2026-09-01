@@ -15,7 +15,8 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -54,11 +55,11 @@ accountant_only = require_role(Role.ACCOUNTANT.value)
 employee_only = require_role(*EMPLOYEE_ROLES)
 
 
-class ReopenPayrollPeriodBody(BaseModel):
+class ReopenPayrollPeriodBody(StrictModel):
     reason: str = Field(min_length=5, max_length=1000)
 
 
-class ClosePayrollPeriodBody(BaseModel):
+class ClosePayrollPeriodBody(StrictModel):
     note: str | None = Field(default=None, max_length=1000)
 
 

@@ -20,7 +20,8 @@ from urllib.parse import quote
 from bson import ObjectId
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 
 from audit import write_audit
@@ -43,7 +44,7 @@ RECOVERY_CODE_COUNT = 10
 RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
-class IdentifierBody(BaseModel):
+class IdentifierBody(StrictModel):
     identifier: str = Field(min_length=3, max_length=254)
 
 
@@ -51,7 +52,7 @@ class TotpLoginBody(IdentifierBody):
     code: str = Field(min_length=6, max_length=8)
 
 
-class ConfirmEnrollmentBody(BaseModel):
+class ConfirmEnrollmentBody(StrictModel):
     code: str = Field(min_length=6, max_length=8)
 
 
@@ -59,7 +60,7 @@ class RecoveryLoginBody(IdentifierBody):
     recovery_code: str = Field(min_length=8, max_length=32)
 
 
-class ResetUserMfaBody(BaseModel):
+class ResetUserMfaBody(StrictModel):
     target_user_id: str = Field(min_length=3, max_length=64)
     actor_code: str = Field(min_length=6, max_length=8)
 

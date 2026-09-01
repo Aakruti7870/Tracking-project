@@ -6,7 +6,8 @@ import math
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from audit import write_audit
 from database import (
@@ -257,7 +258,7 @@ async def compare_plants(
     return {"estimates": estimates, "count": len(estimates), "disclaimer": "Estimate only. Final price, delivery eligibility and tax invoice require plant confirmation."}
 
 
-class QuotationRequestBody(BaseModel):
+class QuotationRequestBody(StrictModel):
     plant_id: str
     site_id: str | None = Field(default=None, max_length=128)
     grade: str = Field(pattern=r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$")

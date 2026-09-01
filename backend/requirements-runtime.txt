@@ -1,7 +1,7 @@
 # Minimal runtime dependencies for the TrackMyRMC FastAPI backend.
 # Keep deployment independent from Emergent workspace-only/private packages.
-fastapi==0.110.1
-starlette==0.37.2
+fastapi==0.141.1
+starlette==1.6.0
 uvicorn==0.25.0
 motor==3.3.1
 pymongo==4.6.3

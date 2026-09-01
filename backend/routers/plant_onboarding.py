@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from audit import write_audit
 from database import next_sequence, plant_listing_requests, plants
@@ -21,7 +22,7 @@ from security import normalize_identifier
 router = APIRouter(prefix="/api/plant-onboarding", tags=["plant-onboarding"])
 
 
-class PlantOnboardingBody(BaseModel):
+class PlantOnboardingBody(StrictModel):
     owner_name: str = Field(min_length=2, max_length=120)
     email: str = Field(min_length=5, max_length=254)
     mobile: str = Field(min_length=10, max_length=32)

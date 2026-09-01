@@ -10,7 +10,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -45,21 +46,21 @@ owner_only = require_role(Role.PLANT_OWNER.value)
 LEAVE_TYPES = ("CASUAL", "SICK", "PAID", "UNPAID", "OTHER")
 
 
-class LocationEvidence(BaseModel):
+class LocationEvidence(StrictModel):
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
     accuracy_m: float | None = Field(default=None, ge=0, le=10000)
     note: str | None = Field(default=None, max_length=500)
 
 
-class LeaveRequestBody(BaseModel):
+class LeaveRequestBody(StrictModel):
     leave_type: Literal["CASUAL", "SICK", "PAID", "UNPAID", "OTHER"]
     start_date: date
     end_date: date
     reason: str = Field(min_length=3, max_length=1000)
 
 
-class VisitRequestBody(BaseModel):
+class VisitRequestBody(StrictModel):
     client_name: str = Field(min_length=2, max_length=160)
     purpose: str = Field(min_length=3, max_length=1000)
     scheduled_for: datetime
@@ -72,7 +73,7 @@ class VisitActionBody(LocationEvidence):
     outcome: str | None = Field(default=None, max_length=1000)
 
 
-class ExpenseClaimBody(BaseModel):
+class ExpenseClaimBody(StrictModel):
     category: str = Field(min_length=2, max_length=64)
     amount: float = Field(gt=0, le=10_000_000)
     expense_date: date
@@ -80,12 +81,12 @@ class ExpenseClaimBody(BaseModel):
     receipt_reference: str | None = Field(default=None, max_length=500)
 
 
-class DecisionBody(BaseModel):
+class DecisionBody(StrictModel):
     action: Literal["APPROVE", "REJECT"]
     note: str | None = Field(default=None, max_length=1000)
 
 
-class AccountantExpenseDecisionBody(BaseModel):
+class AccountantExpenseDecisionBody(StrictModel):
     action: Literal["VERIFY", "RETURN"]
     note: str | None = Field(default=None, max_length=1000)
 

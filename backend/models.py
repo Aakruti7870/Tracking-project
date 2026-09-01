@@ -2,7 +2,8 @@
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from database import BaseDocument
 
@@ -100,16 +101,16 @@ class KycProfile(BaseDocument):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-class RequestOtpBody(BaseModel):
+class RequestOtpBody(StrictModel):
     identifier: str = Field(min_length=3, max_length=254)
 
 
-class VerifyOtpBody(BaseModel):
+class VerifyOtpBody(StrictModel):
     identifier: str = Field(min_length=3, max_length=254)
     code: str = Field(min_length=4, max_length=10, pattern=r"^\d+$")
 
 
-class CreateOrderBody(BaseModel):
+class CreateOrderBody(StrictModel):
     plant_id: str = Field(min_length=1, max_length=128)
     quotation_id: Optional[str] = Field(default=None, max_length=128)
     site_id: Optional[str] = Field(default=None, max_length=128)
@@ -128,26 +129,26 @@ class CreateOrderBody(BaseModel):
     save_draft: bool = False
 
 
-class RejectOrderBody(BaseModel):
+class RejectOrderBody(StrictModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
-class AssignTmBody(BaseModel):
+class AssignTmBody(StrictModel):
     vehicle_id: str = Field(min_length=1, max_length=128)
 
 
-class AssignDriverBody(BaseModel):
+class AssignDriverBody(StrictModel):
     driver_id: str = Field(min_length=1, max_length=128)
 
 
-class ChallanBody(BaseModel):
+class ChallanBody(StrictModel):
     batcher: Optional[str] = Field(default=None, max_length=160)
     supervisor: Optional[str] = Field(default=None, max_length=160)
     quality_engineer: Optional[str] = Field(default=None, max_length=160)
     remarks: Optional[str] = Field(default=None, max_length=2000)
 
 
-class PodBody(BaseModel):
+class PodBody(StrictModel):
     receiver_name: str = Field(min_length=1, max_length=160)
     delivered_quantity: float = Field(gt=0, le=10000)
     remarks: Optional[str] = Field(default=None, max_length=2000)
@@ -157,38 +158,38 @@ class PodBody(BaseModel):
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
-class GeoBody(BaseModel):
+class GeoBody(StrictModel):
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
-class SosBody(BaseModel):
+class SosBody(StrictModel):
     type: Literal["Emergency", "Accident", "Breakdown", "Safety"]
     remark: Optional[str] = Field(default=None, max_length=2000)
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
-class ProductionBatchBody(BaseModel):
+class ProductionBatchBody(StrictModel):
     quantity: float = Field(gt=0, le=10000)
     batch_reference: Optional[str] = Field(default=None, max_length=160)
     remarks: Optional[str] = Field(default=None, max_length=2000)
     consume_materials: bool = True
 
 
-class PaymentBody(BaseModel):
+class PaymentBody(StrictModel):
     amount: float = Field(gt=0, le=1000000000)
     method: Literal["cash", "card", "upi", "bank_transfer", "cheque"] = "cash"
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
-class LocationBody(BaseModel):
+class LocationBody(StrictModel):
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
     accuracy: Optional[float] = Field(default=None, ge=0, le=10000)
 
 
-class KycDecisionBody(BaseModel):
+class KycDecisionBody(StrictModel):
     reason: Optional[str] = Field(default=None, max_length=1000)
 
 
@@ -206,7 +207,7 @@ MaterialCode = Literal[
 ]
 
 
-class MaterialBody(BaseModel):
+class MaterialBody(StrictModel):
     name: str = Field(min_length=1, max_length=160)
     code: Optional[MaterialCode] = None
     unit: str = Field(min_length=1, max_length=32)
@@ -214,21 +215,21 @@ class MaterialBody(BaseModel):
     reorder: float = Field(ge=0, le=1000000000)
 
 
-class StockAdjustBody(BaseModel):
+class StockAdjustBody(StrictModel):
     delta: float = Field(ge=-1000000000, le=1000000000)
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
-class VehicleBody(BaseModel):
+class VehicleBody(StrictModel):
     tm_number: str = Field(min_length=1, max_length=64)
     capacity_m3: float = Field(gt=0, le=100)
 
 
-class VehicleStatusBody(BaseModel):
+class VehicleStatusBody(StrictModel):
     status: Literal["available", "maintenance"]
 
 
-class QualityTestBody(BaseModel):
+class QualityTestBody(StrictModel):
     order_id: str = Field(min_length=1, max_length=128)
     slump_mm: Optional[float] = Field(default=None, ge=0, le=1000)
     cube_7d: Optional[float] = Field(default=None, ge=0, le=1000)

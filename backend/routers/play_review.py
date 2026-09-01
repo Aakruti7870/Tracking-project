@@ -9,7 +9,8 @@ from secrets import compare_digest
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from audit import write_audit
 from config import settings
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth", "play-review"])
 ReviewRole = Literal["customer", "plant_owner", "authority", "driver"]
 
 
-class PlayReviewAccessBody(BaseModel):
+class PlayReviewAccessBody(StrictModel):
     role: ReviewRole
     # The configured Play Console reviewer credential is a reusable six-digit
     # OTP. The value remains server-side in PLAY_REVIEW_ACCESS_CODE; 123456 is
