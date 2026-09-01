@@ -1,0 +1,72 @@
+name: Kotlin Trip Location Validation
+
+on:
+  push:
+    branches:
+      - feat/kimi-k3-agent
+    paths:
+      - "frontend/modules/trip-location/**"
+      - "frontend/src/location/tripTracking.ts"
+      - ".github/workflows/kimi-kotlin-trip-location-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kotlin-trip-location-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      EXPO_PUBLIC_BACKEND_URL: https://api.example.invalid
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Play policy readiness
+        working-directory: frontend
+        run: npm run check:play-policy
+
+      - name: Generate Android project
+        working-directory: frontend
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build Android debug APK with Kotlin module
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify native trip location service merged into Android app
+        working-directory: frontend/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -R "com.trackmyrmc.triplocation.TripLocationService" app/build/intermediates/merged_manifests app/build/intermediates/packaged_manifests 2>/dev/null; then
+            echo "TripLocationService is missing from the generated Android manifest."
+            exit 1
+          fi
+          test -s app/build/outputs/apk/debug/app-debug.apk
