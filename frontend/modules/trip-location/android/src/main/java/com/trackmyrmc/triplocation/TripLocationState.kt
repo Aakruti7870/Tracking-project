@@ -79,7 +79,7 @@ internal object TripLocationState {
       return
     }
     val array = JSONArray()
-    queue.forEach(array::put)
+    queue.forEach { payload -> array.put(payload) }
     prefs(context).edit().putString(KEY_QUEUE, encrypt(array.toString())).apply()
   }
 
