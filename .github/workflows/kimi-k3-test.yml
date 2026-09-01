@@ -1,6 +1,9 @@
 name: Kimi K3 Connection Test
 
 on:
+  push:
+    branches:
+      - feat/kimi-k3-agent
   workflow_dispatch:
 
 jobs:
