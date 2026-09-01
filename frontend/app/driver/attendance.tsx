@@ -11,7 +11,7 @@ import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
-import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { fonts, fontSize, spacing } from "@/src/theme/tokens";
 
 type Att = { date: string; check_in: string | null; check_out: string | null };
 
