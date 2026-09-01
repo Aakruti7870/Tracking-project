@@ -25,7 +25,13 @@ class _FakeCollection:
     def __init__(self, value):
         self.value = value
 
-    async def find_one(self, _query):
+    async def find_one(self, _query, **_kwargs):
+        # Mirror Motor/PyMongo's real signature: find_one() accepts extra
+        # keyword arguments (e.g. sort=[...]) that are forwarded to find().
+        # The single-session guard queries the newest session with
+        # sort=[("created_at", -1), ("_id", -1)]; the fake stores exactly one
+        # session whose _id matches the issued token, so returning it honors
+        # the "newest session is authoritative" contract for these unit tests.
         return self.value
 
 

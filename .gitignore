@@ -18,6 +18,7 @@ node_modules/
 
 # Testing
 /coverage
+/test_reports/
 
 # Next.js
 /.next/
@@ -69,12 +70,14 @@ chainlit.md
 .chainlit
 .ipynb_checkpoints/
 .ac
+/.gitconfig
 
 # Deployment
 .vercel
 
 # Data and databases
 agenthub/agents/youtube/db
+/active_track_order.txt
 
 # Archive files and large assets
 **/*.zip
@@ -87,6 +90,14 @@ agenthub/agents/youtube/db
 
 # Build caches
 .cache/
+
+# Generated repository reports
+/BUILD_REPORT.md
+/PRODUCTION_READINESS_REPORT.md
+/repo-hygiene-report.md
+/repo-hygiene-report.json
+/repo-hygiene-vulture.txt
+/repo-hygiene-knip.txt
 
 # Seeded test credentials are not source artifacts.
 memory/test_credentials.md

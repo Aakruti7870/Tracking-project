@@ -29,7 +29,7 @@ export default function Billing() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const { data, loading, error, reload } = useGet<Data>("/owner/invoices");
+  const { data, error, reload } = useGet<Data>("/owner/invoices");
   const [payFor, setPayFor] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -63,7 +63,6 @@ export default function Billing() {
         <ErrorView message={error} onRetry={reload} />
       ) : (
         <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }} showsVerticalScrollIndicator={false}>
-          {/* Summary */}
           <View style={{ flexDirection: "row", gap: spacing.sm }}>
             {[["Billed", data?.summary.billed, colors.onSurface], ["Received", data?.summary.received, colors.success], ["Outstanding", data?.summary.outstanding, colors.warning]].map(([l, v, c]: any) => (
               <View key={l} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>

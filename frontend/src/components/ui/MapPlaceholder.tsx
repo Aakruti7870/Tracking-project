@@ -4,7 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { fonts, radius, spacing } from "@/src/theme/tokens";
 import { AppText } from "./AppText";
 
 /**
@@ -37,7 +37,6 @@ export function MapPlaceholder({
         colors={colors.isDark ? ["#1C1C1E", "#121212"] : ["#EDEDED", "#F7F7F7"]}
         style={StyleSheet.absoluteFill}
       />
-      {/* faux grid lines */}
       {[...Array(6)].map((_, i) => (
         <View key={`h${i}`} style={[styles.hLine, { top: `${(i + 1) * 14}%`, backgroundColor: grid }]} />
       ))}
