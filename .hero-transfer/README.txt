@@ -1,1 +1,0 @@
-Binary hero transfer staging. Temporary branch only; main remains untouched until validated.
