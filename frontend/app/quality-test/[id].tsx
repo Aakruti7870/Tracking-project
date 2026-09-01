@@ -15,7 +15,7 @@ import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
 import { Input } from "@/src/components/ui/Input";
 import { Skeleton } from "@/src/components/ui/Skeleton";
-import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { fonts, radius, spacing } from "@/src/theme/tokens";
 
 type Detail = {
   order_number: string;
