@@ -8,7 +8,7 @@ import {
 } from "react-native";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { control, fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Props = {
   label?: string;
@@ -19,11 +19,14 @@ type Props = {
   autoFocus?: boolean;
   maxLength?: number;
   error?: string | null;
+  hint?: string;
   editable?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   autoCorrect?: boolean;
   secureTextEntry?: boolean;
   center?: boolean;
+  leftAdornment?: React.ReactNode;
+  rightAdornment?: React.ReactNode;
   testID?: string;
 };
 
@@ -36,16 +39,20 @@ export function Input({
   autoFocus,
   maxLength,
   error,
+  hint,
   editable = true,
   autoCapitalize = "none",
   autoCorrect = false,
   secureTextEntry = false,
   center = false,
+  leftAdornment,
+  rightAdornment,
   testID,
 }: Props) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   const borderColor = error ? colors.error : focused ? colors.brand : colors.border;
+  const supportingText = error || hint;
 
   return (
     <View style={styles.wrap}>
@@ -59,40 +66,56 @@ export function Input({
           {label}
         </Text>
       ) : null}
-      <TextInput
-        testID={testID}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.onSurfaceTertiary}
-        keyboardType={keyboardType}
-        autoFocus={autoFocus}
-        maxLength={maxLength}
-        editable={editable}
-        autoCapitalize={autoCapitalize}
-        autoCorrect={autoCorrect}
-        secureTextEntry={secureTextEntry}
-        accessibilityLabel={label || placeholder || "Input field"}
-        accessibilityState={{ disabled: !editable }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+
+      <View
         style={[
-          styles.input,
+          styles.field,
           {
-            backgroundColor: colors.surfaceSecondary,
+            backgroundColor: editable ? colors.surfaceSecondary : colors.disabledSurface,
             borderColor,
-            color: colors.onSurface,
-            textAlign: center ? "center" : "left",
-            letterSpacing: center ? 8 : 0,
-            opacity: editable ? 1 : 0.58,
-            shadowColor: focused && !error ? colors.brand : "transparent",
-            shadowOpacity: focused && !error ? 0.12 : 0,
+            shadowColor: focused && !error ? colors.brand : colors.shadow,
+            shadowOpacity: focused && !error ? (colors.isDark ? 0.18 : 0.10) : 0,
           },
         ]}
-      />
-      {error ? (
-        <Text accessibilityLiveRegion="polite" style={[styles.error, { color: colors.error }]}>
-          {error}
+      >
+        {leftAdornment ? <View style={styles.adornment}>{leftAdornment}</View> : null}
+        <TextInput
+          testID={testID}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={colors.onSurfaceTertiary}
+          keyboardType={keyboardType}
+          autoFocus={autoFocus}
+          maxLength={maxLength}
+          editable={editable}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          secureTextEntry={secureTextEntry}
+          accessibilityLabel={label || placeholder || "Input field"}
+          accessibilityState={{ disabled: !editable }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          selectionColor={colors.brand}
+          cursorColor={colors.brand}
+          style={[
+            styles.input,
+            {
+              color: editable ? colors.onSurface : colors.disabledContent,
+              textAlign: center ? "center" : "left",
+              letterSpacing: center ? 8 : 0,
+            },
+          ]}
+        />
+        {rightAdornment ? <View style={styles.adornment}>{rightAdornment}</View> : null}
+      </View>
+
+      {supportingText ? (
+        <Text
+          accessibilityLiveRegion={error ? "polite" : "none"}
+          style={[styles.supporting, { color: error ? colors.error : colors.onSurfaceTertiary }]}
+        >
+          {supportingText}
         </Text>
       ) : null}
     </View>
@@ -101,17 +124,42 @@ export function Input({
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs },
-  label: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
-  input: {
-    minHeight: 56,
+  label: {
+    paddingHorizontal: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    lineHeight: 17,
+  },
+  field: {
+    minHeight: control.inputHeight,
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: radius.md,
     borderWidth: 1,
-    paddingHorizontal: spacing.lg,
-    fontFamily: fonts.medium,
-    fontSize: fontSize.lg,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
+    paddingHorizontal: spacing.md,
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 13,
     elevation: 0,
   },
-  error: { fontFamily: fonts.medium, fontSize: fontSize.sm, lineHeight: 18 },
+  input: {
+    minWidth: 0,
+    minHeight: control.inputHeight - 2,
+    flex: 1,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 0,
+    fontFamily: fonts.medium,
+    fontSize: fontSize.lg,
+  },
+  adornment: {
+    minWidth: 28,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supporting: {
+    paddingHorizontal: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSize.xs,
+    lineHeight: 16,
+  },
 });
