@@ -7,29 +7,44 @@ staff MFA. Failed and unauthorized attempts intentionally share one response.
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from audit import write_audit
 from database import sessions
 from roles import Role
 from routers import staff_mfa
-from security import current_user, utcnow
+from security import as_aware, current_user, utcnow
 
 router = APIRouter(prefix="/api/admin/auth", tags=["admin-auth"])
 PLATFORM_ROLES = {Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value}
+ADMIN_STEP_UP_SECONDS = 300
 
 
-class AdminLoginBody(BaseModel):
+class AdminLoginBody(StrictModel):
     identifier: str = Field(min_length=3, max_length=254)
     code: str = Field(min_length=6, max_length=8)
 
 
-class StepUpBody(BaseModel):
+class StepUpBody(StrictModel):
     code: str = Field(min_length=6, max_length=8)
 
 
 def _failed() -> HTTPException:
     return HTTPException(401, "Authentication failed.")
+
+
+def _has_recent_admin_step_up(session: dict, *, now=None) -> bool:
+    """Return True only while the server-issued five-minute step-up window is active."""
+    current = now or utcnow()
+    verified_at = as_aware(session.get("admin_step_up_at")) if session else None
+    expires_at = as_aware(session.get("admin_step_up_expires_at")) if session else None
+    return bool(
+        verified_at
+        and expires_at
+        and verified_at <= current
+        and current < expires_at
+    )
 
 
 @router.post("/method")
@@ -71,6 +86,13 @@ def platform_admin(ctx: dict = Depends(current_user)) -> dict:
     return ctx
 
 
+async def require_recent_admin_step_up(ctx: dict = Depends(platform_admin)) -> dict:
+    """Fail closed unless this privileged session recently re-verified TOTP."""
+    if not _has_recent_admin_step_up(ctx.get("session") or {}):
+        raise HTTPException(403, "Recent administrator verification required")
+    return ctx
+
+
 @router.post("/step-up")
 async def step_up(body: StepUpBody, ctx: dict = Depends(platform_admin)):
     user = ctx["user"]
@@ -85,10 +107,13 @@ async def step_up(body: StepUpBody, ctx: dict = Depends(platform_admin)):
     now = utcnow()
     await sessions.update_one(
         {"_id": ctx["sid"], "revoked": False},
-        {"$set": {"admin_step_up_at": now, "admin_step_up_expires_at": now + timedelta(minutes=5)}},
+        {"$set": {
+            "admin_step_up_at": now,
+            "admin_step_up_expires_at": now + timedelta(seconds=ADMIN_STEP_UP_SECONDS),
+        }},
     )
     await write_audit(ctx["user_id"], "admin.step_up.succeeded", "session", ctx["sid"])
-    return {"status": "verified", "expires_in": 300}
+    return {"status": "verified", "expires_in": ADMIN_STEP_UP_SECONDS}
 
 
 @router.post("/logout-all")
