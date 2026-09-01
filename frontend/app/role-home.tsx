@@ -10,7 +10,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { AppText } from "@/src/components/ui/AppText";
 import { Card } from "@/src/components/ui/Card";
 import { Button } from "@/src/components/ui/Button";
-import { ROLE_LABELS, ROLE_NAV } from "@/src/constants/roles";
+import { ROLE_LABELS } from "@/src/constants/roles";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 // The exact bottom-nav blueprint for every non-customer role (from the spec).
