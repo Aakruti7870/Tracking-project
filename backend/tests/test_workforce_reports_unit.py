@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import iter_route_contexts
 
 from routers.payroll_concurrency_hotfix import (
     _cas_filter,
@@ -12,19 +13,6 @@ from routers.payroll_concurrency_hotfix import (
 )
 from routers.workforce_reports import month_bounds, overlap_days, payroll_net
 from server import app
-
-
-def _iter_registered_routes(routes):
-    """Yield effective leaf routes across old and lazy FastAPI router layouts."""
-    for route in routes:
-        effective_candidates = getattr(route, "effective_candidates", None)
-        if callable(effective_candidates):
-            yield from _iter_registered_routes(effective_candidates())
-            continue
-        yield route
-        nested = getattr(route, "routes", None)
-        if nested:
-            yield from _iter_registered_routes(nested)
 
 
 def test_month_bounds_handles_leap_year_and_rejects_invalid_format():
@@ -52,9 +40,9 @@ def test_payroll_net_uses_explicit_components_only():
 
 def test_legacy_direct_payroll_write_fails_closed_before_finance_route():
     routes = [
-        route for route in _iter_registered_routes(app.routes)
-        if getattr(route, "path", None) == "/api/ops/plants/{plant_id}/payroll"
-        and "PUT" in getattr(route, "methods", set())
+        route for route in iter_route_contexts(app.routes)
+        if route.path == "/api/ops/plants/{plant_id}/payroll"
+        and "PUT" in route.methods
     ]
     assert len(routes) >= 2
     assert routes[0].endpoint.__name__ == "retired_direct_payroll_write"
@@ -68,8 +56,8 @@ def test_pr32_mutations_are_shadowed_by_concurrency_safe_routes():
     }
     for (path, method), endpoint_name in expected.items():
         routes = [
-            route for route in _iter_registered_routes(app.routes)
-            if getattr(route, "path", None) == path and method in getattr(route, "methods", set())
+            route for route in iter_route_contexts(app.routes)
+            if route.path == path and method in route.methods
         ]
         assert len(routes) >= 2
         assert routes[0].endpoint.__name__ == endpoint_name
