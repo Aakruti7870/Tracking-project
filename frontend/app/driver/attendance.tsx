@@ -11,6 +11,10 @@ import { useGet } from "@/src/hooks/useApi";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
 import { Card } from "@/src/components/ui/Card";
+import {
+  currentLocationFailureMessage,
+  getCurrentDeviceLocation,
+} from "@/src/location/currentLocation";
 import { fonts, fontSize, spacing } from "@/src/theme/tokens";
 
 type Att = { date: string; check_in: string | null; check_out: string | null };
@@ -31,7 +35,16 @@ export default function Attendance() {
   const act = async (path: string, msg: string) => {
     setBusy(true);
     try {
-      await apiPost(path, token!, { lat: 17.44, lng: 78.35 });
+      const location = await getCurrentDeviceLocation();
+      if (!location.ok) {
+        toast(currentLocationFailureMessage(location), "error");
+        return;
+      }
+
+      await apiPost(path, token!, {
+        lat: location.location.lat,
+        lng: location.location.lng,
+      });
       toast(msg, "success");
       reload();
     } catch (e: any) {
