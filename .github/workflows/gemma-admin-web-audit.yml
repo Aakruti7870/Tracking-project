@@ -49,6 +49,8 @@ jobs:
           import json
           import os
           import pathlib
+          import socket
+          import time
           import urllib.error
           import urllib.request
 
@@ -73,8 +75,8 @@ jobs:
               if not path.is_file():
                   continue
               text = path.read_text(encoding='utf-8', errors='replace')
-              if len(text) > 30000:
-                  text = text[:30000] + '\n/* truncated */\n'
+              if len(text) > 16000:
+                  text = text[:16000] + '\n/* truncated for bounded audit */\n'
               chunks.append(f'\n### FILE: {path}\n```\n{text}\n```\n')
 
           system = '''
@@ -87,39 +89,21 @@ jobs:
           - Never recommend moving privileged controls back into the Expo mobile app.
 
           PRODUCT GOAL:
-          Make the web portal feel premium, modern, enterprise-grade, responsive and highly usable on desktop and tablet while keeping destructive actions unmistakably safe.
-
-          REVIEW:
-          - information architecture and dashboard hierarchy
-          - responsive desktop/tablet layout
-          - navigation, command surfaces and privileged workflows
-          - typography, spacing, cards, data density and visual hierarchy
-          - button hierarchy including destructive actions
-          - forms, MFA, step-up and error/success states
-          - accessible contrast, keyboard/focus behavior and touch targets
-          - loading, empty, error and confirmation states
-          - premium graphics/icons/motion only where they improve clarity
-          - reusable tokens/components and implementation structure
-          - security UX: confirmation, re-authentication, timeout and session visibility
-
-          Return an implementation-ready audit. Do not claim code has been changed. Do not weaken security for visual polish.
+          Review the current implementation for premium enterprise UI, accessibility, responsive desktop/tablet behavior, security UX, reusable design-system quality, and implementation risks. Keep recommendations concise and implementation-ready. Do not weaken security for visual polish.
           '''
 
           user = f'''
-          Audit the current dedicated TrackMyRMC Super Admin web implementation and produce exactly these sections:
-
+          Audit the current dedicated TrackMyRMC Super Admin web implementation.
+          Return these concise sections:
           ## Current Portal Verdict
           ## P0 Security UX And Separation Requirements
           ## Global Web Design System
           ## Navigation And Information Architecture
           ## Dashboard And Data-Dense Components
           ## Buttons Forms Dialogs And Destructive Actions
-          ## Responsive Desktop And Tablet Rules
-          ## Accessibility And Keyboard Rules
+          ## Responsive And Accessibility Rules
           ## Graphics Icons And Motion
-          ## Shared Components And Tokens To Build
           ## File-By-File Coding Plan
-          ## Device And Browser Verification
           ## P0 P1 P2 P3 Implementation Order
 
           SOURCE:
@@ -133,7 +117,7 @@ jobs:
                   {'role': 'user', 'content': user},
               ],
               'temperature': 0.2,
-              'max_tokens': 6000,
+              'max_tokens': 3500,
               'stream': False,
           }
 
@@ -148,12 +132,23 @@ jobs:
               method='POST',
           )
 
-          try:
-              with urllib.request.urlopen(request, timeout=180) as response:
-                  result = json.loads(response.read().decode('utf-8'))
-          except urllib.error.HTTPError as exc:
-              body = exc.read().decode('utf-8', errors='replace')
-              raise SystemExit(f'Gemma API failed: HTTP {exc.code}\n{body[:1200]}')
+          result = None
+          for attempt in range(2):
+              try:
+                  with urllib.request.urlopen(request, timeout=360) as response:
+                      result = json.loads(response.read().decode('utf-8'))
+                  break
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  raise SystemExit(f'Gemma API failed: HTTP {exc.code}\n{body[:1200]}')
+              except (TimeoutError, socket.timeout) as exc:
+                  if attempt == 1:
+                      raise SystemExit(f'Gemma API timed out after retry: {exc}')
+                  print('Gemma request timed out once; retrying after 10 seconds...')
+                  time.sleep(10)
+
+          if result is None:
+              raise SystemExit('Gemma returned no result')
 
           try:
               answer = result['choices'][0]['message']['content']
