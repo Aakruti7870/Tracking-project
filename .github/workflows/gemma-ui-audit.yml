@@ -1,0 +1,239 @@
+name: Gemma Full Application UI Audit
+
+on:
+  push:
+    branches:
+      - feat/laguna-xs-agent
+    paths:
+      - ".github/workflows/gemma-ui-audit.yml"
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "UI audit scope"
+        required: true
+        default: "all-application"
+
+permissions:
+  contents: read
+
+jobs:
+  gemma-ui-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build UI inventory
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          roots = [
+              Path("frontend/app"),
+              Path("frontend/src/screens"),
+              Path("frontend/src/components"),
+          ]
+          exts = {".tsx", ".ts", ".jsx", ".js"}
+          blocked_fragments = {
+              ".env", "secret", "credentials", ".pem", ".p12", ".jks",
+              "keystore", "google-services.json", "node_modules", "dist",
+          }
+
+          files = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for p in root.rglob("*"):
+                  if not p.is_file() or p.suffix.lower() not in exts:
+                      continue
+                  low = str(p).lower()
+                  if any(x in low for x in blocked_fragments):
+                      continue
+                  files.append(p)
+
+          files = sorted(files)
+          Path("gemma-ui-files.txt").write_text(
+              "\n".join(str(p) for p in files), encoding="utf-8"
+          )
+          print(f"UI inventory contains {len(files)} files")
+          PY
+
+      - name: Audit full TrackMyRMC UI with Gemma
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMMA_MODEL: ${{ vars.GEMMA_MODEL }}
+          AUDIT_SCOPE: ${{ github.event.inputs.scope || 'all-application' }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("GEMMA_MODEL")
+          scope = os.environ.get("AUDIT_SCOPE", "all-application")
+
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+          if not model:
+              raise SystemExit("GEMMA_MODEL is missing")
+
+          inventory = pathlib.Path("gemma-ui-files.txt")
+          if not inventory.exists():
+              raise SystemExit("UI inventory is missing")
+
+          files = [pathlib.Path(x) for x in inventory.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+          # Keep each request bounded. The audit iterates across the complete UI inventory,
+          # then asks Gemma for a consolidated design-system recommendation.
+          batch_size = 8
+          batch_reports = []
+
+          system_prompt = """
+          You are the senior product design and mobile UI engineering reviewer for TrackMyRMC.
+          Audit the supplied React Native / Expo / TypeScript UI implementation as a premium production app.
+
+          GOAL:
+          Raise the product toward top-tier global mobile-app quality without breaking authentication,
+          role routing, KYC, payments, order lifecycle, tracking, Play policy, accessibility, or backend contracts.
+
+          REVIEW DIMENSIONS:
+          - visual hierarchy and density
+          - typography scale and readability
+          - spacing rhythm, grids, safe areas and responsive behavior
+          - primary/secondary/destructive button hierarchy and interaction states
+          - cards, containers, shadows, borders, radii and surfaces
+          - light/dark theme consistency and contrast
+          - icons, illustrations, hero graphics and empty/loading/error/success states
+          - forms, validation feedback, OTP and authentication polish
+          - bottom navigation, headers, FABs, tabs and role navigation consistency
+          - maps, tracking, order, plant and operational information density
+          - animation/motion restraint, performance and perceived quality
+          - accessibility: touch targets, labels, contrast, scaling and reduced motion
+          - reuse: identify duplicated visual patterns that should become shared components/tokens
+
+          RULES:
+          - Do not invent screens or backend behavior not present in the supplied code.
+          - Do not recommend deleting or bypassing security, Play-review, KYC or auth logic.
+          - Prefer incremental, testable design-system improvements over a risky full rewrite.
+          - Be concrete: reference file paths and component names.
+          - Separate visual-only issues from behavior-sensitive changes.
+          - Flag anything requiring screenshot/device verification.
+          """
+
+          def call_gemma(user_prompt):
+              payload = {
+                  "model": model,
+                  "messages": [
+                      {"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_prompt},
+                  ],
+                  "temperature": 0.2,
+                  "max_tokens": 5000,
+                  "stream": False,
+              }
+              req = urllib.request.Request(
+                  "https://integrate.api.nvidia.com/v1/chat/completions",
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                      "Authorization": f"Bearer {api_key}",
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                  },
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      result = json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  raise SystemExit(f"Gemma API failed: HTTP {exc.code}\n{body[:1200]}")
+              try:
+                  return result["choices"][0]["message"]["content"]
+              except Exception:
+                  raise SystemExit("Unexpected Gemma response format")
+
+          for i in range(0, len(files), batch_size):
+              batch = files[i:i + batch_size]
+              chunks = []
+              for path in batch:
+                  try:
+                      text = path.read_text(encoding="utf-8", errors="replace")
+                  except Exception as exc:
+                      text = f"<read error: {exc}>"
+                  if len(text) > 24000:
+                      text = text[:24000] + "\n/* truncated for audit */\n"
+                  chunks.append(f"\n### FILE: {path}\n```tsx\n{text}\n```\n")
+
+              prompt = f"""
+              AUDIT SCOPE: {scope}
+              This is batch {i // batch_size + 1} of the full application UI audit.
+
+              Analyze every supplied file and return:
+              ## Critical UX/UI defects
+              ## Premium-quality improvements
+              ## Design-system inconsistencies
+              ## Accessibility and responsive issues
+              ## Graphics/icon/motion opportunities
+              ## Reusable components/tokens to introduce
+              ## Files that need screenshot/device verification
+              ## Priority (P0/P1/P2/P3)
+
+              SOURCE FILES:
+              {''.join(chunks)}
+              """
+              report = call_gemma(prompt)
+              batch_reports.append(report)
+              print(f"Completed Gemma UI audit batch {i // batch_size + 1}")
+
+          consolidated_prompt = f"""
+          Consolidate the following TrackMyRMC full-application UI audit reports into one implementation plan.
+
+          Required sections:
+          ## Executive UI Verdict
+          ## Global Design System To Lock
+          ## Typography
+          ## Color And Theme
+          ## Buttons And Inputs
+          ## Cards And Surfaces
+          ## Navigation
+          ## Icons Graphics And Motion
+          ## Screen Groups In Upgrade Order
+          ## Accessibility And Responsive Rules
+          ## Components/Tokens To Build First
+          ## Changes That Must Not Affect Business Logic
+          ## Device/Screenshot Verification Checklist
+          ## P0 / P1 / P2 / P3 Roadmap
+
+          Make the plan implementation-ready for Laguna to code and Kimi to review.
+
+          AUDIT REPORTS:
+          {'\n\n---\n\n'.join(batch_reports)}
+          """
+
+          final_report = call_gemma(consolidated_prompt)
+          pathlib.Path("gemma-full-ui-audit.md").write_text(final_report, encoding="utf-8")
+
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("# Gemma Full Application UI Audit\n\n")
+                  fh.write(final_report)
+                  fh.write("\n")
+
+          print("Gemma full-application UI audit completed successfully.")
+          PY
+
+      - name: Upload Gemma UI audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemma-full-ui-audit
+          path: |
+            gemma-full-ui-audit.md
+            gemma-ui-files.txt
+          retention-days: 7
