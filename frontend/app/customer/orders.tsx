@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -29,10 +29,7 @@ export default function CustomerOrders() {
   const { data, loading, error, refetch, reload } = useGet<{ orders: OrderData[] }>("/customer/orders");
 
   const filter = FILTERS.find((f) => f.key === active)!;
-  const filtered = useMemo(
-    () => (data?.orders || []).filter((o) => filter.match(o.status.toUpperCase())),
-    [data, active],
-  );
+  const filtered = (data?.orders || []).filter((order) => filter.match(order.status.toUpperCase()));
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>

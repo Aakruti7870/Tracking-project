@@ -13,6 +13,12 @@ function apiBase(): string {
 
 export type ApiError = { status: number; detail: string };
 
+export function apiErrorDetail(error: unknown, fallback: string): string {
+  return typeof error === "object" && error !== null && "detail" in error && typeof error.detail === "string"
+    ? error.detail
+    : fallback;
+}
+
 export type AuthSessionResponse = {
   access_token: string;
   token_type: string;

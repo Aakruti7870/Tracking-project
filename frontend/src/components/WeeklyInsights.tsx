@@ -53,8 +53,8 @@ export function WeeklyInsights() {
         </View>
 
         <View style={styles.legend}>
-          <Dot color={colors.brand} label="Ordered" colors={colors} />
-          <Dot color={colors.success} label="Delivered" colors={colors} />
+          <Dot color={colors.brand} label="Ordered" textColor={colors.onSurfaceSecondary} />
+          <Dot color={colors.success} label="Delivered" textColor={colors.onSurfaceSecondary} />
         </View>
 
         <View style={{ gap: 4 }}>
@@ -75,7 +75,7 @@ export function WeeklyInsights() {
   );
 }
 
-function Total({ label, value, color }: any) {
+function Total({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <View style={{ flex: 1, gap: 2 }}>
       <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.lg, color }}>{value}</AppText>
@@ -84,11 +84,11 @@ function Total({ label, value, color }: any) {
   );
 }
 
-function Dot({ color, label, colors }: any) {
+function Dot({ color, label, textColor }: { color: string; label: string; textColor: string }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
       <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: color }} />
-      <AppText style={{ fontFamily: fonts.medium, fontSize: 12, color: colors.onSurfaceSecondary }}>{label}</AppText>
+      <AppText style={{ fontFamily: fonts.medium, fontSize: 12, color: textColor }}>{label}</AppText>
     </View>
   );
 }

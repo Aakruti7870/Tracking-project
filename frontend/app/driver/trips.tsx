@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -28,7 +28,7 @@ export default function DriverTrips() {
   const [active, setActive] = useState("active");
   const { data, loading, error, refetch, reload } = useGet<{ trips: Trip[] }>("/driver/trips");
   const filter = FILTERS.find((f) => f.key === active)!;
-  const filtered = useMemo(() => (data?.trips || []).filter((t) => filter.match(t.status.toUpperCase())), [data, active]);
+  const filtered = (data?.trips || []).filter((trip) => filter.match(trip.status.toUpperCase()));
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
