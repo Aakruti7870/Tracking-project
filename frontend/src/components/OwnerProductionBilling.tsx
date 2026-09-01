@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { apiGet, apiPost } from "@/src/api/client";
+import { apiErrorDetail, apiGet, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
@@ -11,13 +11,22 @@ import { Card } from "@/src/components/ui/Card";
 import { Input } from "@/src/components/ui/Input";
 import { useToast } from "@/src/components/ui/Toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { fonts, radius, spacing } from "@/src/theme/tokens";
+import { fonts, radius, spacing, ThemeColors } from "@/src/theme/tokens";
 
 type Production = {
   ordered: number;
   produced: number;
   remaining: number;
   batches: { id?: string; quantity: number; batch_reference?: string; remarks?: string; created_at?: string }[];
+};
+type ProductionResponse = Partial<Omit<Production, "ordered" | "produced" | "remaining">> & {
+  required?: number;
+  ordered?: number;
+  ordered_quantity?: number;
+  produced?: number;
+  produced_quantity?: number;
+  remaining?: number;
+  remaining_quantity?: number;
 };
 
 export function OwnerProductionBilling({
@@ -45,7 +54,7 @@ export function OwnerProductionBilling({
   const loadProduction = useCallback(async () => {
     if (!token || !["IN_PRODUCTION", "PRODUCTION_COMPLETE"].includes(status)) return;
     try {
-      const p: any = await apiGet(`/owner/orders/${orderId}/production`, token);
+      const p = await apiGet<ProductionResponse>(`/owner/orders/${orderId}/production`, token);
       const ordered = Number(p.required ?? p.ordered ?? p.ordered_quantity ?? 0);
       const produced = Number(p.produced ?? p.produced_quantity ?? 0);
       setProduction({
@@ -61,7 +70,7 @@ export function OwnerProductionBilling({
 
   useEffect(() => { loadProduction(); }, [loadProduction]);
 
-  const call = async (path: string, body: any, message: string) => {
+  const call = async (path: string, body: Record<string, unknown>, message: string) => {
     if (!token) return;
     setBusy(true);
     try {
@@ -69,7 +78,7 @@ export function OwnerProductionBilling({
       toast(message, "success");
       await loadProduction();
       onChanged();
-    } catch (e: any) { toast(e.detail || "Action failed", "error"); }
+    } catch (error: unknown) { toast(apiErrorDetail(error, "Action failed"), "error"); }
     finally { setBusy(false); }
   };
 
@@ -146,7 +155,7 @@ export function OwnerProductionBilling({
   );
 }
 
-function Metric({ label, value, colors }: any) {
+function Metric({ label, value, colors }: { label: string; value: string; colors: ThemeColors }) {
   return (
     <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: 2 }}>
       <AppText variant="caption">{label}</AppText>

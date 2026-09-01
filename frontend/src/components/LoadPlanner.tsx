@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { apiGet, apiPost, apiPut } from "@/src/api/client";
+import { apiErrorDetail, apiGet, apiPost, apiPut } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { AppText } from "@/src/components/ui/AppText";
 import { Badge } from "@/src/components/ui/Badge";
@@ -72,8 +72,8 @@ export function LoadPlanner({ orderId, resourceBase, onChanged }: Props) {
       setData(loads);
       setVehicles(fleet.vehicles || []);
       setDrivers(driverList.drivers || []);
-    } catch (e: any) {
-      toast(e.detail || "Could not load delivery loads", "error");
+    } catch (error: unknown) {
+      toast(apiErrorDetail(error, "Could not load delivery loads"), "error");
     } finally {
       setLoading(false);
     }
@@ -96,7 +96,7 @@ export function LoadPlanner({ orderId, resourceBase, onChanged }: Props) {
       setAddOpen(false); setQty("");
       toast("Load planned", "success");
       await changed();
-    } catch (e: any) { toast(e.detail || "Could not plan load", "error"); }
+    } catch (error: unknown) { toast(apiErrorDetail(error, "Could not plan load"), "error"); }
     finally { setBusy(false); }
   };
 
@@ -115,18 +115,18 @@ export function LoadPlanner({ orderId, resourceBase, onChanged }: Props) {
       setAssigning(null);
       toast("Load assigned", "success");
       await changed();
-    } catch (e: any) { toast(e.detail || "Assignment failed", "error"); }
+    } catch (error: unknown) { toast(apiErrorDetail(error, "Assignment failed"), "error"); }
     finally { setBusy(false); }
   };
 
-  const action = async (path: string, success: string, body?: any) => {
+  const action = async (path: string, success: string, body?: Record<string, unknown>) => {
     if (!token) return;
     setBusy(true);
     try {
       await apiPost(path, token, body);
       toast(success, "success");
       await changed();
-    } catch (e: any) { toast(e.detail || "Action failed", "error"); }
+    } catch (error: unknown) { toast(apiErrorDetail(error, "Action failed"), "error"); }
     finally { setBusy(false); }
   };
 
