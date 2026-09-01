@@ -29,8 +29,6 @@ const ROLE_LABELS: Record<string, string> = {
   quality_engineer: "Quality",
   fleet_manager: "Fleet",
   store_manager: "Store",
-  authority: "Authority",
-  central_admin: "Central Admin",
 };
 
 export function QuickActionHub({ visible, onClose, tabs, role, navigation }: Props) {

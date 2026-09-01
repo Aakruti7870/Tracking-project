@@ -17,6 +17,7 @@ from roles import Role
 from security import require_role
 from routers import (
     account_deletion,
+    admin_auth,
     auth,
     business_ui,
     customer,
@@ -130,6 +131,7 @@ app.include_router(staff_passkeys.router)
 app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
+app.include_router(admin_auth.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
 app.include_router(plant_plans.router)

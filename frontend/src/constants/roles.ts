@@ -17,8 +17,6 @@ export const ROLE_LABELS: Record<string, string> = {
   quality_engineer: "Quality Engineer",
   fleet_manager: "Fleet Manager",
   store_manager: "Store Manager",
-  authority: "Authority",
-  central_admin: "Central Admin",
 };
 
 // Exact per-role bottom tabs from the spec. Only Customer is implemented in

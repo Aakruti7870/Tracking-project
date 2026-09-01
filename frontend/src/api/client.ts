@@ -77,7 +77,7 @@ export type PasskeyRegisterResponse = {
   passkey_count: number;
 };
 
-export type PlayReviewRole = "customer" | "plant_owner" | "authority" | "driver";
+export type PlayReviewRole = "customer" | "plant_owner" | "driver";
 
 async function handle<T>(res: Response): Promise<T> {
   let body: any = null;

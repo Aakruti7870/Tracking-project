@@ -36,7 +36,6 @@ DEMO_OTP = "123456"
 DEMO_CUSTOMER_PHONE = "+919000009901"
 DEMO_DRIVER_PHONE = "+919000009902"
 DEMO_OWNER_EMAIL = "play-review-owner@trackmyrmc.test"
-DEMO_AUTHORITY_EMAIL = "play-review-authority@trackmyrmc.test"
 
 PERMANENT_AUTHORITY_EMAILS = (
     "support@goldetech.com",
@@ -63,7 +62,6 @@ def demo_staff_role(value: str) -> str | None:
     email = value.strip().lower()
     return {
         DEMO_OWNER_EMAIL: Role.PLANT_OWNER.value,
-        DEMO_AUTHORITY_EMAIL: Role.AUTHORITY.value,
     }.get(email)
 
 

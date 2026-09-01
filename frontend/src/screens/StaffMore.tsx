@@ -22,7 +22,7 @@ export function StaffMore() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const workforceEnabled = !!user && !["authority", "central_admin"].includes(user.role);
+  const workforceEnabled = !!user;
 
   const doLogout = async () => {
     await signOut();
@@ -97,17 +97,6 @@ export function StaffMore() {
               <Ionicons name="document-attach-outline" size={22} color={colors.brand} />
               <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payroll Closure &amp; Export</AppText><AppText variant="caption">Read closed periods, payslips and payroll CSV exports</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          </View>
-        ) : null}
-
-        {user?.role === "authority" || user?.role === "central_admin" ? (
-          <View style={{ gap: spacing.sm }}>
-            <Pressable testID="authority-plans-promotions" onPress={() => router.push("/plans-promotions" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-              <Ionicons name="diamond-outline" size={20} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Plans &amp; Promotions</AppText><AppText variant="caption">Premium, promoted listings and promo codes</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-            <Pressable testID="authority-payment-control" onPress={() => router.push("/authority/payment-control" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-              <Ionicons name="card-outline" size={20} color={colors.brand} /><View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payment &amp; Plan Control</AppText><AppText variant="caption">Cashfree, activations, promo usage and audit</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
         ) : null}

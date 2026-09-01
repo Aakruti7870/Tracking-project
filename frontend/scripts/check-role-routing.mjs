@@ -40,8 +40,6 @@ const expectedRoutes = {
   quality_engineer: "/quality_engineer",
   fleet_manager: "/fleet_manager",
   store_manager: "/store_manager",
-  authority: "/authority",
-  central_admin: "/central_admin",
 };
 
 const failures = [];
@@ -50,6 +48,12 @@ for (const [role, route] of Object.entries(expectedRoutes)) {
   const expected = `${role}: \"${route}\"`;
   if (!roleRoutes.includes(expected)) {
     failures.push(`Missing role route: ${role} -> ${route}`);
+  }
+}
+
+for (const forbiddenRole of ["authority", "central_admin", "super_admin"]) {
+  if (roleRoutes.includes(`${forbiddenRole}:`)) {
+    failures.push(`Privileged role must not have a public mobile route: ${forbiddenRole}`);
   }
 }
 
@@ -140,4 +144,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Auth routing regression check passed for all 13 roles, mobile OTP, Plant Staff Passkey + Authenticator MFA, recovery and onboarding.");
+console.log("Auth routing regression check passed for all operational roles, mobile OTP, Plant Staff Passkey + Authenticator MFA, recovery and onboarding.");

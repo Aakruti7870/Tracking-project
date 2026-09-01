@@ -2,7 +2,6 @@
 
 from roles import Role
 from routers.permanent_access import (
-    DEMO_AUTHORITY_EMAIL,
     DEMO_CUSTOMER_PHONE,
     DEMO_DRIVER_PHONE,
     DEMO_OTP,
@@ -29,9 +28,9 @@ def test_driver_demo_number_routes_only_to_driver():
     assert demo_mobile_role("9000009902") == Role.DRIVER.value
 
 
-def test_owner_and_authority_demo_emails_are_exact_allowlist_entries():
+def test_owner_demo_email_is_the_only_staff_demo_allowlist_entry():
     assert demo_staff_role(DEMO_OWNER_EMAIL) == Role.PLANT_OWNER.value
-    assert demo_staff_role(DEMO_AUTHORITY_EMAIL) == Role.AUTHORITY.value
+    assert demo_staff_role("play-review-authority@trackmyrmc.test") is None
     assert demo_staff_role("someone@trackmyrmc.test") is None
 
 

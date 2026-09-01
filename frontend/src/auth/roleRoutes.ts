@@ -10,8 +10,6 @@ export const ROLE_ROUTES = {
   quality_engineer: "/quality_engineer",
   fleet_manager: "/fleet_manager",
   store_manager: "/store_manager",
-  authority: "/authority",
-  central_admin: "/central_admin",
 } as const;
 
 export function roleRouteFor(role?: string | null): string {

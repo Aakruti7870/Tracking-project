@@ -77,23 +77,6 @@ const ROLE_MODULES: Record<string, ModuleLink[]> = {
     { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
     { label: "Attendance", icon: "calendar-outline", route: "/business/attendance" },
   ],
-  central_admin: [
-    { label: "Plant Profiles", icon: "business-outline", route: "/business/profile" },
-    { label: "Rate Cards", icon: "pricetag-outline", route: "/business/rates" },
-    { label: "Mix Designs", icon: "flask-outline", route: "/business/mixes" },
-    { label: "Inventory", icon: "cube-outline", route: "/business/inventory" },
-    { label: "Suppliers", icon: "people-circle-outline", route: "/business/suppliers" },
-    { label: "Purchases", icon: "cart-outline", route: "/business/purchases" },
-    { label: "Fleet", icon: "bus-outline", route: "/business/fleet" },
-    { label: "Diesel", icon: "water-outline", route: "/business/diesel" },
-    { label: "Quotations", icon: "document-text-outline", route: "/business/quotations" },
-    { label: "Expenses", icon: "cash-outline", route: "/business/expenses" },
-    { label: "Payroll", icon: "card-outline", route: "/business/payroll" },
-    { label: "Staff", icon: "people-outline", route: "/business/staff" },
-    { label: "Customers", icon: "person-outline", route: "/business/customers" },
-    { label: "Reports", icon: "bar-chart-outline", route: "/business/reports" },
-    { label: "Deletion Requests", icon: "trash-outline", route: "/account-deletion-admin" },
-  ],
 };
 
 function formatValue(k: Kpi): string {

@@ -15,7 +15,7 @@ export default function Support() {
       <AppText variant="title">Support & Contact</AppText>
       <Card style={{ gap: spacing.sm }}>
         <AppText variant="heading">Account access</AppText>
-        <AppText variant="bodyMuted">Use your registered mobile number or email on the sign-in screen to receive an OTP. Staff, authority and admin accounts must already be provisioned by the relevant organization.</AppText>
+        <AppText variant="bodyMuted">Use your registered mobile number or email on the sign-in screen to receive an OTP. Plant owners and operational staff accounts must already be provisioned by the relevant organization.</AppText>
       </Card>
       <Card style={{ gap: spacing.sm }}>
         <AppText variant="heading">Account deletion</AppText>
