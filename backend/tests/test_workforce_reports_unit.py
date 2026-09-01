@@ -15,8 +15,12 @@ from server import app
 
 
 def _iter_registered_routes(routes):
-    """Yield routes recursively across FastAPI included-router wrappers."""
+    """Yield effective leaf routes across old and lazy FastAPI router layouts."""
     for route in routes:
+        effective_candidates = getattr(route, "effective_candidates", None)
+        if callable(effective_candidates):
+            yield from _iter_registered_routes(effective_candidates())
+            continue
         yield route
         nested = getattr(route, "routes", None)
         if nested:
