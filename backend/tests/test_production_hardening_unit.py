@@ -171,7 +171,7 @@ def _run_config_import(extra_env: dict[str, str]):
     env.update(
         {
             "APP_ENV": "production",
-            "MONGO_URL": "mongodb://127.0.0.1:27017",
+            "MONGO_URL": "mongodb+srv://unit:unit@example.mongodb.net",
             "DB_NAME": "unit_config",
             "JWT_SECRET": "",
             "OTP_PEPPER": "",

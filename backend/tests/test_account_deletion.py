@@ -1,8 +1,11 @@
 """Account deletion integration coverage using disposable customer identities."""
+from datetime import datetime, timedelta, timezone
 import os
 import time
 import uuid
 
+from jwt import decode
+from pymongo import MongoClient
 import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -25,6 +28,30 @@ def _login(session: requests.Session, identifier: str) -> str:
 
 def _h(token: str):
     return {"Authorization": f"Bearer {token}"}
+
+
+def _mark_recent_admin_step_up(token: str) -> None:
+    """Model the server-issued step-up marker in CI without provisioning a TOTP secret."""
+    payload = decode(
+        token,
+        os.environ["JWT_SECRET"],
+        algorithms=[os.environ.get("JWT_ALGORITHM", "HS256")],
+    )
+    now = datetime.now(timezone.utc)
+    client = MongoClient(os.environ["MONGO_URL"])
+    try:
+        result = client[os.environ["DB_NAME"]]["sessions"].update_one(
+            {"_id": payload["sid"], "revoked": False},
+            {
+                "$set": {
+                    "admin_step_up_at": now,
+                    "admin_step_up_expires_at": now + timedelta(minutes=5),
+                }
+            },
+        )
+        assert result.matched_count == 1
+    finally:
+        client.close()
 
 
 def test_account_deletion_request_cancel_and_admin_completion():
@@ -69,6 +96,19 @@ def test_account_deletion_request_cancel_and_admin_completion():
     listing = session.get(f"{API}/account-deletion/requests", headers=_h(central), timeout=15)
     assert listing.status_code == 200, listing.text
     assert any(r["id"] == request_id and r["status"] == "PENDING" for r in listing.json()["requests"])
+
+    # The destructive action must fail closed until the same admin session has
+    # a recent step-up marker.
+    blocked = session.post(
+        f"{API}/account-deletion/requests/{request_id}/complete",
+        headers=_h(central),
+        json={"note": "TEST identity removal verified"},
+        timeout=15,
+    )
+    assert blocked.status_code == 403, blocked.text
+    assert blocked.json().get("detail") == "Recent administrator verification required", blocked.text
+
+    _mark_recent_admin_step_up(central)
 
     completed = session.post(
         f"{API}/account-deletion/requests/{request_id}/complete",

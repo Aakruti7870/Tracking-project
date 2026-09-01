@@ -6,7 +6,7 @@ configuration is rejected so the service never runs in an ambiguous state.
 """
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 
@@ -53,6 +53,33 @@ def _valid_production_origin(origin: str) -> bool:
 def _valid_https_url(url: str) -> bool:
     parsed = urlparse(url)
     return bool(parsed.scheme == "https" and parsed.netloc)
+
+
+def _production_mongo_error(url: str) -> str | None:
+    """Return a fail-closed production Mongo transport/configuration error."""
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"mongodb", "mongodb+srv"}:
+        return "MONGO_URL must use mongodb:// or mongodb+srv://"
+
+    # Strip credentials before evaluating the server list. Production must not
+    # point at a loopback database; CI/dev remain free to use localhost.
+    hosts = parsed.netloc.rsplit("@", 1)[-1].lower()
+    loopback_markers = ("localhost", "127.0.0.1", "[::1]")
+    if any(marker in hosts for marker in loopback_markers):
+        return "Production MONGO_URL must not use localhost or loopback addresses"
+
+    query = {key.lower(): values for key, values in parse_qs(parsed.query).items()}
+    tls_values = [value.lower() for key in ("tls", "ssl") for value in query.get(key, [])]
+    if any(value in {"false", "0", "no", "off"} for value in tls_values):
+        return "Production MONGO_URL must not disable TLS"
+
+    # mongodb+srv enables TLS by default. Plain mongodb:// does not, so require
+    # the deployment URI to opt in explicitly instead of relying on network
+    # placement alone.
+    if scheme == "mongodb" and not any(value in {"true", "1", "yes", "on"} for value in tls_values):
+        return "Production mongodb:// MONGO_URL must explicitly enable TLS (tls=true or ssl=true)"
+    return None
 
 
 class Settings:
@@ -141,6 +168,12 @@ class Settings:
             if not self.CORS_ORIGINS:
                 self.CORS_ORIGINS = ["*"]
             return
+
+        mongo_error = _production_mongo_error(self.MONGO_URL)
+        if mongo_error:
+            raise RuntimeError(mongo_error)
+        if self.DB_NAME.lower() in {"admin", "config", "local"}:
+            raise RuntimeError("Production DB_NAME must be an application database, not a MongoDB system database")
 
         missing = []
         if len(self.JWT_SECRET) < 32 or self.JWT_SECRET.startswith("dev-insecure"):

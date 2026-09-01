@@ -10,7 +10,7 @@ def _run(env_updates: dict[str, str | None]):
     env = os.environ.copy()
     env.update(
         {
-            "MONGO_URL": "mongodb://127.0.0.1:27017",
+            "MONGO_URL": "mongodb+srv://unit:unit@example.mongodb.net",
             "DB_NAME": "runtime_config_test",
             "JWT_SECRET": "unit-production-secret-long-enough-1234567890",
             "OTP_PEPPER": "unit-production-pepper-long-enough-1234567890",
@@ -50,6 +50,30 @@ def test_production_cors_requires_https_origin_only():
     result = _run({"APP_ENV": "production", "CORS_ORIGINS": "https://trackmyrmc.com/path"})
     assert result.returncode != 0
     assert "CORS_ORIGINS" in (result.stdout + result.stderr)
+
+
+def test_production_mongo_rejects_loopback():
+    result = _run({"APP_ENV": "production", "MONGO_URL": "mongodb://127.0.0.1:27017/?tls=true"})
+    assert result.returncode != 0
+    assert "loopback" in (result.stdout + result.stderr)
+
+
+def test_production_mongo_rejects_plaintext_transport():
+    result = _run({"APP_ENV": "production", "MONGO_URL": "mongodb://db.example.test:27017"})
+    assert result.returncode != 0
+    assert "enable TLS" in (result.stdout + result.stderr)
+
+
+def test_production_mongo_rejects_explicit_tls_disable():
+    result = _run({"APP_ENV": "production", "MONGO_URL": "mongodb+srv://unit:unit@example.mongodb.net/?tls=false"})
+    assert result.returncode != 0
+    assert "must not disable TLS" in (result.stdout + result.stderr)
+
+
+def test_production_mongo_rejects_system_database_name():
+    result = _run({"APP_ENV": "production", "DB_NAME": "admin"})
+    assert result.returncode != 0
+    assert "application database" in (result.stdout + result.stderr)
 
 
 def test_secure_production_config_imports():
