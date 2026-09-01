@@ -16,7 +16,7 @@ import { ErrorView } from "@/src/components/StateViews";
 import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-type OwnerHome = {
+type OwnerHomeData = {
   plant_count: number;
   plants: { id: string; name: string }[];
   cards: Record<string, number>;
@@ -37,7 +37,7 @@ export default function OwnerHome() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data, loading, error, refetch, reload } = useGet<OwnerHome>("/owner/home");
+  const { data, loading, error, refetch, reload } = useGet<OwnerHomeData>("/owner/home");
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -67,7 +67,6 @@ export default function OwnerHome() {
             </>
           ) : data ? (
             <>
-              {/* KPI grid */}
               <HomeHero />
               <View style={styles.grid}>
                 {CARD_DEFS.map((c) => (
@@ -84,10 +83,8 @@ export default function OwnerHome() {
                 ))}
               </View>
 
-              {/* Weekly delivery insights */}
               <WeeklyInsights />
 
-              {/* Pending approvals */}
               <View style={{ gap: spacing.sm }}>
                 <View style={styles.rowBetween}>
                   <AppText variant="heading">Pending Approvals</AppText>
