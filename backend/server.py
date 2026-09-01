@@ -7,6 +7,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
@@ -15,6 +16,7 @@ from database import ensure_indexes
 from notifications import provider_status
 from roles import Role
 from security import require_role
+from request_security import RateLimitMiddleware, unhandled_error_handler, validation_error_handler
 from routers import (
     account_deletion,
     admin_auth,
@@ -64,6 +66,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_dev else None,
     openapi_url="/openapi.json" if settings.is_dev else None,
 )
+app.add_exception_handler(Exception, unhandled_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/.well-known/assetlinks.json", include_in_schema=False)

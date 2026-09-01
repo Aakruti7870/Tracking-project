@@ -8,7 +8,8 @@ from typing import Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from business_access import oid, require_business_role, require_visible_plant
 from business_models import GatePassBody, OrderLoadBody
@@ -51,12 +52,12 @@ ACTIVE_TRIP_STATUSES = {
 }
 
 
-class LoadAssignmentBody(BaseModel):
+class LoadAssignmentBody(StrictModel):
     vehicle_id: str = Field(min_length=1, max_length=128)
     driver_id: str = Field(min_length=1, max_length=128)
 
 
-class LoadPrepareBody(BaseModel):
+class LoadPrepareBody(StrictModel):
     batcher: Optional[str] = Field(default=None, max_length=160)
     supervisor: Optional[str] = Field(default=None, max_length=160)
     quality_engineer: Optional[str] = Field(default=None, max_length=160)

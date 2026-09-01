@@ -12,7 +12,8 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 
 from audit import write_audit
@@ -35,7 +36,7 @@ owner_only = require_role(Role.PLANT_OWNER.value)
 report_read = require_role(Role.PLANT_OWNER.value, Role.ACCOUNTANT.value)
 
 
-class ShiftBody(BaseModel):
+class ShiftBody(StrictModel):
     name: str = Field(min_length=2, max_length=80)
     start_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     end_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -44,18 +45,18 @@ class ShiftBody(BaseModel):
     active: bool = True
 
 
-class RosterBody(BaseModel):
+class RosterBody(StrictModel):
     shift_id: str | None = None
     week_off: bool = False
     note: str | None = Field(default=None, max_length=500)
 
 
-class AttendanceConfigBody(BaseModel):
+class AttendanceConfigBody(StrictModel):
     radius_m: float | None = Field(default=None, ge=25, le=5000)
     timezone_name: str = Field(default="Asia/Kolkata", min_length=3, max_length=80)
 
 
-class AttendanceOverrideBody(BaseModel):
+class AttendanceOverrideBody(StrictModel):
     status: Literal["ACCEPTED", "EXCUSED", "CORRECTED"]
     reason: str = Field(min_length=3, max_length=1000)
 

@@ -22,7 +22,8 @@ from typing import Any, Literal
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from webauthn import (
     base64url_to_bytes,
@@ -68,12 +69,12 @@ HANDOFF_TTL_SECONDS = 60
 MAX_PASSKEYS_PER_USER = 5
 
 
-class AuthenticationStartBody(BaseModel):
+class AuthenticationStartBody(StrictModel):
     identifier: str = Field(min_length=3, max_length=254)
     return_mode: Literal["app", "web"] = "app"
 
 
-class RequestBody(BaseModel):
+class RequestBody(StrictModel):
     request_id: str = Field(min_length=24, max_length=128)
 
 
@@ -82,16 +83,16 @@ class CeremonyVerifyBody(RequestBody):
     credential: dict[str, Any]
 
 
-class RegistrationStartBody(BaseModel):
+class RegistrationStartBody(StrictModel):
     actor_code: str = Field(min_length=6, max_length=8)
     return_mode: Literal["app", "web"] = "app"
 
 
-class HandoffBody(BaseModel):
+class HandoffBody(StrictModel):
     code: str = Field(min_length=24, max_length=256)
 
 
-class RemovePasskeyBody(BaseModel):
+class RemovePasskeyBody(StrictModel):
     credential_id: str = Field(min_length=16, max_length=1024)
     actor_code: str = Field(min_length=6, max_length=8)
 

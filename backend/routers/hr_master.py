@@ -11,7 +11,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
@@ -30,7 +31,7 @@ hr_read = require_role(Role.PLANT_OWNER.value, Role.ACCOUNTANT.value)
 owner_only = require_role(Role.PLANT_OWNER.value)
 
 
-class EmployeeProfileBody(BaseModel):
+class EmployeeProfileBody(StrictModel):
     employee_code: str = Field(min_length=2, max_length=40)
     designation: str = Field(min_length=2, max_length=120)
     department: str = Field(min_length=2, max_length=120)
@@ -50,7 +51,7 @@ class EmployeeProfileBody(BaseModel):
     notes: str | None = Field(default=None, max_length=3000)
 
 
-class SalaryStructureBody(BaseModel):
+class SalaryStructureBody(StrictModel):
     effective_from: date
     pay_basis: Literal["MONTHLY", "DAILY"] = "MONTHLY"
     basic_amount: float = Field(ge=0, le=100_000_000)

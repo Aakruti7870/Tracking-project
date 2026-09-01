@@ -25,6 +25,16 @@ def _required(name: str) -> str:
     return value
 
 
+def _positive_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
+    if value < minimum:
+        raise RuntimeError(f"{name} must be at least {minimum}")
+    return value
+
+
 def _valid_production_origin(origin: str) -> bool:
     """Production CORS entries must be explicit HTTPS origins, not URLs/paths."""
     if "*" in origin:
@@ -56,11 +66,11 @@ class Settings:
     JWT_ALGORITHM: str = "HS256"
     OTP_PEPPER: str = os.environ.get("OTP_PEPPER", "").strip()
 
-    OTP_LENGTH: int = int(os.environ.get("OTP_LENGTH", 6))
-    OTP_TTL_SECONDS: int = int(os.environ.get("OTP_TTL_SECONDS", 300))
-    OTP_MAX_ATTEMPTS: int = int(os.environ.get("OTP_MAX_ATTEMPTS", 5))
-    OTP_RESEND_SECONDS: int = int(os.environ.get("OTP_RESEND_SECONDS", 30))
-    SESSION_TTL_SECONDS: int = int(os.environ.get("SESSION_TTL_SECONDS", 604800))
+    OTP_LENGTH: int = _positive_int("OTP_LENGTH", 6, minimum=4)
+    OTP_TTL_SECONDS: int = _positive_int("OTP_TTL_SECONDS", 300)
+    OTP_MAX_ATTEMPTS: int = _positive_int("OTP_MAX_ATTEMPTS", 5)
+    OTP_RESEND_SECONDS: int = _positive_int("OTP_RESEND_SECONDS", 30)
+    SESSION_TTL_SECONDS: int = _positive_int("SESSION_TTL_SECONDS", 604800)
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
 
     # Plant Staff Authenticator MFA. Optional at process start so production can
@@ -93,6 +103,19 @@ class Settings:
     ).strip()
 
     CORS_ORIGINS: list[str] = _csv("CORS_ORIGINS")
+
+    # Request protections are environment-configurable so operators can tune
+    # them without a deployment. Limits are requests per window.
+    RATE_LIMIT_WINDOW_SECONDS: int = _positive_int("RATE_LIMIT_WINDOW_SECONDS", 60)
+    RATE_LIMIT_AUTH_IP: int = _positive_int("RATE_LIMIT_AUTH_IP", 10)
+    RATE_LIMIT_AUTH_ACCOUNT: int = _positive_int("RATE_LIMIT_AUTH_ACCOUNT", 5)
+    RATE_LIMIT_PUBLIC: int = _positive_int("RATE_LIMIT_PUBLIC", 60)
+    RATE_LIMIT_AUTHENTICATED: int = _positive_int("RATE_LIMIT_AUTHENTICATED", 180)
+    RATE_LIMIT_BACKOFF_BASE_SECONDS: int = _positive_int("RATE_LIMIT_BACKOFF_BASE_SECONDS", 2)
+    RATE_LIMIT_BACKOFF_MAX_SECONDS: int = _positive_int("RATE_LIMIT_BACKOFF_MAX_SECONDS", 900)
+    MAX_AUTH_BODY_BYTES: int = _positive_int("MAX_AUTH_BODY_BYTES", 64 * 1024)
+    MAX_UPLOAD_BYTES: int = _positive_int("MAX_UPLOAD_BYTES", 8 * 1024 * 1024)
+    MAX_IMAGE_PIXELS: int = _positive_int("MAX_IMAGE_PIXELS", 25_000_000)
 
     def __init__(self) -> None:
         if self.APP_ENV not in self.VALID_ENVIRONMENTS:

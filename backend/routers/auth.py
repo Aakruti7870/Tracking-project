@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token as google_id_token
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -41,7 +42,7 @@ GOOGLE_STATE_TTL_SECONDS = 600
 GOOGLE_EXCHANGE_TTL_SECONDS = 120
 
 
-class GoogleExchangeBody(BaseModel):
+class GoogleExchangeBody(StrictModel):
     code: str = Field(min_length=20, max_length=512)
 
 
@@ -270,7 +271,7 @@ async def verify_otp(body: VerifyOtpBody):
     return await _issue_session(user, "mobile_otp")
 
 
-class DemoLoginBody(BaseModel):
+class DemoLoginBody(StrictModel):
     role: str = Field(min_length=2, max_length=40)
 
 

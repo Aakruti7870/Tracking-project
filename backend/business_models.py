@@ -7,14 +7,16 @@ operation rather than represented by hard-coded UI values.
 from datetime import date
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field
+from validation import StrictModel
+from pydantic import field_validator
 
 GRADE_PATTERN = r"^M(?:10|15|20|25|30|35|40|45|50|55|60)(?:[-_ ]?PILE)?$"
 GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
 PHONE_PATTERN = r"^\+?[0-9][0-9 -]{7,19}$"
 
 
-class PlantBusinessProfileBody(BaseModel):
+class PlantBusinessProfileBody(StrictModel):
     legal_name: str = Field(min_length=2, max_length=200)
     trade_name: Optional[str] = Field(default=None, max_length=200)
     gstin: Optional[str] = Field(default=None, pattern=GSTIN_PATTERN)
@@ -33,7 +35,7 @@ class PlantBusinessProfileBody(BaseModel):
     terms_and_conditions: Optional[str] = Field(default=None, max_length=10000)
 
 
-class RateCardBody(BaseModel):
+class RateCardBody(StrictModel):
     grade: str = Field(pattern=GRADE_PATTERN)
     rate_per_m3: float = Field(gt=0, le=1_000_000)
     gst_rate: float = Field(default=18.0, ge=0, le=100)
@@ -52,7 +54,7 @@ class RateCardBody(BaseModel):
         return value
 
 
-class MixDesignBody(BaseModel):
+class MixDesignBody(StrictModel):
     grade: str = Field(pattern=GRADE_PATTERN)
     version: int = Field(default=1, ge=1, le=10_000)
     cement_kg: float = Field(ge=0, le=2000)
@@ -68,7 +70,7 @@ class MixDesignBody(BaseModel):
     active: bool = True
 
 
-class CustomerSiteBody(BaseModel):
+class CustomerSiteBody(StrictModel):
     name: str = Field(min_length=1, max_length=180)
     address: str = Field(min_length=5, max_length=1000)
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
@@ -79,7 +81,7 @@ class CustomerSiteBody(BaseModel):
     is_default: bool = False
 
 
-class QuotationBody(BaseModel):
+class QuotationBody(StrictModel):
     customer_id: Optional[str] = Field(default=None, max_length=128)
     customer_name: str = Field(min_length=1, max_length=200)
     customer_mobile: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
@@ -95,7 +97,7 @@ class QuotationBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=5000)
 
 
-class QuotationRequestResponseBody(BaseModel):
+class QuotationRequestResponseBody(StrictModel):
     action: Literal["SEND", "DECLINE"]
     rate_per_m3: Optional[float] = Field(default=None, gt=0, le=1_000_000)
     gst_rate: float = Field(default=18.0, ge=0, le=100)
@@ -106,7 +108,7 @@ class QuotationRequestResponseBody(BaseModel):
     decline_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
-class CustomerReceivingRecordBody(BaseModel):
+class CustomerReceivingRecordBody(StrictModel):
     site_id: str = Field(min_length=1, max_length=128)
     order_id: Optional[str] = Field(default=None, max_length=128)
     grade: str = Field(pattern=GRADE_PATTERN)
@@ -123,7 +125,7 @@ class CustomerReceivingRecordBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
-class CustomerCubeTestResultBody(BaseModel):
+class CustomerCubeTestResultBody(StrictModel):
     sample_id: str = Field(min_length=1, max_length=160)
     age_days: Literal[7, 28]
     tested_on: date
@@ -133,7 +135,7 @@ class CustomerCubeTestResultBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 
-class CustomerPourPlanBody(BaseModel):
+class CustomerPourPlanBody(StrictModel):
     site_id: str = Field(min_length=1, max_length=128)
     grade: str = Field(pattern=GRADE_PATTERN)
     total_quantity_m3: float = Field(gt=0, le=10_000)
@@ -145,12 +147,12 @@ class CustomerPourPlanBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 
-class CustomerQuotationDecisionBody(BaseModel):
+class CustomerQuotationDecisionBody(StrictModel):
     action: Literal["ACCEPT", "DECLINE"]
     reason: Optional[str] = Field(default=None, max_length=1000)
 
 
-class ExpenseBody(BaseModel):
+class ExpenseBody(StrictModel):
     category: Literal[
         "diesel", "salary", "maintenance", "electricity", "rent", "material",
         "transport", "office", "tax", "other"
@@ -163,7 +165,7 @@ class ExpenseBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
-class DieselTransactionBody(BaseModel):
+class DieselTransactionBody(StrictModel):
     transaction_type: Literal["IN", "OUT", "ADJUSTMENT"]
     litres: float = Field(gt=0, le=1_000_000)
     rate_per_litre: Optional[float] = Field(default=None, ge=0, le=100_000)
@@ -174,13 +176,13 @@ class DieselTransactionBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
-class AttendanceActionBody(BaseModel):
+class AttendanceActionBody(StrictModel):
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
-class PayrollRecordBody(BaseModel):
+class PayrollRecordBody(StrictModel):
     user_id: str = Field(min_length=1, max_length=128)
     month: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
     basic_amount: float = Field(ge=0, le=100_000_000)
@@ -192,7 +194,7 @@ class PayrollRecordBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
-class SupplierBody(BaseModel):
+class SupplierBody(StrictModel):
     name: str = Field(min_length=2, max_length=200)
     gstin: Optional[str] = Field(default=None, pattern=GSTIN_PATTERN)
     phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
@@ -201,13 +203,13 @@ class SupplierBody(BaseModel):
     active: bool = True
 
 
-class PurchaseLineBody(BaseModel):
+class PurchaseLineBody(StrictModel):
     material_id: str = Field(min_length=1, max_length=128)
     quantity: float = Field(gt=0, le=1_000_000_000)
     rate: float = Field(ge=0, le=1_000_000_000)
 
 
-class PurchaseReceiptBody(BaseModel):
+class PurchaseReceiptBody(StrictModel):
     supplier_id: str = Field(min_length=1, max_length=128)
     receipt_number: str = Field(min_length=1, max_length=160)
     receipt_date: date
@@ -217,7 +219,7 @@ class PurchaseReceiptBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=3000)
 
 
-class OrderLoadBody(BaseModel):
+class OrderLoadBody(StrictModel):
     quantity_m3: float = Field(gt=0, le=100)
     vehicle_id: Optional[str] = Field(default=None, max_length=128)
     driver_id: Optional[str] = Field(default=None, max_length=128)
@@ -225,7 +227,7 @@ class OrderLoadBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 
-class GatePassBody(BaseModel):
+class GatePassBody(StrictModel):
     load_id: str = Field(min_length=1, max_length=128)
     security_name: Optional[str] = Field(default=None, max_length=160)
     remarks: Optional[str] = Field(default=None, max_length=2000)

@@ -16,7 +16,8 @@ import httpx
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 
 from audit import write_audit
 from database import (
@@ -160,7 +161,7 @@ async def context(ctx: dict = Depends(allowed_ctx)):
     return {"role": ctx["role"], "plants": result, "promotion_prices": PROMOTION_PRICES, "premium_plans": PREMIUM_PLANS}
 
 
-class QuoteBody(BaseModel):
+class QuoteBody(StrictModel):
     plant_id: str
     product: str = Field(pattern="^(PROMOTION|PREMIUM)$")
     duration_days: int | None = None
@@ -248,7 +249,7 @@ async def activate(body: ActivateBody, request: Request, ctx: dict = Depends(all
     return {"status": "ACTIVE", "id": str(result.inserted_id), "starts_at": now, "ends_at": ends}
 
 
-class PromoCodeBody(BaseModel):
+class PromoCodeBody(StrictModel):
     code: str = Field(min_length=3, max_length=40, pattern="^[A-Za-z0-9_-]+$")
     product: str = Field(pattern="^(PROMOTION|PREMIUM|ALL)$")
     discount_type: str = Field(pattern="^(PERCENT|FIXED)$")

@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
@@ -18,11 +19,11 @@ router = APIRouter(prefix="/api/plant-discovery", tags=["plant-discovery"])
 reviewer_only = require_role(Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value)
 
 
-class RejectListingBody(BaseModel):
+class RejectListingBody(StrictModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-class OwnerAssignmentBody(BaseModel):
+class OwnerAssignmentBody(StrictModel):
     name: str = Field(min_length=2, max_length=120)
     email: str | None = Field(default=None, max_length=254)
     phone: str | None = Field(default=None, max_length=32)
@@ -130,11 +131,11 @@ async def list_requests(ctx: dict = Depends(reviewer_only)):
     return {"requests": [_serialize(d) for d in docs]}
 
 
-class BulkGoogleImportBody(BaseModel):
+class BulkGoogleImportBody(StrictModel):
     place_ids: list[str] = Field(min_length=1, max_length=20)
 
 
-class BulkApproveBody(BaseModel):
+class BulkApproveBody(StrictModel):
     request_ids: list[str] = Field(min_length=1, max_length=50)
 
 

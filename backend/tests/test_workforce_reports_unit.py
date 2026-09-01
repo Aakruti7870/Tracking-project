@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import iter_route_contexts
 
 from routers.payroll_concurrency_hotfix import (
     _cas_filter,
@@ -39,9 +40,9 @@ def test_payroll_net_uses_explicit_components_only():
 
 def test_legacy_direct_payroll_write_fails_closed_before_finance_route():
     routes = [
-        route for route in app.routes
-        if getattr(route, "path", None) == "/api/ops/plants/{plant_id}/payroll"
-        and "PUT" in getattr(route, "methods", set())
+        route for route in iter_route_contexts(app.routes)
+        if route.path == "/api/ops/plants/{plant_id}/payroll"
+        and "PUT" in route.methods
     ]
     assert len(routes) >= 2
     assert routes[0].endpoint.__name__ == "retired_direct_payroll_write"
@@ -55,8 +56,8 @@ def test_pr32_mutations_are_shadowed_by_concurrency_safe_routes():
     }
     for (path, method), endpoint_name in expected.items():
         routes = [
-            route for route in app.routes
-            if getattr(route, "path", None) == path and method in getattr(route, "methods", set())
+            route for route in iter_route_contexts(app.routes)
+            if route.path == path and method in route.methods
         ]
         assert len(routes) >= 2
         assert routes[0].endpoint.__name__ == endpoint_name

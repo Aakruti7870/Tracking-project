@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -41,7 +42,7 @@ from security import (
 router = APIRouter(prefix="/api/account-deletion", tags=["account-deletion"])
 
 
-class DeletionRequestBody(BaseModel):
+class DeletionRequestBody(StrictModel):
     confirm: Literal["DELETE"]
     reason: Optional[str] = Field(default=None, max_length=2000)
 
@@ -51,7 +52,7 @@ class PublicDeletionRequestBody(DeletionRequestBody):
     code: str = Field(min_length=4, max_length=8)
 
 
-class CompleteDeletionBody(BaseModel):
+class CompleteDeletionBody(StrictModel):
     note: str = Field(min_length=3, max_length=3000)
 
 

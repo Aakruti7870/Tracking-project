@@ -1,6 +1,8 @@
 """Unit coverage for PR35 shift, roster and geofence attendance controls."""
 from datetime import datetime, timezone
 
+from fastapi.routing import iter_route_contexts
+
 from routers.workforce_roster import classify_shift, haversine_distance_m, shift_window
 from server import app
 
@@ -52,6 +54,9 @@ def test_geofence_attendance_routes_shadow_original_workforce_punch_routes():
         ("/api/workforce/attendance/punch-out", "POST"): "punch_out_with_roster",
     }
     for (path, method), endpoint_name in expected.items():
-        routes = [route for route in app.routes if getattr(route, "path", None) == path and method in getattr(route, "methods", set())]
+        routes = [
+            route for route in iter_route_contexts(app.routes)
+            if route.path == path and method in route.methods
+        ]
         assert len(routes) >= 2
         assert routes[0].endpoint.__name__ == endpoint_name

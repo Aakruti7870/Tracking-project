@@ -8,7 +8,8 @@ placeholders.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -38,7 +39,7 @@ OWNER_STAFF_ROLES = {
 ADMIN_STAFF_ROLES = OWNER_STAFF_ROLES - {Role.ADMIN.value}
 
 
-class CreatePlantStaffBody(BaseModel):
+class CreatePlantStaffBody(StrictModel):
     name: str = Field(min_length=2, max_length=120)
     email: str = Field(min_length=3, max_length=254)
     role: str = Field(min_length=2, max_length=64)

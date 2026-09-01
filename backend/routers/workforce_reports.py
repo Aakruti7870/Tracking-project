@@ -13,7 +13,8 @@ from datetime import date, datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from validation import StrictModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -32,7 +33,7 @@ accountant_only = require_role(Role.ACCOUNTANT.value)
 owner_only = require_role(Role.PLANT_OWNER.value)
 
 
-class PayrollDraftBody(BaseModel):
+class PayrollDraftBody(StrictModel):
     basic_amount: float = Field(ge=0, le=100_000_000)
     allowances: float = Field(default=0, ge=0, le=100_000_000)
     overtime_amount: float = Field(default=0, ge=0, le=100_000_000)
@@ -41,12 +42,12 @@ class PayrollDraftBody(BaseModel):
     notes: str | None = Field(default=None, max_length=3000)
 
 
-class PayrollOwnerDecisionBody(BaseModel):
+class PayrollOwnerDecisionBody(StrictModel):
     action: Literal["APPROVE", "RETURN"]
     note: str | None = Field(default=None, max_length=1000)
 
 
-class PayrollPaidBody(BaseModel):
+class PayrollPaidBody(StrictModel):
     payment_method: Literal["cash", "upi", "bank_transfer", "cheque", "card"]
     payment_reference: str = Field(min_length=2, max_length=160)
     paid_on: date | None = None
