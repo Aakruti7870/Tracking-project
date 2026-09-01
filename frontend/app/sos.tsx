@@ -12,6 +12,7 @@ import { useToast } from "@/src/components/ui/Toast";
 import { AppText } from "@/src/components/ui/AppText";
 import { Button } from "@/src/components/ui/Button";
 import { Input } from "@/src/components/ui/Input";
+import { getCurrentDeviceLocation } from "@/src/location/currentLocation";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const TYPES: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -35,8 +36,25 @@ export default function Sos() {
     if (!type) return toast("Select an emergency type", "error");
     setBusy(true);
     try {
-      const res: any = await apiPost("/driver/sos", token!, { type, remark: remark.trim() || null, lat: 17.44, lng: 78.35 });
-      toast(res.supervisor_notified ? "SOS sent — supervisor notified" : "SOS recorded", "success");
+      const location = await getCurrentDeviceLocation();
+      const payload = {
+        type,
+        remark: remark.trim() || null,
+        lat: location.ok ? location.location.lat : null,
+        lng: location.ok ? location.location.lng : null,
+      };
+
+      const res: any = await apiPost("/driver/sos", token!, payload);
+      if (!location.ok) {
+        toast(
+          res.supervisor_notified
+            ? "SOS sent — supervisor notified; current location was unavailable"
+            : "SOS recorded; current location was unavailable",
+          "success",
+        );
+      } else {
+        toast(res.supervisor_notified ? "SOS sent — supervisor notified" : "SOS recorded", "success");
+      }
       router.back();
     } catch (e: any) {
       toast(e.detail || "Could not send SOS", "error");
@@ -58,7 +76,9 @@ export default function Sos() {
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
         <View style={[styles.alert, { backgroundColor: colors.error + "1A", borderColor: colors.error + "55" }]}>
           <Ionicons name="alert-circle" size={22} color={colors.error} />
-          <AppText variant="caption" style={{ flex: 1 }}>Use only for genuine emergencies. Your plant supervisor is alerted with your location.</AppText>
+          <AppText variant="caption" style={{ flex: 1 }}>
+            Use only for genuine emergencies. We attach your current device location when available, but the SOS can still be sent if location is unavailable.
+          </AppText>
         </View>
         <AppText variant="heading">What&apos;s the emergency?</AppText>
         <View style={{ gap: spacing.sm }}>
