@@ -119,9 +119,8 @@ async def health():
 
 app.include_router(public_policy.router)
 app.include_router(meta)
-# These exact-route overrides must be registered before the normal auth/customer
-# routers so permanent Google Play demo credentials and DigiLocker finalization
-# use the production login/UI paths on both web and Android.
+# Register the KYC compatibility route before the normal customer router because
+# both expose the legacy status path. Authentication is never overridden here.
 app.include_router(permanent_access.router)
 app.include_router(auth.router)
 app.include_router(staff_auth.router)
@@ -188,9 +187,7 @@ async def on_startup():
     await workforce_roster.ensure_indexes()
     await workforce_reports.ensure_indexes()
     await payroll_closure.ensure_indexes()
-    # Production-safe and idempotent: registers the two permanent support
-    # Authority identities and upgrades only legacy DigiLocker-success PENDING
-    # records to VERIFIED. It does not grant the support accounts a demo OTP.
+    # Upgrade only legacy DigiLocker-success PENDING records to VERIFIED.
     await permanent_access.ensure_permanent_access()
     try:
         from routers.storage import init_storage

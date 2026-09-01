@@ -1,44 +1,22 @@
-"""Regression coverage for permanent Play review credentials and support Authority identities."""
+"""Regression coverage for removal of permanent authentication bypasses."""
 
-from roles import Role
-from routers.permanent_access import (
-    DEMO_AUTHORITY_EMAIL,
-    DEMO_CUSTOMER_PHONE,
-    DEMO_DRIVER_PHONE,
-    DEMO_OTP,
-    DEMO_OWNER_EMAIL,
-    PERMANENT_AUTHORITY_EMAILS,
-    demo_mobile_role,
-    demo_staff_role,
-)
+from pathlib import Path
+
+from routers import permanent_access
 
 
-def test_permanent_demo_otp_is_the_play_console_code():
-    assert DEMO_OTP == "123456"
+def test_compatibility_router_does_not_override_authentication_routes():
+    paths = {route.path for route in permanent_access.router.routes}
+    assert "/api/auth/request-otp" not in paths
+    assert "/api/auth/verify-otp" not in paths
+    assert "/api/auth/staff/request-otp" not in paths
+    assert "/api/auth/staff/verify-otp" not in paths
+    assert paths == {"/api/customer/kyc"}
 
 
-def test_customer_demo_number_routes_only_to_customer():
-    assert DEMO_CUSTOMER_PHONE == "+919000009901"
-    assert demo_mobile_role(DEMO_CUSTOMER_PHONE) == Role.CUSTOMER.value
-    assert demo_mobile_role("9000009901") == Role.CUSTOMER.value
-
-
-def test_driver_demo_number_routes_only_to_driver():
-    assert DEMO_DRIVER_PHONE == "+919000009902"
-    assert demo_mobile_role(DEMO_DRIVER_PHONE) == Role.DRIVER.value
-    assert demo_mobile_role("9000009902") == Role.DRIVER.value
-
-
-def test_owner_and_authority_demo_emails_are_exact_allowlist_entries():
-    assert demo_staff_role(DEMO_OWNER_EMAIL) == Role.PLANT_OWNER.value
-    assert demo_staff_role(DEMO_AUTHORITY_EMAIL) == Role.AUTHORITY.value
-    assert demo_staff_role("someone@trackmyrmc.test") is None
-
-
-def test_support_authorities_never_inherit_demo_otp_allowlist():
-    assert PERMANENT_AUTHORITY_EMAILS == (
-        "support@goldetech.com",
-        "support@trackmyrmc.com",
-    )
-    for email in PERMANENT_AUTHORITY_EMAILS:
-        assert demo_staff_role(email) is None
+def test_no_fixed_demo_otp_or_privileged_email_bootstrap_remains():
+    source = Path(permanent_access.__file__).read_text(encoding="utf-8")
+    assert "DEMO_OTP" not in source
+    assert "PERMANENT_AUTHORITY_EMAILS" not in source
+    assert "_ensure_authority" not in source
+    assert "primary_role\": Role.AUTHORITY" not in source
