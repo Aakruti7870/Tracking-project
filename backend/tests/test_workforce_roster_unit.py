@@ -5,6 +5,15 @@ from routers.workforce_roster import classify_shift, haversine_distance_m, shift
 from server import app
 
 
+def _iter_registered_routes(routes):
+    """Yield routes recursively across FastAPI included-router wrappers."""
+    for route in routes:
+        yield route
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from _iter_registered_routes(nested)
+
+
 def test_haversine_distance_handles_geofence_boundary_scale():
     # Roughly 111.2 m north at this latitude.
     distance = haversine_distance_m(19.0, 73.0, 19.001, 73.0)
@@ -52,6 +61,9 @@ def test_geofence_attendance_routes_shadow_original_workforce_punch_routes():
         ("/api/workforce/attendance/punch-out", "POST"): "punch_out_with_roster",
     }
     for (path, method), endpoint_name in expected.items():
-        routes = [route for route in app.routes if getattr(route, "path", None) == path and method in getattr(route, "methods", set())]
+        routes = [
+            route for route in _iter_registered_routes(app.routes)
+            if getattr(route, "path", None) == path and method in getattr(route, "methods", set())
+        ]
         assert len(routes) >= 2
         assert routes[0].endpoint.__name__ == endpoint_name
