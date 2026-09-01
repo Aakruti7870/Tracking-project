@@ -7,6 +7,9 @@ on:
     paths:
       - "frontend/modules/trip-location/**"
       - "frontend/src/location/tripTracking.ts"
+      - "frontend/src/location/currentLocation.ts"
+      - "frontend/app/driver/attendance.tsx"
+      - "frontend/app/sos.tsx"
       - ".github/workflows/kimi-kotlin-trip-location-validation.yml"
   workflow_dispatch:
 
@@ -49,6 +52,15 @@ jobs:
       - name: Play policy readiness
         working-directory: frontend
         run: npm run check:play-policy
+
+      - name: Reject placeholder GPS coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -nE '17\.44|78\.35' frontend/app/driver/attendance.tsx frontend/app/sos.tsx; then
+            echo "Placeholder GPS coordinates must not be used for attendance or SOS."
+            exit 1
+          fi
 
       - name: Generate Android project
         working-directory: frontend
