@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import type { Order } from "@/src/domain/order";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { fonts, fontSize, spacing } from "@/src/theme/tokens";
+import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
 import { AppText } from "./ui/AppText";
@@ -21,6 +21,7 @@ type MetaProps = {
 export function OrderCard({ order, onPress }: { order: Order; onPress?: () => void }) {
   const { colors } = useTheme();
   const interactive = Boolean(onPress);
+
   return (
     <Pressable
       onPress={onPress}
@@ -29,40 +30,54 @@ export function OrderCard({ order, onPress }: { order: Order; onPress?: () => vo
       accessibilityRole={interactive ? "button" : undefined}
       accessibilityLabel={`Order ${order.order_number}. ${order.grade}, ${order.quantity} cubic metres. ${order.status.replace(/_/g, " ")}.`}
       accessibilityHint={interactive ? "Opens order details" : undefined}
-      style={({ pressed }) => ({ opacity: pressed && interactive ? 0.9 : 1, transform: [{ scale: pressed && interactive ? 0.992 : 1 }] })}
+      style={({ pressed }) => [
+        styles.pressable,
+        { transform: [{ scale: pressed && interactive ? 0.992 : 1 }] },
+      ]}
     >
-      <Card style={{ gap: spacing.md }}>
-        <View style={styles.row}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }}>
+      <Card variant="elevated" style={styles.card}>
+        <View style={styles.headerRow}>
+          <View style={[styles.orderGlyph, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "30" }]}>
+            <Ionicons name="cube-outline" size={20} color={colors.brand} />
+          </View>
+          <View style={styles.headerText}>
+            <AppText variant="eyebrow">RMC ORDER</AppText>
+            <AppText
+              numberOfLines={1}
+              style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, lineHeight: 22, color: colors.onSurface }}
+            >
               {order.order_number}
             </AppText>
-            <AppText variant="caption" numberOfLines={1}>
-              {order.plant_name}
-            </AppText>
+            <AppText variant="caption" numberOfLines={1}>{order.plant_name}</AppText>
           </View>
-          <Badge label={order.status.replace(/_/g, " ")} status={order.status} />
+          <View style={styles.headerStatus}>
+            <Badge label={order.status.replace(/_/g, " ")} status={order.status} size="sm" />
+            {interactive ? <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceTertiary} /> : null}
+          </View>
         </View>
 
-        <View style={[styles.metaRow, { borderColor: colors.divider }]}>
-          <Meta icon="layers-outline" label="Grade" value={order.grade} colors={colors} />
-          <Meta icon="cube-outline" label="Qty" value={`${order.quantity} m³`} colors={colors} />
+        <View style={[styles.metaPanel, { backgroundColor: colors.surfaceTertiary, borderColor: colors.divider }]}>
+          <Meta icon="layers-outline" label="GRADE" value={order.grade} colors={colors} />
+          <View style={[styles.metaDivider, { backgroundColor: colors.divider }]} />
+          <Meta icon="cube-outline" label="QUANTITY" value={`${order.quantity} m³`} colors={colors} />
+          <View style={[styles.metaDivider, { backgroundColor: colors.divider }]} />
           <Meta
             icon="calendar-outline"
-            label="Delivery"
+            label="DELIVERY"
             value={order.delivery_time ? `${order.delivery_date.slice(5)} · ${order.delivery_time}` : order.delivery_date.slice(5)}
             colors={colors}
           />
         </View>
 
-        <View style={styles.row}>
-          <View style={styles.siteRow}>
-            <Ionicons name="location-outline" size={15} color={colors.onSurfaceTertiary} />
-            <AppText variant="caption" numberOfLines={1} style={{ flex: 1 }}>
-              {order.site_name}
-            </AppText>
+        <View style={styles.footerRow}>
+          <View style={[styles.siteIcon, { backgroundColor: colors.surfaceTertiary }]}>
+            <Ionicons name="location-outline" size={16} color={colors.brand} />
           </View>
-          <Badge label={order.payment_status} status={order.payment_status} />
+          <View style={styles.siteText}>
+            <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary }}>DELIVERY SITE</AppText>
+            <AppText variant="label" numberOfLines={1}>{order.site_name}</AppText>
+          </View>
+          <Badge label={order.payment_status} status={order.payment_status} size="sm" />
         </View>
       </Card>
     </Pressable>
@@ -72,32 +87,50 @@ export function OrderCard({ order, onPress }: { order: Order; onPress?: () => vo
 function Meta({ icon, label, value, colors }: MetaProps) {
   return (
     <View style={styles.meta}>
-      <View style={[styles.metaIcon, { backgroundColor: colors.brandSoft }]}>
-        <Ionicons name={icon} size={14} color={colors.brand} />
-      </View>
-      <View style={{ gap: 1 }}>
-        <AppText style={{ fontFamily: fonts.regular, fontSize: 10, color: colors.onSurfaceTertiary }}>
-          {label}
-        </AppText>
-        <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>
-          {value}
-        </AppText>
-      </View>
+      <Ionicons name={icon} size={15} color={colors.brand} />
+      <AppText style={{ fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.45, color: colors.onSurfaceTertiary }} numberOfLines={1}>
+        {label}
+      </AppText>
+      <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={1}>
+        {value}
+      </AppText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
-  metaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: spacing.sm,
+  pressable: { borderRadius: radius.lg },
+  card: { gap: spacing.lg },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  orderGlyph: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  meta: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
-  metaIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  siteRow: { flexDirection: "row", alignItems: "center", gap: 4, flex: 1, marginRight: spacing.sm },
+  headerText: { minWidth: 0, flex: 1, gap: 1 },
+  headerStatus: { alignItems: "flex-end", gap: spacing.sm },
+  metaPanel: {
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  meta: {
+    minWidth: 0,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: 3,
+  },
+  metaDivider: { width: StyleSheet.hairlineWidth, marginVertical: 5 },
+  footerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  siteIcon: { width: 34, height: 34, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
+  siteText: { minWidth: 0, flex: 1, gap: 1 },
 });
