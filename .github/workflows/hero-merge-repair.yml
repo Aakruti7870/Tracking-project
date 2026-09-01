@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   repair:
-    if: github.event.head_commit.message == 'chore: activate hero merge repair'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout hero branch
@@ -70,9 +69,8 @@ jobs:
           for path in files:
               data = path.read_bytes()
               before = jpeg_size(data)
-              marker_text = ('TMRMC_PR95_VALID_HERO:' + path.name).encode('ascii')
+              marker_text = ('TMRMC_PR95_VALID_HERO_' + path.name).encode('ascii')
               segment = b'\xff\xfe' + (len(marker_text) + 2).to_bytes(2, 'big') + marker_text
-              # A legal JPEG COM segment changes only metadata; compressed pixels are untouched.
               repaired = data[:2] + segment + data[2:]
               after = jpeg_size(repaired)
               if before != after:
@@ -81,11 +79,9 @@ jobs:
               print(f'{path}: {after[0]}x{after[1]}, {len(data)} -> {len(repaired)} bytes')
           PY
 
-      - name: Remove temporary repair controls
+      - name: Remove obsolete transfer marker
         shell: bash
-        run: |
-          rm -f .hero-transfer/status.txt
-          rm -f .github/workflows/hero-merge-repair.yml
+        run: rm -f .hero-transfer/status.txt
 
       - name: Commit repaired hero binaries to output branch
         shell: bash
@@ -96,6 +92,6 @@ jobs:
                   frontend/assets/images/login-hero-dark.jpg \
                   frontend/assets/images/home-hero-light.jpg \
                   frontend/assets/images/home-hero-dark.jpg
-          git add -A .hero-transfer .github/workflows/hero-merge-repair.yml
+          git add -A .hero-transfer
           git commit -m 'fix: force valid hero binaries into PR diff'
           git push --force origin HEAD:refs/heads/hero-repair-output
