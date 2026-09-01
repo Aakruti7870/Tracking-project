@@ -1,4 +1,7 @@
 """Account deletion integration coverage using disposable customer identities."""
+import base64
+import hashlib
+import hmac
 import os
 import time
 import uuid
@@ -25,6 +28,44 @@ def _login(session: requests.Session, identifier: str) -> str:
 
 def _h(token: str):
     return {"Authorization": f"Bearer {token}"}
+
+
+def _totp(secret: str, now_ts: int | None = None) -> str:
+    padding = "=" * ((8 - len(secret) % 8) % 8)
+    key = base64.b32decode(secret + padding, casefold=True)
+    counter = int((time.time() if now_ts is None else now_ts) // 30)
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    binary = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return str(binary % 1_000_000).zfill(6)
+
+
+def _enroll_and_step_up_admin(session: requests.Session, token: str) -> None:
+    enrollment = session.post(
+        f"{API}/auth/staff/mfa/enroll/start",
+        headers=_h(token),
+        timeout=15,
+    )
+    assert enrollment.status_code == 200, enrollment.text
+    secret = enrollment.json().get("manual_key")
+    assert secret, enrollment.json()
+
+    confirmed = session.post(
+        f"{API}/auth/staff/mfa/enroll/confirm",
+        headers=_h(token),
+        json={"code": _totp(secret)},
+        timeout=15,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    step_up = session.post(
+        f"{API}/admin/auth/step-up",
+        headers=_h(token),
+        json={"code": _totp(secret)},
+        timeout=15,
+    )
+    assert step_up.status_code == 200, step_up.text
+    assert step_up.json().get("status") == "verified", step_up.text
 
 
 def test_account_deletion_request_cancel_and_admin_completion():
@@ -69,6 +110,19 @@ def test_account_deletion_request_cancel_and_admin_completion():
     listing = session.get(f"{API}/account-deletion/requests", headers=_h(central), timeout=15)
     assert listing.status_code == 200, listing.text
     assert any(r["id"] == request_id and r["status"] == "PENDING" for r in listing.json()["requests"])
+
+    # Destructive completion must fail closed until the administrator has
+    # performed a recent TOTP step-up on this exact session.
+    blocked = session.post(
+        f"{API}/account-deletion/requests/{request_id}/complete",
+        headers=_h(central),
+        json={"note": "TEST identity removal verified"},
+        timeout=15,
+    )
+    assert blocked.status_code == 403, blocked.text
+    assert blocked.json().get("detail") == "Recent administrator verification required", blocked.text
+
+    _enroll_and_step_up_admin(session, central)
 
     completed = session.post(
         f"{API}/account-deletion/requests/{request_id}/complete",
