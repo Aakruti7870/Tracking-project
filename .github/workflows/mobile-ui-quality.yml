@@ -1,0 +1,68 @@
+name: Mobile UI Quality Gate
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - "frontend/**"
+      - ".github/workflows/mobile-ui-quality.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/mobile-ui-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-ui-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enforce privileged web-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -d frontend/app/central_admin
+          test ! -d frontend/app/authority
+          ! grep -q 'central_admin' frontend/src/auth/roleRoutes.ts
+          ! grep -q 'authority' frontend/src/auth/roleRoutes.ts
+          echo "Privileged mobile separation passed."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Auth routing guard
+        working-directory: frontend
+        run: npm run check:auth-routing
+
+      - name: Play policy guard
+        working-directory: frontend
+        run: npm run check:play-policy
+
+      - name: Expo web preview build
+        working-directory: frontend
+        run: npm run build:preview
