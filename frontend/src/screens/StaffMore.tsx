@@ -64,17 +64,17 @@ export function StaffMore() {
         </View>
 
         {workforceEnabled ? <View style={{ gap: spacing.sm }}>
-          <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText><AppText variant="caption">Attendance, leave, client visits and expense claims</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
-          <Pressable testID="staff-shift-roster" onPress={() => router.push("/shift-roster" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Pressable testID="staff-shift-roster" onPress={() => router.push("/shift-roster")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="calendar-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Shift &amp; Roster</AppText><AppText variant="caption">Upcoming shifts, week-offs and geofence attendance rules</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
-          <Pressable testID="staff-my-payslip" onPress={() => router.push("/my-payslip" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Pressable testID="staff-my-payslip" onPress={() => router.push("/my-payslip")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="document-text-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>My Payslip</AppText><AppText variant="caption">View and share closed-month payroll payslips</AppText></View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
@@ -83,17 +83,17 @@ export function StaffMore() {
 
         {user?.role === "accountant" ? (
           <View style={{ gap: spacing.sm }}>
-            <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Pressable testID="accountant-workforce-reports" onPress={() => router.push("/workforce-reports")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="stats-chart-outline" size={22} color={colors.brand} />
               <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce Reports &amp; Payroll</AppText><AppText variant="caption">Monthly evidence, payroll drafts and payment posting</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
-            <Pressable testID="accountant-employee-master" onPress={() => router.push("/employee-master" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Pressable testID="accountant-employee-master" onPress={() => router.push("/employee-master")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="id-card-outline" size={22} color={colors.brand} />
               <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Employee Master &amp; Salary</AppText><AppText variant="caption">Read employment details and salary structures</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
-            <Pressable testID="accountant-payroll-closure" onPress={() => router.push("/payroll-closure" as any)} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Pressable testID="accountant-payroll-closure" onPress={() => router.push("/payroll-closure")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="document-attach-outline" size={22} color={colors.brand} />
               <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Payroll Closure &amp; Export</AppText><AppText variant="caption">Read closed periods, payslips and payroll CSV exports</AppText></View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
