@@ -7,6 +7,7 @@ import {
   demoLogin as apiDemoLogin,
   exchangeGoogleStaffCode,
   exchangeStaffPasskeyHandoff,
+  isApiError,
   playReviewLogin,
   PlayReviewRole,
   requestOtp,
@@ -145,28 +146,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const me = await apiGet<Me>("/me", token);
       setUser(me);
-    } catch {
-      /* keep existing; explicit auth failures are handled by normal navigation */
+    } catch (error) {
+      // A revoked, expired, suspended, or no-longer-authorized session must not
+      // leave stale privileged UI state resident in memory.
+      if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+        await stopTripLocationTracking();
+        await storage.secureRemove(TOKEN_KEY);
+        setToken(null);
+        setUser(null);
+      }
+      // Transient network failures keep the current session so offline/poor
+      // connectivity does not unnecessarily force the user through OTP again.
     }
   };
 
   const signOut = async () => {
+    const sessionToken = token;
+
+    // Fail closed locally first. Remote cleanup is best effort and must never
+    // keep a sensitive session alive on-device while the network is slow/down.
     await stopTripLocationTracking();
-    if (token) {
-      try {
-        await unregisterPushDevice(token);
-      } catch {
-        /* push cleanup is best effort; server/session logout must still run */
-      }
-      try {
-        await apiPost("/auth/logout", token);
-      } catch {
-        /* local logout must still succeed when the network is unavailable */
-      }
-    }
     await storage.secureRemove(TOKEN_KEY);
     setToken(null);
     setUser(null);
+
+    if (!sessionToken) return;
+
+    try {
+      await unregisterPushDevice(sessionToken);
+    } catch {
+      /* push cleanup is best effort; server/session logout must still run */
+    }
+    try {
+      await apiPost("/auth/logout", sessionToken);
+    } catch {
+      /* local logout has already succeeded when the network is unavailable */
+    }
   };
 
   return (
