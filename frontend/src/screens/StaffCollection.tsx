@@ -214,15 +214,20 @@ export function StaffCollection({ kind, embedded = false, limit, onItemPress }: 
         </Card>
       ) : (
         <Card padded={false}>
-          {items.map((it, i) => (
-            <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-              <ItemRow
-                item={it}
-                onAction={onAction}
-                onPress={onItemPress ? () => onItemPress(it) : it.nav ? () => router.push(it.nav) : undefined}
-              />
-            </View>
-          ))}
+          {items.map((it, i) => {
+            const nav = it.nav;
+            const itemPress = onItemPress
+              ? () => onItemPress(it)
+              : nav
+              ? () => router.push(nav)
+              : undefined;
+
+            return (
+              <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+                <ItemRow item={it} onAction={onAction} onPress={itemPress} />
+              </View>
+            );
+          })}
         </Card>
       )}
     </>
