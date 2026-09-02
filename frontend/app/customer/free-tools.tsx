@@ -98,10 +98,10 @@ export default function FreeRmcTools() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={styles.header}>
-        <Pressable testID="free-tools-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#FFFFFF" /></Pressable>
-        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Free RMC Tools</AppText><AppText style={styles.headerSub}>Plan your concrete requirement safely</AppText></View>
-        <Ionicons name="calculator-outline" size={26} color="#FF6A00" />
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
+        <Pressable testID="free-tools-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color={colors.onSurface} /></Pressable>
+        <View style={{ flex: 1 }}><AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Free RMC Tools</AppText><AppText style={[styles.headerSub, { color: colors.onSurfaceSecondary }]}>Plan your concrete requirement safely</AppText></View>
+        <Ionicons name="calculator-outline" size={26} color={colors.brand} />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 90, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
@@ -173,8 +173,8 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
   return <Pressable onPress={onPress} style={[styles.chip, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}><AppText style={{ fontFamily: fonts.semibold, color: selected ? colors.onBrand : colors.onSurface }}>{label}</AppText></Pressable>;
 }
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" },
-  headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { fontSize: 12 },
   chip: { minHeight: 40, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   shapeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }, shape: { minWidth: "30%", flexGrow: 1, minHeight: 62, alignItems: "center", justifyContent: "center", gap: 4, borderWidth: 1, borderRadius: radius.md },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
