@@ -61,7 +61,10 @@ export default function DriverTrips() {
           onRefresh={refetch}
           refreshing={false}
           renderItem={({ item }) => (
-            <Pressable testID={`trip-card-${item.order_number}`} onPress={() => router.push(`/trip/${item.id}` as any)}>
+            <Pressable
+              testID={`trip-card-${item.order_number}`}
+              onPress={() => router.push({ pathname: "/trip/[id]", params: { id: item.id } })}
+            >
               <Card style={{ gap: spacing.sm }}>
                 <View style={styles.rowBetween}>
                   <AppText style={{ fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface }}>{item.order_number}</AppText>
