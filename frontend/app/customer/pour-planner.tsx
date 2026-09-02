@@ -100,7 +100,7 @@ export default function CustomerPourPlanner() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#FFFFFF" /></Pressable><View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Concrete Pour Planner</AppText><AppText style={styles.headerSub}>Plan mixer loads and site arrival intervals</AppText></View><Ionicons name="time-outline" size={26} color="#FF6A00" /></View>
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}><Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color={colors.onSurface} /></Pressable><View style={{ flex: 1 }}><AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Concrete Pour Planner</AppText><AppText style={[styles.headerSub, { color: colors.onSurfaceSecondary }]}>Plan mixer loads and site arrival intervals</AppText></View><Ionicons name="time-outline" size={26} color={colors.brand} /></View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={() => { sites.refetch(); plans.refetch(); }} tintColor={colors.brand} />} keyboardShouldPersistTaps="handled">
         <Card style={{ gap: spacing.md }}>
           <AppText variant="heading">Pour requirement</AppText>
@@ -138,7 +138,7 @@ export default function CustomerPourPlanner() {
 }
 function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress(): void }) { const { colors } = useTheme(); return <Pressable onPress={onPress} style={[styles.chip, { backgroundColor: selected ? colors.brand : colors.surfaceSecondary, borderColor: selected ? colors.brand : colors.border }]}><AppText style={{ fontFamily: fonts.semibold, color: selected ? colors.onBrand : colors.onSurface }}>{label}</AppText></Pressable>; }
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" }, headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth }, headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { fontSize: 12 },
   chip: { minHeight: 40, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" }, wrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   actions: { flexDirection: "row", gap: spacing.sm }, between: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md },
   result: { fontFamily: fonts.displayBold, fontSize: 32 }, loadRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
