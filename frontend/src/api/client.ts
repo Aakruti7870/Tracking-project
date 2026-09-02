@@ -191,11 +191,24 @@ async function request<T>(
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     token?: string;
     body?: unknown;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const safePath = validatedApiPath(path);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+
+  if (options.signal?.aborted) {
+    controller.abort();
+  } else {
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
   const headers: Record<string, string> = { Accept: "application/json" };
 
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
@@ -212,6 +225,9 @@ async function request<T>(
   } catch (error) {
     if (isApiError(error)) throw error;
     if (error instanceof Error && error.name === "AbortError") {
+      if (options.signal?.aborted && !timedOut) {
+        throw { status: 0, detail: "Request cancelled" } as ApiError;
+      }
       throw {
         status: 0,
         detail: "Request timed out. Check your connection and try again.",
@@ -223,6 +239,7 @@ async function request<T>(
     } as ApiError;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -364,8 +381,8 @@ export async function demoLogin(role: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/demo-login", { role });
 }
 
-export async function apiGet<T>(path: string, token: string): Promise<T> {
-  return request<T>(path, { token });
+export async function apiGet<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { token, signal });
 }
 
 export async function apiPost<T>(path: string, token: string, body?: unknown): Promise<T> {
