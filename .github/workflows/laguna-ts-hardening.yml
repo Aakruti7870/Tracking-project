@@ -1,0 +1,194 @@
+name: Laguna TypeScript Security Hardening
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - "frontend/src/api/**/*.ts"
+      - "frontend/src/auth/**/*.ts"
+      - "frontend/src/auth/**/*.tsx"
+      - "frontend/src/utils/storage/**/*.ts"
+      - ".github/workflows/laguna-ts-hardening.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  laguna-ts-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Review critical TypeScript with Laguna XS
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          LAGUNA_MODEL: ${{ vars.LAGUNA_MODEL }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("LAGUNA_MODEL")
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+          if not model:
+              raise SystemExit("LAGUNA_MODEL is missing")
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          selected = [
+              "frontend/src/api/client.ts",
+              "frontend/src/auth/AuthContext.tsx",
+              "frontend/src/auth/roleRoutes.ts",
+              "frontend/src/utils/storage/storage-base.ts",
+              "frontend/src/utils/storage/index.ts",
+              "frontend/src/utils/storage/index.web.ts",
+          ]
+
+          def scrub(text: str) -> str:
+              patterns = [
+                  r'(?i)((?:api[_-]?key|secret|password|passwd|token|auth[_-]?token)\s*[:=]\s*["\'])[^"\']+(["\'])',
+                  r'(?i)(authorization\s*[:=]\s*["\']bearer\s+)[^"\']+(["\'])',
+              ]
+              for pattern in patterns:
+                  text = re.sub(pattern, r'\1[REDACTED]\2', text)
+              return text
+
+          blocks = []
+          for rel in selected:
+              path = (workspace / rel).resolve()
+              try:
+                  path.relative_to(workspace)
+              except ValueError:
+                  raise SystemExit(f"Blocked path outside repository: {rel}")
+              if not path.is_file():
+                  continue
+              raw = path.read_text(encoding="utf-8", errors="replace")
+              body = scrub(raw[:18000])
+              blocks.append(f"\n===== FILE: {rel} =====\n{body}\n===== END FILE =====\n")
+
+          system_prompt = """
+          You are Laguna XS acting as the production TypeScript security and performance reviewer for TrackMyRMC.
+
+          Review only the evidence in the supplied files. The application is Expo/React Native TypeScript with a Python backend and Kotlin only for genuinely Android-native services.
+
+          Priorities, in order:
+          1. Authentication/session security and fail-closed behavior.
+          2. Unsafe API/error contracts, secret/token handling, transport security and privilege-boundary mistakes.
+          3. Corrupted or malformed local data handling.
+          4. Duplicate logic, dead code and unnecessary abstractions.
+          5. React Native/Android performance risks, avoidable network waits and memory/state issues.
+          6. Maintainability without broad rewrites.
+
+          Rules:
+          - Distinguish PROVEN findings from hypotheses.
+          - Do not propose moving ordinary React Native UI/business logic to Kotlin.
+          - Preserve auth, KYC, payment, order and Play Store review behavior.
+          - Do not invent backend behavior or repository files.
+          - Prefer the smallest safe patch.
+          - Treat current code as a candidate patch that must be reviewed, not automatically accepted.
+          - Do not expose or request secrets.
+          """
+
+          user_prompt = """
+          Audit this critical TypeScript hardening batch.
+
+          Return exactly these sections:
+          ## Verdict
+          ## P0 Security Findings
+          ## P1 Correctness Findings
+          ## P1 Performance Findings
+          ## Duplicate / Dead Code Findings
+          ## Corrupted Data / Validation Findings
+          ## Confirmed Good Changes
+          ## Minimal Patches Required
+          ## Tests Required Before Merge
+          ## Final Go / No-Go
+
+          For every finding name the exact file and code behavior that proves it.
+          """ + "".join(blocks)
+
+          payload = {
+              "model": model,
+              "messages": [
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user", "content": user_prompt},
+              ],
+              "temperature": 0.1,
+              "max_tokens": 4500,
+              "stream": False,
+          }
+
+          request = urllib.request.Request(
+              "https://integrate.api.nvidia.com/v1/chat/completions",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              },
+              method="POST",
+          )
+
+          answer = None
+          last_error = None
+          for attempt in range(1, 4):
+              try:
+                  with urllib.request.urlopen(request, timeout=300) as response:
+                      result = json.loads(response.read().decode("utf-8"))
+                  answer = result["choices"][0]["message"]["content"]
+                  if answer:
+                      break
+                  last_error = "empty response"
+              except (TimeoutError, socket.timeout, ConnectionResetError, ConnectionAbortedError, urllib.error.URLError) as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  last_error = f"HTTP {exc.code}: {body[:1000]}"
+                  if 400 <= exc.code < 500 and exc.code != 429:
+                      break
+              except Exception as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+
+              if attempt < 3:
+                  time.sleep(10 * attempt)
+
+          output = pathlib.Path("laguna-ts-hardening.md")
+          if not answer:
+              output.write_text(
+                  "# Laguna TypeScript Hardening\n\nLaguna did not return a usable response.\n\n"
+                  f"Last error: `{last_error}`\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(f"Laguna review failed: {last_error}")
+
+          output.write_text(answer, encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("# Laguna TypeScript Security Hardening\n\n")
+                  fh.write(answer)
+                  fh.write("\n")
+
+          print("Laguna critical TypeScript hardening review completed.")
+          PY
+
+      - name: Upload Laguna hardening report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laguna-ts-hardening
+          path: laguna-ts-hardening.md
+          if-no-files-found: ignore
+          retention-days: 14
