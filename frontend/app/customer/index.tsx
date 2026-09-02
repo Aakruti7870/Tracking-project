@@ -14,7 +14,6 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { MapPlaceholder } from "@/src/components/ui/MapPlaceholder";
 import { KycBanner } from "@/src/components/KycBanner";
 import { ErrorView } from "@/src/components/StateViews";
-import { HomeHero } from "@/src/components/HomeHero";
 import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
@@ -106,7 +105,20 @@ export default function CustomerHome() {
             </>
           ) : data ? (
             <>
-              <HomeHero height={210} />
+              <Card variant="brand" style={styles.welcomeCard} testID="customer-home-summary">
+                <View style={styles.welcomeCopy}>
+                  <AppText variant="caption">WELCOME BACK</AppText>
+                  <AppText style={styles.welcomeTitle} numberOfLines={1}>{data.name || user?.name}</AppText>
+                  <View style={styles.statusRow}>
+                    <View style={[styles.statusDot, { backgroundColor: data.active_order ? colors.brand : colors.onSurfaceTertiary }]} />
+                    <AppText variant="bodyMuted">{data.active_order ? `${data.active_order.order_number} is in progress` : "No delivery in progress"}</AppText>
+                  </View>
+                </View>
+                <Pressable testID="customer-primary-action" onPress={() => data.active_order ? openActiveTracking() : onAction("new")} style={({ pressed }) => [styles.welcomeAction, { backgroundColor: colors.brand, opacity: pressed ? 0.84 : 1 }]}>
+                  <Ionicons name={data.active_order ? "navigate" : "add"} size={19} color={colors.onBrand} />
+                  <AppText style={[styles.welcomeActionText, { color: colors.onBrand }]}>{data.active_order ? "Track" : "Order"}</AppText>
+                </Pressable>
+              </Card>
 
               {data.kyc_status !== "VERIFIED" ? <KycBanner status={data.kyc_status} /> : null}
 
@@ -209,6 +221,11 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   dot: { position: "absolute", top: 7, right: 7, width: 8, height: 8, borderRadius: 4 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120, gap: 24 },
+  welcomeCard: { minHeight: 118, flexDirection: "row", alignItems: "center", gap: spacing.md },
+  welcomeCopy: { flex: 1, gap: spacing.xs },
+  welcomeTitle: { fontFamily: fonts.displayBold, fontSize: fontSize["2xl"] },
+  welcomeAction: { minWidth: 86, minHeight: 48, borderRadius: radius.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.md },
+  welcomeActionText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   section: { gap: 12 },
   sectionTitle: { fontFamily: fonts.displayBold, fontSize: 20 },
   actionGrid: { flexDirection: "row", gap: 10 },

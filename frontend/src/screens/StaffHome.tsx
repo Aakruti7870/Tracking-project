@@ -11,7 +11,6 @@ import { AppText } from "@/src/components/ui/AppText";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { StaffCollection } from "@/src/screens/StaffCollection";
-import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Kpi = { label: string; value: number; icon: keyof typeof Ionicons.glyphMap; unit?: string | null };
@@ -126,7 +125,15 @@ export function StaffHome() {
             </>
           ) : data ? (
             <>
-              <HomeHero />
+              <View style={[styles.summary, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "3D" }]} testID="staff-home-summary">
+                <View style={[styles.summaryIcon, { backgroundColor: colors.brand }]}><Ionicons name="pulse" size={21} color={colors.onBrand} /></View>
+                <View style={{ flex: 1, gap: spacing.xs }}>
+                  <AppText variant="caption">LIVE WORKSPACE</AppText>
+                  <AppText style={styles.summaryTitle} numberOfLines={1}>{data.primary.title}</AppText>
+                  <AppText variant="bodyMuted">Current operational queue from your plant</AppText>
+                </View>
+                <Ionicons name="chevron-down" size={20} color={colors.onBrandSoft} />
+              </View>
               <View style={styles.grid}>
                 {data.kpis.map((c) => (
                   <View key={c.label} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
@@ -173,6 +180,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, paddingTop: spacing.sm },
   iconBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   badge: { position: "absolute", top: 8, right: 8, width: 9, height: 9, borderRadius: 5 },
+  summary: { minHeight: 108, flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg },
+  summaryIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  summaryTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   kpi: { width: "48%", flexGrow: 1, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, gap: spacing.xs },
   kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: spacing.xs },
