@@ -30,7 +30,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const accent = toast?.type === "error" ? colors.error : colors.brand;
   const soft = toast?.type === "error" ? colors.errorSoft : colors.brandSoft;
-  const iconName = toast?.type === "success" ? "checkmark-circle" : toast?.type === "error" ? "alert-circle" : "information-circle";
+  const iconName: keyof typeof Ionicons.glyphMap = toast?.type === "success" ? "checkmark-circle" : toast?.type === "error" ? "alert-circle" : "information-circle";
   const title = toast?.type === "success" ? "Done" : toast?.type === "error" ? "Action needed" : "Update";
 
   return (
@@ -56,7 +56,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             ]}
           >
             <View style={[styles.iconWrap, { backgroundColor: soft, borderColor: accent + "30" }]}>
-              <Ionicons name={iconName as any} size={20} color={accent} />
+              <Ionicons name={iconName} size={20} color={accent} />
             </View>
             <View style={styles.copy}>
               <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, lineHeight: 16, color: accent }}>{title}</AppText>
