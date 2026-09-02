@@ -39,7 +39,10 @@ jobs:
         run: npm run build:preview
 
       - name: Install screenshot browser
-        run: npx --yes playwright@1.55.0 install --with-deps chromium
+        working-directory: frontend
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
 
       - name: Start exported app
         working-directory: frontend
@@ -54,9 +57,10 @@ jobs:
           exit 1
 
       - name: Capture real light and dark login proof
+        working-directory: frontend
         run: |
-          mkdir -p ui-proof
-          cat > /tmp/capture-ui-proof.mjs <<'EOF'
+          mkdir -p ../ui-proof
+          cat > ./capture-ui-proof.mjs <<'EOF'
           import { chromium } from 'playwright';
 
           const browser = await chromium.launch({ headless: true });
@@ -73,7 +77,7 @@ jobs:
             await page.goto(`${baseURL}/login`, { waitUntil: 'networkidle' });
             await page.waitForTimeout(1200);
             await page.screenshot({
-              path: `ui-proof/login-${scheme}.png`,
+              path: `../ui-proof/login-${scheme}.png`,
               fullPage: true,
             });
             await context.close();
@@ -81,7 +85,8 @@ jobs:
 
           await browser.close();
           EOF
-          npx --yes -p playwright@1.55.0 node /tmp/capture-ui-proof.mjs
+          node ./capture-ui-proof.mjs
+          rm ./capture-ui-proof.mjs
 
       - name: Upload screenshot proof
         uses: actions/upload-artifact@v4
