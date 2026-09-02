@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { apiPost } from "@/src/api/client";
+import { apiErrorDetail, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useToast } from "@/src/components/ui/Toast";
@@ -24,7 +24,7 @@ export type StaffAction = {
   style?: "primary" | "danger" | "outline";
   method?: string;
   path?: string;
-  body?: Record<string, any>;
+  body?: Record<string, unknown>;
   input?: "amount" | "reason" | "quality";
   sign?: number;
 };
@@ -38,7 +38,7 @@ export type StaffItem = {
   badge?: string | null;
   badge_status?: string | null;
   actions?: StaffAction[];
-  nav?: string | null;
+  nav?: Href | null;
   owner_assigned?: boolean;
 };
 
@@ -47,21 +47,30 @@ type CollectionData = { title: string; empty: string; items: StaffItem[]; create
 
 function ItemRow({ item, onAction, onPress }: { item: StaffItem; onAction: (i: StaffItem, a: StaffAction) => void; onPress?: () => void }) {
   const { colors } = useTheme();
-  const Container: any = onPress ? Pressable : View;
+  const rowContent = (
+    <>
+      <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
+        <Ionicons name={item.icon || "ellipse-outline"} size={18} color={colors.onBrandSoft} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={1}>{item.primary}</AppText>
+        {item.secondary ? <AppText variant="caption" numberOfLines={1}>{item.secondary}</AppText> : null}
+        {item.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }} numberOfLines={1}>{item.meta}</AppText> : null}
+      </View>
+      {item.badge ? <Badge label={item.badge} status={item.badge_status || item.badge} /> : null}
+      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /> : null}
+    </>
+  );
+
   return (
     <View style={styles.rowWrap}>
-      <Container style={styles.row} onPress={onPress} testID={onPress ? `open-${item.id}` : undefined}>
-        <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
-          <Ionicons name={item.icon || "ellipse-outline"} size={18} color={colors.onBrandSoft} />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }} numberOfLines={1}>{item.primary}</AppText>
-          {item.secondary ? <AppText variant="caption" numberOfLines={1}>{item.secondary}</AppText> : null}
-          {item.meta ? <AppText style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary }} numberOfLines={1}>{item.meta}</AppText> : null}
-        </View>
-        {item.badge ? <Badge label={item.badge} status={item.badge_status || item.badge} /> : null}
-        {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /> : null}
-      </Container>
+      {onPress ? (
+        <Pressable style={styles.row} onPress={onPress} testID={`open-${item.id}`}>
+          {rowContent}
+        </Pressable>
+      ) : (
+        <View style={styles.row}>{rowContent}</View>
+      )}
       {item.actions && item.actions.length > 0 ? (
         <View style={styles.actions}>
           {item.actions.map((a) => (
@@ -127,34 +136,48 @@ export function StaffCollection({ kind, embedded = false, limit, onItemPress }: 
 
   const items = filtered;
 
-  const runPost = async (path: string, body?: any) => {
+  const runPost = async (path: string, body?: Record<string, unknown>) => {
+    if (!token) {
+      toast("Please sign in again", "error");
+      return;
+    }
+
     setBusy(true);
     try {
-      await apiPost(path, token!, body);
+      await apiPost(path, token, body);
       toast("Done", "success");
       setModal(null);
       setNum(""); setText(""); setF1(""); setF2(""); setF3("");
       refetch();
-    } catch (e: any) {
-      toast(e.detail || "Action failed", "error");
+    } catch (error: unknown) {
+      toast(apiErrorDetail(error, "Action failed"), "error");
     } finally {
       setBusy(false);
     }
   };
 
-  const onAction = (item: StaffItem, a: StaffAction) => {
-    if (a.input === "quality") return router.push(`/quality-test/${item.id}` as any);
-    if (a.input === "amount" || a.input === "reason") {
-      setNum(""); setText("");
-      return setModal({ item, action: a });
+  const onAction = (item: StaffItem, action: StaffAction) => {
+    if (action.input === "quality") {
+      router.push({ pathname: "/quality-test/[id]", params: { id: item.id } });
+      return;
     }
-    runPost(a.path!, a.body);
+    if (action.input === "amount" || action.input === "reason") {
+      setNum(""); setText("");
+      setModal({ item, action });
+      return;
+    }
+    if (!action.path) {
+      toast("Action unavailable", "error");
+      return;
+    }
+    void runPost(action.path, action.body);
   };
 
   const openCreate = () => {
+    if (!data?.create) return;
     setF1(""); setF2(""); setF3("");
     setNum(""); setText("");
-    setModal({ create: data!.create });
+    setModal({ create: data.create });
   };
 
   const submitModal = () => {
@@ -166,14 +189,15 @@ export function StaffCollection({ kind, embedded = false, limit, onItemPress }: 
       if (!f1.trim() || !num) return toast("TM number and capacity required", "error");
       return runPost(modal.create.path, { tm_number: f1.trim(), capacity_m3: Number(num) });
     }
-    const a = modal!.action!;
-    if (a.input === "amount") {
+
+    const action = modal?.action;
+    if (!action?.path) return toast("Action unavailable", "error");
+    if (action.input === "amount") {
       const amt = Number(num);
       if (!amt || amt <= 0) return toast("Enter a valid amount", "error");
-      return runPost(a.path!, { delta: amt * (a.sign || 1), amount: amt, note: text.trim() || null });
+      return runPost(action.path, { delta: amt * (action.sign || 1), amount: amt, note: text.trim() || null });
     }
-    // reason
-    return runPost(a.path!, { reason: text.trim() || null });
+    return runPost(action.path, { reason: text.trim() || null });
   };
 
   const body = (
@@ -190,15 +214,20 @@ export function StaffCollection({ kind, embedded = false, limit, onItemPress }: 
         </Card>
       ) : (
         <Card padded={false}>
-          {items.map((it, i) => (
-            <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-              <ItemRow
-                item={it}
-                onAction={onAction}
-                onPress={onItemPress ? () => onItemPress(it) : it.nav ? () => router.push(it.nav as any) : undefined}
-              />
-            </View>
-          ))}
+          {items.map((it, i) => {
+            const nav = it.nav;
+            const itemPress = onItemPress
+              ? () => onItemPress(it)
+              : nav
+              ? () => router.push(nav)
+              : undefined;
+
+            return (
+              <View key={it.id} style={i < items.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+                <ItemRow item={it} onAction={onAction} onPress={itemPress} />
+              </View>
+            );
+          })}
         </Card>
       )}
     </>

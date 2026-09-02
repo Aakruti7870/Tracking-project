@@ -1,5 +1,23 @@
 // API client for TrackMyRMC. Base URL from env; all routes under /api.
 const RAW_BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
+const REQUEST_TIMEOUT_MS = 30_000;
+
+export type ApiError = { status: number; detail: string };
+
+export function isApiError(error: unknown): error is ApiError {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "status" in error &&
+      typeof error.status === "number" &&
+      "detail" in error &&
+      typeof error.detail === "string",
+  );
+}
+
+export function apiErrorDetail(error: unknown, fallback: string): string {
+  return isApiError(error) && error.detail.trim() ? error.detail : fallback;
+}
 
 function apiBase(): string {
   if (!RAW_BACKEND) {
@@ -8,15 +26,49 @@ function apiBase(): string {
       detail: "TrackMyRMC backend is not configured for this build",
     } as ApiError;
   }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(RAW_BACKEND);
+  } catch {
+    throw { status: 0, detail: "TrackMyRMC backend URL is invalid" } as ApiError;
+  }
+
+  const localHost = ["localhost", "127.0.0.1", "10.0.2.2"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && localHost)) {
+    throw {
+      status: 0,
+      detail: "TrackMyRMC backend must use HTTPS in production",
+    } as ApiError;
+  }
+
   return `${RAW_BACKEND.replace(/\/$/, "")}/api`;
 }
 
-export type ApiError = { status: number; detail: string };
+function validatedApiPath(path: string): string {
+  if (
+    !path.startsWith("/") ||
+    path.startsWith("//") ||
+    path.includes("#") ||
+    path.includes("\\") ||
+    /[\u0000-\u001F\u007F]/.test(path)
+  ) {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path" } as ApiError;
+  }
 
-export function apiErrorDetail(error: unknown, fallback: string): string {
-  return typeof error === "object" && error !== null && "detail" in error && typeof error.detail === "string"
-    ? error.detail
-    : fallback;
+  const pathname = path.split("?", 1)[0];
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path encoding" } as ApiError;
+  }
+
+  if (decodedPathname.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path" } as ApiError;
+  }
+
+  return path;
 }
 
 export type AuthSessionResponse = {
@@ -70,7 +122,7 @@ export type PasskeyStartResponse = {
   expires_in: number;
   email?: string;
 };
-export type WebAuthnOptionsResponse = Record<string, any> & { ceremony_id: string };
+export type WebAuthnOptionsResponse = Record<string, unknown> & { ceremony_id: string };
 export type PasskeyVerifyResponse = {
   status: "PASSKEY_VERIFIED";
   handoff_code: string;
@@ -85,40 +137,118 @@ export type PasskeyRegisterResponse = {
 
 export type PlayReviewRole = "customer" | "plant_owner" | "driver";
 
-async function handle<T>(res: Response): Promise<T> {
-  let body: any = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
+type JsonBody = Record<string, unknown> | unknown[] | string | number | boolean | null;
+
+function validationDetail(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const messages = value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const msg = "msg" in item && typeof item.msg === "string" ? item.msg : null;
+      const loc = "loc" in item && Array.isArray(item.loc) ? item.loc.map(String).join(".") : null;
+      return msg ? (loc ? `${loc}: ${msg}` : msg) : null;
+    })
+    .filter((item): item is string => Boolean(item));
+  return messages.length ? messages.join("; ") : null;
+}
+
+function normalizeErrorDetail(body: unknown, status: number): string {
+  if (body && typeof body === "object") {
+    if ("detail" in body) {
+      if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+      const detail = validationDetail(body.detail);
+      if (detail) return detail;
+    }
+    if ("message" in body && typeof body.message === "string" && body.message.trim()) {
+      return body.message;
+    }
   }
+  if (typeof body === "string" && body.trim()) return body;
+  return `Request failed (${status})`;
+}
+
+async function readResponseBody(res: Response): Promise<unknown> {
+  const raw = await res.text();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as JsonBody;
+  } catch {
+    return raw;
+  }
+}
+
+async function handle<T>(res: Response): Promise<T> {
+  const body = await readResponseBody(res);
   if (!res.ok) {
-    const detail =
-      (body && (body.detail || body.message)) || `Request failed (${res.status})`;
-    throw { status: res.status, detail } as ApiError;
+    throw { status: res.status, detail: normalizeErrorDetail(body, res.status) } as ApiError;
   }
   return body as T;
 }
 
-function authHeaders(token: string) {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
+async function request<T>(
+  path: string,
+  options: {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    token?: string;
+    body?: unknown;
+    signal?: AbortSignal;
+  } = {},
+): Promise<T> {
+  const safePath = validatedApiPath(path);
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+
+  if (options.signal?.aborted) {
+    controller.abort();
+  } else {
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const headers: Record<string, string> = { Accept: "application/json" };
+
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+
+  try {
+    const res = await fetch(`${apiBase()}${safePath}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+    });
+    return await handle<T>(res);
+  } catch (error) {
+    if (isApiError(error)) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      if (options.signal?.aborted && !timedOut) {
+        throw { status: 0, detail: "Request cancelled" } as ApiError;
+      }
+      throw {
+        status: 0,
+        detail: "Request timed out. Check your connection and try again.",
+      } as ApiError;
+    }
+    throw {
+      status: 0,
+      detail: "Unable to reach the TrackMyRMC server. Check your connection and try again.",
+    } as ApiError;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
 }
 
 export async function apiPublicGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`);
-  return handle<T>(res);
+  return request<T>(path);
 }
 
-export async function apiPublicPost<T>(path: string, body?: any): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return handle<T>(res);
+export async function apiPublicPost<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body });
 }
 
 export async function requestOtp(identifier: string) {
@@ -179,7 +309,7 @@ export async function staffPasskeyAuthenticationOptions(requestId: string) {
 export async function verifyStaffPasskeyAuthentication(
   requestId: string,
   ceremonyId: string,
-  credential: Record<string, any>,
+  credential: Record<string, unknown>,
 ) {
   return apiPublicPost<PasskeyVerifyResponse>("/auth/staff/passkey/authenticate/verify", {
     request_id: requestId,
@@ -212,7 +342,7 @@ export async function staffPasskeyRegistrationOptions(requestId: string) {
 export async function verifyStaffPasskeyRegistration(
   requestId: string,
   ceremonyId: string,
-  credential: Record<string, any>,
+  credential: Record<string, unknown>,
 ) {
   return apiPublicPost<PasskeyRegisterResponse>("/auth/staff/passkey/register/verify", {
     request_id: requestId,
@@ -251,44 +381,22 @@ export async function demoLogin(role: string) {
   return apiPublicPost<AuthSessionResponse>("/auth/demo-login", { role });
 }
 
-export async function apiGet<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return handle<T>(res);
+export async function apiGet<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { token, signal });
 }
 
-export async function apiPost<T>(path: string, token: string, body?: any): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return handle<T>(res);
+export async function apiPost<T>(path: string, token: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", token, body });
 }
 
-export async function apiPut<T>(path: string, token: string, body?: any): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "PUT",
-    headers: authHeaders(token),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return handle<T>(res);
+export async function apiPut<T>(path: string, token: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "PUT", token, body });
 }
 
-export async function apiPatch<T>(path: string, token: string, body?: any): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "PATCH",
-    headers: authHeaders(token),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return handle<T>(res);
+export async function apiPatch<T>(path: string, token: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "PATCH", token, body });
 }
 
 export async function apiDelete<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return handle<T>(res);
+  return request<T>(path, { method: "DELETE", token });
 }

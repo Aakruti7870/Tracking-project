@@ -7,7 +7,7 @@ Make the existing production app smaller, easier to reason about, and safer to e
 Keep:
 - Expo + React Native + Expo Router
 - TypeScript, but with less local type ceremony
-- Python backend + PostgreSQL
+- Python/FastAPI backend + MongoDB
 - Existing auth, KYC, payment, order, tracking, signing and CI contracts
 
 The target is **less TypeScript volume with stronger TypeScript boundaries**, not a JavaScript rewrite.

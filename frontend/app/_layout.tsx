@@ -1,7 +1,6 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { LogBox } from "react-native";
+import { useCallback, useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -17,13 +16,13 @@ import { ToastProvider } from "@/src/components/ui/Toast";
 import { PushNotificationBridge } from "@/src/notifications/PushNotificationBridge";
 import { BackgroundLocationConsentProvider } from "@/src/location/BackgroundLocationConsent";
 
-// Keep development previews quiet without hiding production diagnostics.
-if (__DEV__) LogBox.ignoreAllLogs(true);
-
-// Keep the native splash visible from cold start until icon fonts register.
-SplashScreen.preventAutoHideAsync();
+// Keep the native splash visible from cold start until fonts and the persisted
+// theme preference are ready. Do not suppress LogBox globally: development
+// warnings are useful signals for performance, lifecycle, and deprecation bugs.
+void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [themeReady, setThemeReady] = useState(false);
   const [iconsLoaded, iconError] = useIconFonts();
   const [fontsLoaded, fontError] = useFonts({
     "Outfit-SemiBold": require("../assets/fonts/Outfit-SemiBold.ttf"),
@@ -36,12 +35,13 @@ export default function RootLayout() {
 
   const iconsReady = iconsLoaded || !!iconError;
   const fontsReady = fontsLoaded || !!fontError;
+  const handleThemeReady = useCallback(() => setThemeReady(true), []);
 
   useEffect(() => {
-    if (iconsReady && fontsReady) {
-      SplashScreen.hideAsync();
+    if (iconsReady && fontsReady && themeReady) {
+      void SplashScreen.hideAsync();
     }
-  }, [iconsReady, fontsReady]);
+  }, [iconsReady, fontsReady, themeReady]);
 
   if (!iconsReady || !fontsReady) return null;
 
@@ -49,7 +49,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <KeyboardProvider>
-          <ThemeProvider>
+          <ThemeProvider onReady={handleThemeReady}>
             <AuthProvider>
               <ToastProvider>
                 <PushNotificationBridge />

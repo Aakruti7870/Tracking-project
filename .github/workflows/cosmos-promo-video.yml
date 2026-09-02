@@ -1,0 +1,388 @@
+name: Cosmos TrackMyRMC 30s Promo
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_video_url:
+        description: "Optional public HTTPS source MP4. Leave blank to use source_video_path from the repo."
+        required: false
+        type: string
+      source_video_path:
+        description: "Repository path to the source MP4 when source_video_url is blank."
+        required: false
+        default: "promo-assets/source.mp4"
+        type: string
+      cosmos_api_url:
+        description: "Optional full Cosmos inference endpoint. Falls back to repo variable COSMOS_API_URL."
+        required: false
+        type: string
+      model_family:
+        description: "Request schema to use. The configured endpoint must match this model family."
+        required: true
+        default: "transfer1"
+        type: choice
+        options:
+          - transfer1
+          - transfer2.5
+      seed_base:
+        description: "Base generation seed; each scene increments it by one."
+        required: true
+        default: "4200"
+        type: string
+      add_ambient_audio:
+        description: "Add a subtle generated non-lyrical tech/industrial ambience to the final MP4."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cosmos-trackmyrmc-promo-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate-promo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      COSMOS_API_URL_FROM_VAR: ${{ vars.COSMOS_API_URL }}
+      INPUT_COSMOS_API_URL: ${{ inputs.cosmos_api_url }}
+      SOURCE_VIDEO_URL: ${{ inputs.source_video_url }}
+      SOURCE_VIDEO_PATH: ${{ inputs.source_video_path }}
+      MODEL_FAMILY: ${{ inputs.model_family }}
+      SEED_BASE: ${{ inputs.seed_base }}
+      ADD_AMBIENT_AUDIO: ${{ inputs.add_ambient_audio }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${NVIDIA_API_KEY:-}" ]]; then
+            echo "NVIDIA_API_KEY secret is missing." >&2
+            exit 1
+          fi
+
+          COSMOS_API_URL="${INPUT_COSMOS_API_URL:-${COSMOS_API_URL_FROM_VAR:-}}"
+          if [[ -z "$COSMOS_API_URL" ]]; then
+            echo "Cosmos endpoint is not configured." >&2
+            echo "Set repository Actions variable COSMOS_API_URL to the exact inference endpoint shown by NVIDIA Build, or provide cosmos_api_url when dispatching this workflow." >&2
+            exit 1
+          fi
+
+          if [[ "$COSMOS_API_URL" != https://* && "$COSMOS_API_URL" != http://127.0.0.1:* && "$COSMOS_API_URL" != http://localhost:* ]]; then
+            echo "COSMOS_API_URL must use HTTPS, except explicit localhost development endpoints." >&2
+            exit 1
+          fi
+
+          echo "COSMOS_API_URL=$COSMOS_API_URL" >> "$GITHUB_ENV"
+
+      - name: Install runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet requests
+          ffmpeg -version | head -n 1
+
+      - name: Prepare five-second source and edge control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p promo-work/generated promo-work/graded
+
+          if [[ -n "${SOURCE_VIDEO_URL:-}" ]]; then
+            curl --fail --location --retry 3 --retry-delay 3 \
+              --connect-timeout 20 --max-time 180 \
+              "$SOURCE_VIDEO_URL" -o promo-work/source-input.mp4
+          elif [[ -n "${SOURCE_VIDEO_PATH:-}" && -f "$SOURCE_VIDEO_PATH" ]]; then
+            cp "$SOURCE_VIDEO_PATH" promo-work/source-input.mp4
+          else
+            echo "No usable source video was found." >&2
+            echo "Provide workflow input source_video_url or add an MP4 at: ${SOURCE_VIDEO_PATH:-promo-assets/source.mp4}" >&2
+            exit 1
+          fi
+
+          # Transfer1 performs best around 120-frame multiples. Normalize to 5 s x 24 fps = 120 frames.
+          ffmpeg -hide_banner -loglevel error -y \
+            -stream_loop -1 -i promo-work/source-input.mp4 \
+            -t 5 -an -r 24 \
+            -vf "scale=1280:704:force_original_aspect_ratio=decrease,pad=1280:704:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p" \
+            -c:v libx264 -preset medium -crf 18 \
+            promo-work/source-5s.mp4
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i promo-work/source-5s.mp4 -an -r 24 \
+            -vf "edgedetect=low=0.08:high=0.25,format=yuv420p" \
+            -c:v libx264 -preset medium -crf 18 \
+            promo-work/control-edge-5s.mp4
+
+          ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 promo-work/source-5s.mp4
+
+      - name: Generate six Cosmos scenes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          import pathlib
+          import time
+          import requests
+
+          work = pathlib.Path("promo-work")
+          out = work / "generated"
+          out.mkdir(parents=True, exist_ok=True)
+
+          endpoint = os.environ["COSMOS_API_URL"].strip()
+          api_key = os.environ["NVIDIA_API_KEY"]
+          family = os.environ.get("MODEL_FAMILY", "transfer1")
+          seed_base = int(os.environ.get("SEED_BASE", "4200"))
+
+          prompts = [
+              (
+                  "secure-access",
+                  "A premium cinematic opening at a modern ready-mix concrete plant at blue hour. A clean white concrete mixer truck is positioned heroically in the foreground while the illuminated batching plant and tall silos rise behind it. The camera slowly pushes forward at a low three-quarter angle. Warm amber industrial lights switch on progressively across the plant and reflect naturally on the polished ground. Add only restrained abstract digital security and connection light motifs around the environment, never covering the vehicle. The scene communicates secure role-based access for customers and plant teams, professional enterprise software, reliability and trust. Photorealistic, physically believable, stable truck proportions, realistic lights and reflections, no text rendered inside the generated scene."
+              ),
+              (
+                  "nearby-plants",
+                  "A realistic concrete mixer truck waits near a modern batching plant while subtle glowing map-route lines spread across the wet industrial ground toward several distant location markers. The camera makes a smooth lateral tracking move, revealing the plant, the truck and a clean city-edge industrial environment. The route markers communicate nearby verified RMC plant discovery and fast plant selection without becoming a fantasy hologram. Include a restrained phone-shaped dark interface object in the far right foreground showing a map-like composition with orange pins, but do not generate readable text. Premium navy and saffron-orange commercial lighting, realistic distance perspective, physically accurate truck and plant, no warped geometry."
+              ),
+              (
+                  "smart-order",
+                  "At the RMC plant loading area, the mixer truck is prepared for an upcoming concrete order. The camera performs a slow controlled orbit around the front three-quarter side of the truck while the plant remains clearly visible. Add minimal interface-like visual cues that suggest concrete grade selection, quantity, schedule and pour planning, expressed as clean geometric panels without readable text. A subtle orange confirmation pulse travels from the plant toward the truck to represent the confirmed order. Keep the scene highly realistic and industrial, with accurate mixer drum, wheels, chassis, shadows and plant structures. Premium enterprise technology advertising, no generated words or logos."
+              ),
+              (
+                  "ready-dispatch",
+                  "A loaded ready-mix concrete truck begins moving out from beneath a modern batching plant in a controlled dispatch sequence. Show physically realistic suspension, wheel rotation and slow heavy-vehicle acceleration. The camera tracks beside the truck while the plant loading structure remains in the background. A subtle orange route line activates on the ground in front of the truck and a restrained status pulse connects the plant to the vehicle, communicating assigned truck and dispatch readiness. Industrial night lighting, warm silo lamps, wet-ground reflections, deep navy-black environment, realistic concrete equipment, no impossible motion, no readable text."
+              ),
+              (
+                  "live-tracking",
+                  "A cinematic tracking shot follows the concrete mixer truck traveling through a realistic industrial road environment after leaving the RMC plant. The camera moves smoothly alongside and slightly behind the truck. A thin saffron-orange route line follows the road surface naturally and a few subtle location nodes appear along the route. Include a restrained dark phone-shaped interface element near the edge of frame with a map-like route composition and progress indicator but no readable text. Communicate real-time truck tracking, distance, route visibility and ETA while keeping the truck fully visible. Photorealistic road physics, correct wheels, stable mixer drum, realistic lighting and reflections, no futuristic fantasy city."
+              ),
+              (
+                  "delivery-pod",
+                  "The concrete mixer truck reaches the delivery destination and settles into a clean final hero composition. Start with the truck completing its journey, then transition into a confident stationary three-quarter hero view with the RMC plant and city-industrial lights in the distance. Use a subtle green completion pulse and restrained document and checkmark interface motifs to suggest delivered status, digital challan and proof of delivery, without readable text. End on a strong premium frame with the truck centered, orange route line terminating beneath it, glossy reflections and warm industrial lighting. The final feeling is secure, reliable, modern concrete delivery with complete visibility and control. Photorealistic, stable geometry, no extra vehicles, no generated logos or words."
+              ),
+          ]
+
+          def b64(path: pathlib.Path) -> str:
+              return base64.b64encode(path.read_bytes()).decode("ascii")
+
+          source_b64 = b64(work / "source-5s.mp4")
+          edge_b64 = b64(work / "control-edge-5s.mp4")
+
+          headers = {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              "Authorization": f"Bearer {api_key}",
+          }
+
+          for index, (slug, prompt) in enumerate(prompts, start=1):
+              payload = {
+                  "prompt": prompt,
+                  "video": source_b64,
+                  "seed": seed_base + index - 1,
+                  "edge": {
+                      "control_weight": 1.0,
+                      "control": edge_b64,
+                  },
+              }
+              if family == "transfer2.5":
+                  payload["resolution"] = "480"
+
+              response = None
+              last_error = None
+              for attempt in range(1, 4):
+                  try:
+                      response = requests.post(
+                          endpoint,
+                          headers=headers,
+                          json=payload,
+                          timeout=(30, 900),
+                      )
+                      if response.status_code < 400:
+                          break
+                      # Do not print Authorization or request payload/base64 data.
+                      last_error = f"HTTP {response.status_code}: {response.text[:800]}"
+                      if 400 <= response.status_code < 500 and response.status_code != 429:
+                          break
+                  except requests.RequestException as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                  if attempt < 3:
+                      time.sleep(15 * attempt)
+
+              if response is None or response.status_code >= 400:
+                  raise SystemExit(f"Cosmos scene {index} ({slug}) failed: {last_error}")
+
+              try:
+                  body = response.json()
+              except ValueError as exc:
+                  raise SystemExit(f"Cosmos scene {index} returned non-JSON output") from exc
+
+              encoded = body.get("b64_video")
+              if not encoded:
+                  # Some hosted wrappers place results under data/output. Keep the fallback narrow and explicit.
+                  data = body.get("data")
+                  if isinstance(data, dict):
+                      encoded = data.get("b64_video") or data.get("video")
+              if not encoded or not isinstance(encoded, str):
+                  safe_keys = sorted(str(k) for k in body.keys())
+                  raise SystemExit(f"Cosmos scene {index} did not return b64_video. Response keys: {safe_keys}")
+
+              if encoded.startswith("data:video") and "," in encoded:
+                  encoded = encoded.split(",", 1)[1]
+
+              target = out / f"scene-{index:02d}-{slug}.mp4"
+              target.write_bytes(base64.b64decode(encoded))
+              print(f"Generated scene {index}: {target}")
+          PY
+
+      - name: Add exact Track My RMC branding and normalize scenes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import pathlib
+          import subprocess
+
+          src_dir = pathlib.Path("promo-work/generated")
+          dst_dir = pathlib.Path("promo-work/graded")
+          dst_dir.mkdir(parents=True, exist_ok=True)
+
+          titles = [
+              "SECURE ACCESS. ONE SMART PLATFORM.",
+              "DISCOVER NEARBY RMC PLANTS",
+              "SMART ORDER BOOKING",
+              "READY TO DISPATCH",
+              "LIVE TRACKING. ETA. ROUTE UPDATES.",
+              "ORDER | DISPATCH | TRACK | DELIVER",
+          ]
+          files = sorted(src_dir.glob("scene-*.mp4"))
+          if len(files) != 6:
+              raise SystemExit(f"Expected 6 generated scenes, found {len(files)}")
+
+          font_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+          font_regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+          for index, (source, title) in enumerate(zip(files, titles), start=1):
+              target = dst_dir / f"scene-{index:02d}.mp4"
+              # Exact typography is added here, not generated by the world model.
+              vf = (
+                  "scale=1920:1080:force_original_aspect_ratio=increase,"
+                  "crop=1920:1080,fps=24,"
+                  "tpad=stop_mode=clone:stop_duration=5,"
+                  "drawbox=x=0:y=0:w=1920:h=205:color=0x06101D@0.72:t=fill,"
+                  f"drawtext=fontfile={font_bold}:text='TRACK MY RMC':x=72:y=46:fontsize=58:fontcolor=white,"
+                  f"drawtext=fontfile={font_bold}:text='{title}':x=72:y=120:fontsize=38:fontcolor=0xFF5A16,"
+                  "drawbox=x=0:y=1018:w=1920:h=62:color=0x06101D@0.72:t=fill,"
+                  f"drawtext=fontfile={font_regular}:text='Powered by Gold E Tech':x=72:y=1033:fontsize=27:fontcolor=white"
+              )
+              subprocess.run([
+                  "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                  "-i", str(source), "-t", "5", "-an", "-vf", vf,
+                  "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                  "-pix_fmt", "yuv420p", "-r", "24", str(target)
+              ], check=True)
+          PY
+
+      - name: Assemble exact 30-second master
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > promo-work/concat.txt
+          for f in promo-work/graded/scene-*.mp4; do
+            printf "file '%s'\n" "$(realpath "$f")" >> promo-work/concat.txt
+          done
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -f concat -safe 0 -i promo-work/concat.txt \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -r 24 -t 30 \
+            promo-work/master-silent.mp4
+
+      - name: Add ambient audio and finalize MP4
+        if: ${{ inputs.add_ambient_audio }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import math
+          import struct
+          import wave
+
+          sr = 44100
+          seconds = 30
+          path = "promo-work/ambient.wav"
+          with wave.open(path, "wb") as wf:
+              wf.setnchannels(1)
+              wf.setsampwidth(2)
+              wf.setframerate(sr)
+              frames = bytearray()
+              for i in range(sr * seconds):
+                  t = i / sr
+                  pad = (
+                      0.36 * math.sin(2 * math.pi * 82.41 * t)
+                      + 0.20 * math.sin(2 * math.pi * 123.47 * t)
+                      + 0.10 * math.sin(2 * math.pi * 164.81 * t)
+                  )
+                  breath = 0.62 + 0.38 * (math.sin(2 * math.pi * 0.12 * t) ** 2)
+                  signal = 0.07 * pad * breath
+                  # Short low-frequency transition hit every 5 seconds.
+                  phase = t % 5.0
+                  if phase < 0.16:
+                      signal += 0.10 * math.sin(2 * math.pi * 55 * t) * math.exp(-35 * phase)
+                  sample = max(-1.0, min(1.0, signal))
+                  frames += struct.pack("<h", int(sample * 32767))
+              wf.writeframes(frames)
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i promo-work/master-silent.mp4 -i promo-work/ambient.wav \
+            -c:v copy -c:a aac -b:a 160k -t 30 -shortest -movflags +faststart \
+            promo-work/TrackMyRMC-Cosmos-30s-Promo.mp4
+
+      - name: Finalize silent MP4 when audio is disabled
+        if: ${{ !inputs.add_ambient_audio }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp promo-work/master-silent.mp4 promo-work/TrackMyRMC-Cosmos-30s-Promo.mp4
+
+      - name: Verify final artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s promo-work/TrackMyRMC-Cosmos-30s-Promo.mp4
+          DURATION="$(ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 promo-work/TrackMyRMC-Cosmos-30s-Promo.mp4)"
+          echo "Final duration: $DURATION seconds"
+          python3 - <<PY
+          duration = float("$DURATION")
+          if not 29.8 <= duration <= 30.2:
+              raise SystemExit(f"Final duration out of tolerance: {duration}")
+          PY
+
+          {
+            echo "## Track My RMC Cosmos promo"
+            echo ""
+            echo "- Status: generated"
+            echo "- Duration: ${DURATION}s"
+            echo "- Scenes: 6 x 5 seconds"
+            echo "- Final artifact: TrackMyRMC-Cosmos-30s-Promo.mp4"
+            echo "- Prompt pack: docs/cosmos-promo-prompts.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload final promo and scene renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: trackmyrmc-cosmos-30s-promo
+          path: |
+            promo-work/TrackMyRMC-Cosmos-30s-Promo.mp4
+            promo-work/graded/*.mp4
+          if-no-files-found: error
+          retention-days: 14

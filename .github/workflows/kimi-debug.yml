@@ -1,0 +1,208 @@
+name: Kimi K3 TypeScript Migration Assistant
+
+on:
+  push:
+    branches:
+      - feat/kimi-k3-agent
+    paths:
+      - ".github/workflows/kimi-debug.yml"
+
+  workflow_dispatch:
+    inputs:
+      file_path:
+        description: "TypeScript/TSX repository file for Kimi to analyze"
+        required: true
+        default: "README.md"
+
+      target_language:
+        description: "Target language for conversion"
+        required: true
+        default: "Kotlin"
+
+      task:
+        description: "Migration goal or special instructions"
+        required: true
+        default: "Analyze this TypeScript/TSX file and prepare a production-safe migration plan and equivalent target-language code."
+
+permissions:
+  contents: read
+
+jobs:
+  kimi-migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Analyze TypeScript migration with Kimi K3
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
+          KIMI_FILE: ${{ github.event.inputs.file_path || 'README.md' }}
+          TARGET_LANGUAGE: ${{ github.event.inputs.target_language || 'Kotlin' }}
+          KIMI_TASK: ${{ github.event.inputs.task || 'Analyze this TypeScript/TSX file and prepare a production-safe migration plan and equivalent Kotlin code. Do not modify repository files.' }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+          import urllib.error
+
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("KIMI_MODEL")
+          file_name = os.environ.get("KIMI_FILE", "README.md")
+          target_language = os.environ.get("TARGET_LANGUAGE", "Kotlin")
+          task = os.environ.get("KIMI_TASK", "Analyze this TypeScript/TSX file and prepare a migration plan.")
+
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+
+          if not model:
+              raise SystemExit("KIMI_MODEL is missing")
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          target = (workspace / file_name).resolve()
+
+          try:
+              target.relative_to(workspace)
+          except ValueError:
+              raise SystemExit("Blocked: file must be inside the repository")
+
+          blocked = [
+              ".env",
+              "secret",
+              "credentials",
+              ".pem",
+              ".p12",
+              ".jks",
+              "keystore",
+              "google-services.json"
+          ]
+
+          lower_path = str(target).lower()
+
+          if any(item in lower_path for item in blocked):
+              raise SystemExit("Blocked: potentially sensitive file")
+
+          if not target.is_file():
+              raise SystemExit(f"File not found: {file_name}")
+
+          if target.stat().st_size > 100_000:
+              raise SystemExit("File too large for this safe migration test")
+
+          content = target.read_text(
+              encoding="utf-8",
+              errors="replace"
+          )
+
+          system_prompt = f"""
+          You are the TrackMyRMC TypeScript migration specialist.
+
+          PRIMARY OBJECTIVE:
+          Analyze TypeScript/TSX code and convert it safely to {target_language} when conversion is appropriate.
+
+          MIGRATION RULES:
+          - Preserve business logic, API contracts, authentication behavior, data validation, and security semantics.
+          - Never perform a naive line-by-line translation when the target platform requires a different architecture.
+          - Identify React, browser, Node.js, Capacitor, TypeScript-only, and platform-specific dependencies before conversion.
+          - For Kotlin/Android targets, map web concepts to Android-native architecture where appropriate, including coroutines, lifecycle-safe state, networking, serialization, storage, and permissions.
+          - Separate code that should remain TypeScript from code that is suitable for migration.
+          - Flag anything that cannot be converted safely without additional files or context.
+          - Prefer production-grade, maintainable target-language code.
+          - Do not invent repository files, APIs, database fields, or dependencies.
+          - Do not expose or request secrets.
+          - Do not claim tests passed unless actual test evidence is supplied.
+          - Do not modify repository files. This workflow is analysis-only.
+          """
+
+          user_prompt = f"""
+          TASK:
+          {task}
+
+          SOURCE FILE:
+          {file_name}
+
+          TARGET LANGUAGE:
+          {target_language}
+
+          SOURCE CONTENT:
+          --- BEGIN SOURCE ---
+          {content}
+          --- END SOURCE ---
+
+          Return exactly these sections:
+
+          ## What This TypeScript Does
+          ## Should It Be Migrated?
+          ## Dependencies And Platform-Specific APIs
+          ## Migration Risks
+          ## Target Architecture
+          ## Production-Ready {target_language} Equivalent
+          ## Files / Interfaces Still Needed
+          ## Tests Required
+          ## Final Migration Recommendation
+          """
+
+          payload = {
+              "model": model,
+              "messages": [
+                  {
+                      "role": "system",
+                      "content": system_prompt
+                  },
+                  {
+                      "role": "user",
+                      "content": user_prompt
+                  }
+              ],
+              "temperature": 0.2,
+              "reasoning_effort": "high",
+              "max_tokens": 6000,
+              "stream": False
+          }
+
+          request = urllib.request.Request(
+              "https://integrate.api.nvidia.com/v1/chat/completions",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json"
+              },
+              method="POST"
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  result = json.loads(response.read().decode("utf-8"))
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode("utf-8", errors="replace")
+              raise SystemExit(
+                  f"Kimi API request failed: HTTP {exc.code}\n{body[:1000]}"
+              )
+
+          try:
+              answer = result["choices"][0]["message"]["content"]
+          except Exception:
+              raise SystemExit("Unexpected Kimi response format")
+
+          if not answer:
+              raise SystemExit("Kimi returned an empty response")
+
+          output = pathlib.Path("kimi-migration-analysis.md")
+          output.write_text(answer, encoding="utf-8")
+
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+
+          if summary_file:
+              with open(summary_file, "a", encoding="utf-8") as fh:
+                  fh.write("# Kimi K3 TypeScript Migration Analysis\n\n")
+                  fh.write(f"**Source file:** `{file_name}`\n\n")
+                  fh.write(f"**Target language:** `{target_language}`\n\n")
+                  fh.write(answer)
+                  fh.write("\n")
+
+          print("Kimi TypeScript migration analysis completed successfully.")
+          PY

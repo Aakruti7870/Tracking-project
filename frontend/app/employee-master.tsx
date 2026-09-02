@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { apiGet, apiPut } from "@/src/api/client";
+import { apiErrorDetail, apiGet, apiPut } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { AppText } from "@/src/components/ui/AppText";
 import { Badge } from "@/src/components/ui/Badge";
@@ -102,8 +102,8 @@ export default function EmployeeMasterScreen() {
         const fresh = response.plants.flatMap((p) => p.employees).find((e) => e.user_id === selected.user_id);
         if (fresh) applyEmployee(fresh);
       }
-    } catch (e: any) {
-      toast(e?.detail || "Unable to load employee master", "error");
+    } catch (error: unknown) {
+      toast(apiErrorDetail(error, "Unable to load employee master"), "error");
     } finally { setLoading(false); }
   }, [token, allowed, toast, selected?.user_id]);
 
@@ -112,7 +112,7 @@ export default function EmployeeMasterScreen() {
   const save = async (action: () => Promise<unknown>, message: string) => {
     setBusy(true);
     try { await action(); toast(message, "success"); await load(); }
-    catch (e: any) { toast(e?.detail || "Unable to save employee record", "error"); }
+    catch (error: unknown) { toast(apiErrorDetail(error, "Unable to save employee record"), "error"); }
     finally { setBusy(false); }
   };
 

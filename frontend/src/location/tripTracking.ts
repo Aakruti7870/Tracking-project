@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
+import NativeTripLocation from "@/modules/trip-location";
 import { storage } from "@/src/utils/storage";
 import { requestBackgroundLocationConsent } from "@/src/location/BackgroundLocationConsent";
 
@@ -39,12 +40,14 @@ async function postLocation(tripId: string, location: Location.LocationObject): 
       }),
     });
   } catch {
-    // Location delivery is best-effort. The next update retries naturally.
+    // Foreground/Expo fallback delivery remains best-effort. The native Android
+    // service adds an encrypted bounded retry queue when it is available.
   }
 }
 
 // TaskManager tasks must be defined at module/global scope so Android can invoke
-// them even when no React screen is mounted.
+// them even when no React screen is mounted. This remains as the safe fallback
+// for Expo Go/dev clients or if the custom Kotlin module cannot start.
 if (!TaskManager.isTaskDefined(TRIP_LOCATION_TASK)) {
   TaskManager.defineTask(TRIP_LOCATION_TASK, async ({ data, error }) => {
     if (error || !data) return;
@@ -90,6 +93,30 @@ async function startForegroundWatcher(tripId: string): Promise<Location.Location
   );
 }
 
+async function startNativeBackgroundTracking(tripId: string): Promise<boolean> {
+  if (Platform.OS !== "android" || !NativeTripLocation) return false;
+
+  const base = backendBase();
+  const token = await storage.secureGet<string>(TOKEN_KEY, "");
+  if (!base?.startsWith("https://") || !token) return false;
+
+  try {
+    if (!NativeTripLocation.isAvailable()) return false;
+    return await NativeTripLocation.startTracking(tripId, base, token);
+  } catch {
+    return false;
+  }
+}
+
+async function stopExpoBackgroundTracking(): Promise<void> {
+  try {
+    const registered = await TaskManager.isTaskRegisteredAsync(TRIP_LOCATION_TASK);
+    if (registered) await Location.stopLocationUpdatesAsync(TRIP_LOCATION_TASK);
+  } catch {
+    // Safe during logout, permission changes, or unsupported environments.
+  }
+}
+
 export async function startTripLocationTracking(
   tripId: string,
   options: { allowBackground?: boolean } = {},
@@ -129,25 +156,37 @@ export async function startTripLocationTracking(
           return { mode: "foreground", subscription: await startForegroundWatcher(tripId) };
         }
       }
+
       const background = await Location.requestBackgroundPermissionsAsync();
-      const taskAvailable = await TaskManager.isAvailableAsync();
-      if (background.status === "granted" && taskAvailable) {
-        const registered = await TaskManager.isTaskRegisteredAsync(TRIP_LOCATION_TASK);
-        if (!registered) {
-          await Location.startLocationUpdatesAsync(TRIP_LOCATION_TASK, {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 15_000,
-            distanceInterval: 25,
-            deferredUpdatesInterval: 30_000,
-            deferredUpdatesDistance: 25,
-            foregroundService: {
-              notificationTitle: "TrackMyRMC delivery tracking",
-              notificationBody: "Mixer location is shared only while your delivery trip is active.",
-              killServiceOnDestroy: false,
-            },
-          });
+      if (background.status === "granted") {
+        // Native Kotlin is preferred for production Android builds. It uses a
+        // foreground service + FusedLocationProvider and stores retry data in an
+        // Android Keystore-encrypted bounded queue. Expo TaskManager remains the
+        // fallback so Expo Go/dev clients and failed native starts still work.
+        if (await startNativeBackgroundTracking(tripId)) {
+          await stopExpoBackgroundTracking();
+          return { mode: "background" };
         }
-        return { mode: "background" };
+
+        const taskAvailable = await TaskManager.isAvailableAsync();
+        if (taskAvailable) {
+          const registered = await TaskManager.isTaskRegisteredAsync(TRIP_LOCATION_TASK);
+          if (!registered) {
+            await Location.startLocationUpdatesAsync(TRIP_LOCATION_TASK, {
+              accuracy: Location.Accuracy.High,
+              timeInterval: 15_000,
+              distanceInterval: 25,
+              deferredUpdatesInterval: 30_000,
+              deferredUpdatesDistance: 25,
+              foregroundService: {
+                notificationTitle: "TrackMyRMC delivery tracking",
+                notificationBody: "Mixer location is shared only while your delivery trip is active.",
+                killServiceOnDestroy: false,
+              },
+            });
+          }
+          return { mode: "background" };
+        }
       }
     } catch {
       // Fall back to foreground-only tracking below.
@@ -159,10 +198,14 @@ export async function startTripLocationTracking(
 
 export async function stopTripLocationTracking(): Promise<void> {
   await storage.removeItem(ACTIVE_TRIP_KEY);
-  try {
-    const registered = await TaskManager.isTaskRegisteredAsync(TRIP_LOCATION_TASK);
-    if (registered) await Location.stopLocationUpdatesAsync(TRIP_LOCATION_TASK);
-  } catch {
-    // Safe during logout, permission changes, or unsupported environments.
+
+  if (Platform.OS === "android" && NativeTripLocation) {
+    try {
+      await NativeTripLocation.stopTracking();
+    } catch {
+      // Continue stopping the Expo fallback even if native cleanup fails.
+    }
   }
+
+  await stopExpoBackgroundTracking();
 }

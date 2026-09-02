@@ -77,7 +77,12 @@ export default function OwnerOrders() {
           showsVerticalScrollIndicator={false}
           onRefresh={refetch}
           refreshing={false}
-          renderItem={({ item }) => <OrderCard order={item} onPress={() => router.push(`/order/${item.id}` as any)} />}
+          renderItem={({ item }) => (
+            <OrderCard
+              order={item}
+              onPress={() => router.push({ pathname: "/order/[id]", params: { id: item.id } })}
+            />
+          )}
           ListEmptyComponent={<EmptyView icon="cube-outline" title="No orders" subtitle="Nothing in this status yet" />}
         />
       )}

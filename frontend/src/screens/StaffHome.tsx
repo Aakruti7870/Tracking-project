@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { Href, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
@@ -22,7 +22,7 @@ type HomeData = {
   kpis: Kpi[];
   primary: { title: string; kind: string };
 };
-type ModuleLink = { label: string; icon: keyof typeof Ionicons.glyphMap; route: string };
+type ModuleLink = { label: string; icon: keyof typeof Ionicons.glyphMap; route: Href };
 
 const ROLE_MODULES: Record<string, ModuleLink[]> = {
   admin: [
@@ -152,7 +152,7 @@ export function StaffHome() {
                   <AppText variant="heading">Operations</AppText>
                   <View style={styles.moduleGrid}>
                     {modules.map((m) => (
-                      <Pressable key={m.label} onPress={() => router.push(m.route as any)} style={[styles.module, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <Pressable key={m.label} onPress={() => router.push(m.route)} style={[styles.module, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                         <Ionicons name={m.icon} size={20} color={colors.brand} />
                         <AppText style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.onSurface, flex: 1 }}>{m.label}</AppText>
                         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceTertiary} />

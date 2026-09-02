@@ -1,28 +1,329 @@
-import { FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { AdminUser, get, Home, post } from "./api";
+import { type AdminUser, get, type Home, post } from "./api";
 import "./styles.css";
 
-const modules = ["Dashboard", "Plants", "Users", "KYC", "Orders", "Payments", "Support", "Security", "Audit Logs", "System"];
 type Session = { access_token: string };
+type ModuleKey = "Dashboard" | "Plants" | "Users" | "KYC" | "Orders" | "Payments" | "Support" | "Security" | "Audit Logs" | "System";
+type ModuleDefinition = {
+  key: ModuleKey;
+  label: string;
+  short: string;
+  group: "Operations" | "Governance";
+  description: string;
+};
+
+const modules: ModuleDefinition[] = [
+  { key: "Dashboard", label: "Command Center", short: "DC", group: "Operations", description: "Platform-wide operational visibility and privileged oversight." },
+  { key: "Plants", label: "Plants", short: "PL", group: "Operations", description: "Review plant records and authority-controlled operational data." },
+  { key: "Users", label: "Users", short: "US", group: "Operations", description: "Review customer, staff and partner identities under server-side RBAC." },
+  { key: "KYC", label: "KYC", short: "KY", group: "Operations", description: "Review verification status without bypassing DigiLocker or approval rules." },
+  { key: "Orders", label: "Orders", short: "OR", group: "Operations", description: "Inspect order lifecycle information and operational exceptions." },
+  { key: "Payments", label: "Payments", short: "PY", group: "Operations", description: "Review payment status and reconciliation surfaces governed by backend contracts." },
+  { key: "Support", label: "Support", short: "SP", group: "Operations", description: "Central support and escalation workspace for approved administrators." },
+  { key: "Security", label: "Security", short: "SC", group: "Governance", description: "Manage your privileged session posture and fresh identity verification." },
+  { key: "Audit Logs", label: "Audit Logs", short: "AL", group: "Governance", description: "Audit-oriented workspace for privileged administrative activity." },
+  { key: "System", label: "System", short: "SY", group: "Governance", description: "System status and controlled platform administration." },
+];
+
+function Brand({ label, compact = false }: { label: string; compact?: boolean }) {
+  return (
+    <div className={`brand${compact ? " brandCompact" : ""}`}>
+      <span className="brandMark" aria-hidden="true">CK</span>
+      <div>
+        <b>TrackMyRMC</b>
+        <small>{label}</small>
+      </div>
+    </div>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3 19 6v5c0 4.8-2.8 8.2-7 10-4.2-1.8-7-5.2-7-10V6l7-3Z" />
+      <path d="m9.2 12 1.8 1.8 3.9-4" />
+    </svg>
+  );
+}
 
 function Login({ onLogin }: { onLogin(token: string, user: AdminUser): void }) {
-  const [email, setEmail] = useState(""); const [code, setCode] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
   async function submit(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    try { const session = await post<Session>("/admin/auth/verify-totp", { identifier: email, code }); const user = await get<AdminUser>("/me", session.access_token); onLogin(session.access_token, user); }
-    catch { setError("Authentication failed."); } finally { setBusy(false); }
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const session = await post<Session>("/admin/auth/verify-totp", { identifier: email.trim(), code });
+      const user = await get<AdminUser>("/me", session.access_token);
+      onLogin(session.access_token, user);
+    } catch {
+      setError("Authentication failed. Check your approved administrator account and Authenticator code.");
+    } finally {
+      setBusy(false);
+    }
   }
-  return <main className="login"><section className="loginCard"><Brand label="Secure Administration"/><p className="eyebrow">ADMIN.TRACKMYRMC.COM</p><h1>Privileged access</h1><p>Approved Authority and Central Admin accounts only. Authenticator MFA is required.</p><form onSubmit={submit}><label>Administrator email<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required /></label><label>Authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,8}" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} required /></label>{error && <div className="error" role="alert">{error}</div>}<button disabled={busy}>{busy ? "Verifying…" : "Verify and continue"}</button></form><aside>Sessions remain in protected runtime memory and are never written to browser storage.</aside></section></main>;
+
+  return (
+    <main className="loginPage">
+      <section className="loginStory" aria-label="TrackMyRMC secure administration">
+        <Brand label="Privileged Administration" />
+        <div className="loginStoryCopy">
+          <p className="eyebrow">ADMIN.TRACKMYRMC.COM</p>
+          <h1>Control the platform from a dedicated secure surface.</h1>
+          <p className="lead">Central administration is intentionally separated from the public mobile application. Security boundaries stay visible at every privileged step.</p>
+        </div>
+        <div className="securityPillars">
+          <article><span><ShieldIcon /></span><div><b>MFA required</b><small>Authenticator verification on privileged sign-in.</small></div></article>
+          <article><span>05</span><div><b>Five-minute step-up</b><small>Fresh verification is required before high-risk operations.</small></div></article>
+          <article><span>0×</span><div><b>No browser storage</b><small>Bearer sessions remain in protected runtime memory.</small></div></article>
+        </div>
+        <div className="loginArt" aria-hidden="true"><i /><i /><i /><span>SECURE CONTROL PLANE</span></div>
+      </section>
+
+      <section className="loginPanel">
+        <div className="loginCard">
+          <div className="mobileBrand"><Brand label="Secure Administration" /></div>
+          <div className="secureBadge"><ShieldIcon /><span>Restricted administrator portal</span></div>
+          <p className="eyebrow">PRIVILEGED ACCESS</p>
+          <h2>Welcome back</h2>
+          <p>Use an approved Authority or Central Admin account. Account registration is not available on this portal.</p>
+          <form onSubmit={submit} noValidate>
+            <label htmlFor="admin-email">Administrator email</label>
+            <input id="admin-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" required />
+            <label htmlFor="admin-code">Authenticator code</label>
+            <div className="codeInputWrap">
+              <input id="admin-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,8}" minLength={6} maxLength={8} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required />
+              <span aria-hidden="true">MFA</span>
+            </div>
+            {error && <div className="errorBanner" role="alert">{error}</div>}
+            <button className="primaryButton" type="submit" disabled={busy || code.length < 6}>{busy ? "Verifying securely…" : "Verify and continue"}</button>
+          </form>
+          <div className="runtimeNote"><ShieldIcon /><span>Your session is kept in memory only and is cleared when you sign out or close the portal.</span></div>
+        </div>
+        <p className="portalFootnote">TrackMyRMC • Privileged access is monitored and audit oriented.</p>
+      </section>
+    </main>
+  );
 }
-function Brand({label}:{label:string}) { return <div className="brand"><span>CK</span><div><b>TrackMyRMC</b><small>{label}</small></div></div>; }
+
+function KpiCard({ label, value, loading }: { label: string; value?: number; loading?: boolean }) {
+  return (
+    <article className="kpiCard">
+      <div className="kpiTop"><small>{label}</small><span aria-hidden="true">↗</span></div>
+      {loading ? <div className="skeleton skeletonValue" /> : <strong>{new Intl.NumberFormat("en-IN").format(value ?? 0)}</strong>}
+      <span className="kpiHint">Live administrative summary</span>
+    </article>
+  );
+}
+
+function Panel({ title, eyebrow, children, action }: { title: string; eyebrow?: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <section className="panel">
+      <header className="panelHeader">
+        <div>{eyebrow && <small>{eyebrow}</small>}<h3>{title}</h3></div>
+        {action}
+      </header>
+      <div className="panelBody">{children}</div>
+    </section>
+  );
+}
+
+function StepUpDialog({ onClose, onVerified, token }: { onClose(): void; onVerified(): void; token: string }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await post("/admin/auth/step-up", { code }, token);
+      onVerified();
+      onClose();
+    } catch {
+      setError("Identity confirmation failed. Enter a fresh Authenticator code and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="dialogBackdrop" role="presentation">
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="stepup-title">
+        <div className="dialogIcon"><ShieldIcon /></div>
+        <p className="eyebrow">SECURITY STEP-UP</p>
+        <h3 id="stepup-title">Confirm your identity</h3>
+        <p>Enter a fresh Authenticator code. Successful confirmation is recognized for five minutes by the protected admin flow.</p>
+        <form onSubmit={submit}>
+          <label htmlFor="stepup-code">Authenticator code</label>
+          <input id="stepup-code" autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,8}" minLength={6} maxLength={8} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required />
+          {error && <div className="errorBanner" role="alert">{error}</div>}
+          <div className="dialogActions"><button className="secondaryButton" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primaryButton" type="submit" disabled={busy || code.length < 6}>{busy ? "Verifying…" : "Verify identity"}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function ConfirmDialog({ onCancel, onConfirm, busy }: { onCancel(): void; onConfirm(): void; busy: boolean }) {
+  return (
+    <div className="dialogBackdrop" role="presentation">
+      <section className="dialog dangerDialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-title">
+        <div className="dialogIcon dangerIcon" aria-hidden="true">!</div>
+        <p className="eyebrow dangerText">DESTRUCTIVE SESSION ACTION</p>
+        <h3 id="revoke-title">Revoke all your administrator sessions?</h3>
+        <p>This signs your administrator account out everywhere. You will need MFA again to return to this portal.</p>
+        <div className="dialogActions"><button className="secondaryButton" type="button" onClick={onCancel} disabled={busy}>Keep sessions</button><button className="dangerButton" type="button" onClick={onConfirm} disabled={busy}>{busy ? "Revoking…" : "Revoke all sessions"}</button></div>
+      </section>
+    </div>
+  );
+}
+
+function Dashboard({ home, user, stepUpFresh, requestStepUp }: { home?: Home; user: AdminUser; stepUpFresh: boolean; requestStepUp(): void }) {
+  const kpis = home?.kpis ?? [];
+  return (
+    <>
+      <section className="heroPanel">
+        <div>
+          <p className="eyebrow">PRIVILEGED COMMAND CENTER</p>
+          <h2>Good to see you, {user.name.split(" ")[0] || "Administrator"}.</h2>
+          <p>Platform-level visibility lives here; customer and plant operations remain in their role-specific application surfaces.</p>
+        </div>
+        <div className="heroSecurity"><span className={stepUpFresh ? "statusDot fresh" : "statusDot"} /><div><b>{stepUpFresh ? "Identity freshly verified" : "Standard privileged session"}</b><small>{stepUpFresh ? "Five-minute step-up window is active." : "High-risk actions will request fresh MFA."}</small></div></div>
+      </section>
+
+      <div className="kpiGrid">
+        {kpis.length ? kpis.slice(0, 4).map((kpi) => <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} />) : ["Plants", "Users", "Orders", "Operations"].map((label) => <KpiCard key={label} label={label} loading />)}
+      </div>
+
+      <div className="dashboardGrid">
+        <Panel title="Administration overview" eyebrow="CONTROL PLANE" action={<button className="textButton" type="button" onClick={requestStepUp}>Confirm identity</button>}>
+          <div className="overviewList">
+            <article><span className="overviewNumber">01</span><div><b>Mobile boundary protected</b><p>Central Admin and Authority remain outside the public mobile route tree.</p></div></article>
+            <article><span className="overviewNumber">02</span><div><b>Backend remains authoritative</b><p>RBAC, MFA, session revocation and audit behavior stay server controlled.</p></div></article>
+            <article><span className="overviewNumber">03</span><div><b>High-risk actions need step-up</b><p>Use the five-minute fresh identity challenge before sensitive administrative operations.</p></div></article>
+          </div>
+        </Panel>
+        <Panel title="Security posture" eyebrow="CURRENT SESSION">
+          <div className="securityScore"><div className="scoreRing"><span>3</span><small>/ 3</small></div><div><b>Core controls active</b><p>MFA sign-in, memory-only bearer session and server-side role verification are part of this admin surface.</p></div></div>
+          <div className="statusRows"><span><i className="okDot" />Authenticator MFA</span><span><i className="okDot" />Memory-only session</span><span><i className="okDot" />Privileged web separation</span></div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+function ModuleWorkspace({ module, token, requestStepUp, onLogout }: { module: ModuleDefinition; token: string; requestStepUp(): void; onLogout(): void }) {
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+
+  async function revokeAll() {
+    setRevoking(true);
+    await post("/admin/auth/logout-all", {}, token).catch(() => undefined);
+    setRevoking(false);
+    setConfirmRevoke(false);
+    onLogout();
+  }
+
+  if (module.key === "Security") {
+    return (
+      <div className="moduleGrid">
+        <Panel title="Identity protection" eyebrow="SECURITY">
+          <div className="settingsList">
+            <article><div><b>Fresh identity confirmation</b><p>Re-verify with Authenticator before high-risk administrative operations.</p></div><button className="secondaryButton" type="button" onClick={requestStepUp}>Confirm identity</button></article>
+            <article><div><b>Session storage</b><p>The bearer token remains in React runtime memory and is never intentionally persisted to local or session storage.</p></div><span className="stateBadge">Memory only</span></article>
+          </div>
+        </Panel>
+        <Panel title="Session revocation" eyebrow="HIGH-RISK ACTION">
+          <div className="dangerZone"><div className="dangerIcon" aria-hidden="true">!</div><h4>Sign out everywhere</h4><p>Immediately revoke all active administrator sessions associated with your account.</p><button className="dangerButton" type="button" onClick={() => setConfirmRevoke(true)}>Revoke all sessions</button></div>
+        </Panel>
+        {confirmRevoke && <ConfirmDialog busy={revoking} onCancel={() => setConfirmRevoke(false)} onConfirm={revokeAll} />}
+      </div>
+    );
+  }
+
+  return (
+    <Panel title={module.label} eyebrow={module.group.toUpperCase()}>
+      <div className="emptyWorkspace">
+        <span className="emptyGlyph" aria-hidden="true">{module.short}</span>
+        <h4>{module.label} workspace</h4>
+        <p>{module.description}</p>
+        <small>This premium shell does not invent privileged backend operations. Existing and future actions must remain bound to authenticated server APIs and RBAC.</small>
+      </div>
+    </Panel>
+  );
+}
+
 function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onLogout(): void }) {
-  const [active, setActive] = useState("Dashboard"); const [home, setHome] = useState<Home>(); const [dark, setDark] = useState(true); const [stepUp, setStepUp] = useState(false); const [code, setCode] = useState("");
-  useEffect(()=>{ get<Home>("/staff/home", token).then(setHome).catch(onLogout); },[token, onLogout]);
-  async function logoutAll(){ await post("/admin/auth/logout-all",{},token).catch(()=>undefined); onLogout(); }
-  async function confirmStepUp(event: FormEvent){ event.preventDefault(); await post("/admin/auth/step-up",{code},token); setStepUp(false); setCode(""); }
-  return <div className={dark ? "shell dark" : "shell"}><nav><Brand label="Administration"/>{modules.map(item=><button className={active===item?"active":""} onClick={()=>setActive(item)} key={item}>{item}</button>)}</nav><section className="workspace"><header><div><small>SECURE PORTAL</small><h2>{active}</h2></div><div className="account"><button onClick={()=>setDark(v=>!v)}>{dark?"Light":"Dark"}</button><div><b>{user.name}</b><small>{user.role_label}</small></div><button onClick={onLogout}>Logout</button></div></header><main><div className="notice"><b>MFA protected</b><span>High-risk actions require a fresh authenticator challenge and are audit logged.</span><button onClick={()=>setStepUp(true)}>Confirm identity</button></div>{active==="Dashboard"?<><div className="cards">{(home?.kpis||[]).slice(0,4).map(k=><article key={k.label}><small>{k.label}</small><strong>{k.value}</strong></article>)}</div><Panel title="Administration overview">Use the desktop navigation to review existing operational records. Destructive controls are intentionally not introduced by this migration.</Panel></>:<Panel title={active}>This module is separated from the public Android route tree. Existing workflows remain governed by backend RBAC.{active==="Security"&&<button className="danger" onClick={logoutAll}>Revoke all my sessions</button>}</Panel>}</main></section>{stepUp&&<div className="modal"><form onSubmit={confirmStepUp}><h3>Confirm your identity</h3><p>Enter a fresh Authenticator code. Confirmation lasts five minutes.</p><input autoFocus inputMode="numeric" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))}/><div><button type="button" onClick={()=>setStepUp(false)}>Cancel</button><button>Verify</button></div></form></div>}</div>;
+  const [active, setActive] = useState<ModuleKey>("Dashboard");
+  const [home, setHome] = useState<Home>();
+  const [dark, setDark] = useState(true);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [stepUpUntil, setStepUpUntil] = useState<number | null>(null);
+
+  const currentModule = useMemo(() => modules.find((item) => item.key === active) ?? modules[0], [active]);
+  const stepUpFresh = Boolean(stepUpUntil && stepUpUntil > Date.now());
+
+  useEffect(() => {
+    let mounted = true;
+    get<Home>("/staff/home", token).then((value) => { if (mounted) setHome(value); }).catch(() => { if (mounted) onLogout(); });
+    return () => { mounted = false; };
+  }, [token]);
+
+  useEffect(() => {
+    if (!stepUpUntil) return;
+    const timer = window.setTimeout(() => setStepUpUntil(null), Math.max(0, stepUpUntil - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [stepUpUntil]);
+
+  return (
+    <div className={`shell${dark ? " dark" : ""}`}>
+      <aside className="sidebar">
+        <Brand label="Administration" />
+        <div className="portalTag"><ShieldIcon /><span>Privileged web only</span></div>
+        {(["Operations", "Governance"] as const).map((group) => (
+          <section className="navGroup" key={group} aria-label={group}>
+            <small>{group}</small>
+            {modules.filter((item) => item.group === group).map((item) => (
+              <button key={item.key} className={active === item.key ? "navItem active" : "navItem"} type="button" aria-current={active === item.key ? "page" : undefined} onClick={() => setActive(item.key)}>
+                <span aria-hidden="true">{item.short}</span><b>{item.label}</b>
+              </button>
+            ))}
+          </section>
+        ))}
+        <div className="sidebarFoot"><span className="statusDot fresh" /><div><b>Secure connection</b><small>Role-gated portal</small></div></div>
+      </aside>
+
+      <section className="workspace">
+        <header className="topbar">
+          <div><p className="eyebrow">SECURE PORTAL</p><h1>{currentModule.label}</h1></div>
+          <div className="account">
+            <button className="iconButton" type="button" onClick={() => setDark((value) => !value)} aria-label={`Switch to ${dark ? "light" : "dark"} theme`}>{dark ? "☀" : "◐"}</button>
+            <div className="accountIdentity"><span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span><div><b>{user.name}</b><small>{user.role_label}</small></div></div>
+            <button className="secondaryButton compactButton" type="button" onClick={onLogout}>Logout</button>
+          </div>
+        </header>
+
+        <main className="content">
+          <div className="securityNotice"><div className="noticeIcon"><ShieldIcon /></div><div><b>MFA-protected administration</b><span>High-risk operations require fresh identity confirmation and remain subject to backend audit and authorization.</span></div><button className={stepUpFresh ? "verifiedButton" : "secondaryButton"} type="button" onClick={() => setStepUpOpen(true)}>{stepUpFresh ? "Identity verified" : "Confirm identity"}</button></div>
+          {active === "Dashboard" ? <Dashboard home={home} user={user} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} /> : <ModuleWorkspace module={currentModule} token={token} requestStepUp={() => setStepUpOpen(true)} onLogout={onLogout} />}
+        </main>
+      </section>
+
+      {stepUpOpen && <StepUpDialog token={token} onClose={() => setStepUpOpen(false)} onVerified={() => setStepUpUntil(Date.now() + 5 * 60 * 1000)} />}
+    </div>
+  );
 }
-function Panel({title,children}:{title:string;children:React.ReactNode}) { return <section className="panel"><h3>{title}</h3><p>{children}</p></section>; }
-function App(){ const [session,setSession]=useState<{token:string;user:AdminUser}|null>(null); return session?<Portal token={session.token} user={session.user} onLogout={()=>setSession(null)}/>:<Login onLogin={(token,user)=>setSession({token,user})}/>; }
-createRoot(document.getElementById("root")!).render(<App/>);
+
+function App() {
+  const [session, setSession] = useState<{ token: string; user: AdminUser } | null>(null);
+  return session ? <Portal token={session.token} user={session.user} onLogout={() => setSession(null)} /> : <Login onLogin={(token, user) => setSession({ token, user })} />;
+}
+
+createRoot(document.getElementById("root")!).render(<App />);

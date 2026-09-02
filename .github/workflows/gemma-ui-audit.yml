@@ -1,0 +1,243 @@
+name: Gemma Full Application UI Audit
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - ".github/workflows/gemma-ui-audit.yml"
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "UI audit scope"
+        required: true
+        default: "all-application"
+
+permissions:
+  contents: read
+
+jobs:
+  gemma-ui-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build complete UI inventory
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          roots = [Path("frontend/app"), Path("frontend/src/screens"), Path("frontend/src/components"), Path("frontend/src/theme"), Path("frontend/src/ui")]
+          exts = {".tsx", ".ts", ".jsx", ".js"}
+          blocked = {".env", "secret", "credentials", ".pem", ".p12", ".jks", "keystore", "google-services.json", "node_modules", "dist"}
+          files = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob("*"):
+                  if not path.is_file() or path.suffix.lower() not in exts:
+                      continue
+                  if any(item in str(path).lower() for item in blocked):
+                      continue
+                  files.append(path)
+          files = sorted(set(files))
+          Path("gemma-ui-files.txt").write_text("\n".join(str(path) for path in files), encoding="utf-8")
+          print(f"Complete UI inventory contains {len(files)} files")
+          PY
+
+      - name: Audit entire TrackMyRMC mobile UI with Gemma
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMMA_MODEL: ${{ vars.GEMMA_MODEL }}
+          AUDIT_SCOPE: ${{ github.event.inputs.scope || 'all-application' }}
+        run: |
+          python3 <<'PY'
+          import http.client
+          import json
+          import os
+          import pathlib
+          import re
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("GEMMA_MODEL")
+          scope = os.environ.get("AUDIT_SCOPE", "all-application")
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+          if not model:
+              raise SystemExit("GEMMA_MODEL is missing")
+
+          inventory = pathlib.Path("gemma-ui-files.txt")
+          files = [pathlib.Path(line) for line in inventory.read_text(encoding="utf-8").splitlines() if line.strip()]
+          if not files:
+              raise SystemExit("No UI files found")
+
+          system_prompt = """
+          You are the senior mobile product-design and React Native/Expo engineering reviewer for TrackMyRMC.
+          Review implementation evidence for premium production quality. Keep Central Admin/Authority privileged pages out of the public mobile app; those belong only to the dedicated admin website. Preserve authentication, six-digit OTP, KYC/DigiLocker, payments, order lifecycle, GPS/tracking, role routing, Play policy, backend contracts and accessibility. Do not invent APIs or business behavior. Prefer shared design tokens/components and incremental code changes over a rewrite. Separate visual changes from behavior-sensitive changes.
+          """.strip()
+
+          transient_errors = (
+              TimeoutError,
+              socket.timeout,
+              http.client.RemoteDisconnected,
+              ConnectionResetError,
+              ConnectionAbortedError,
+              urllib.error.URLError,
+              RuntimeError,
+              KeyError,
+              IndexError,
+          )
+
+          successful_calls = 0
+          failed_calls = 0
+
+          def call_gemma(prompt, max_tokens, label):
+              global successful_calls, failed_calls
+              payload = {
+                  "model": model,
+                  "messages": [
+                      {"role": "system", "content": system_prompt},
+                      {"role": "user", "content": prompt},
+                  ],
+                  "temperature": 0.15,
+                  "max_tokens": max_tokens,
+                  "stream": False,
+              }
+              data = json.dumps(payload).encode("utf-8")
+              last_error = None
+              for attempt in range(3):
+                  request = urllib.request.Request(
+                      "https://integrate.api.nvidia.com/v1/chat/completions",
+                      data=data,
+                      headers={
+                          "Authorization": f"Bearer {api_key}",
+                          "Content-Type": "application/json",
+                          "Accept": "application/json",
+                          "Connection": "close",
+                      },
+                      method="POST",
+                  )
+                  try:
+                      with urllib.request.urlopen(request, timeout=240) as response:
+                          result = json.loads(response.read().decode("utf-8"))
+                      answer = result["choices"][0]["message"]["content"]
+                      if not answer:
+                          raise RuntimeError("empty Gemma response")
+                      successful_calls += 1
+                      return answer
+                  except urllib.error.HTTPError as exc:
+                      body = exc.read().decode("utf-8", errors="replace")
+                      if exc.code not in {408, 429, 500, 502, 503, 504}:
+                          raise SystemExit(f"Gemma API failed: HTTP {exc.code}\n{body[:1000]}")
+                      last_error = f"HTTP {exc.code}: {body[:250]}"
+                  except transient_errors as exc:
+                      last_error = repr(exc)
+                  if attempt < 2:
+                      wait = 10 * (attempt + 1)
+                      print(f"{label}: transient Gemma failure ({last_error}); retrying in {wait}s")
+                      time.sleep(wait)
+              failed_calls += 1
+              print(f"{label}: Gemma unavailable after retries: {last_error}")
+              return None
+
+          def compact_source(path):
+              text = path.read_text(encoding="utf-8", errors="replace")
+              lines = text.splitlines()
+              imports = [line.strip() for line in lines if line.lstrip().startswith(("import ", "export "))][:8]
+              symbols = re.findall(r"(?:function|const|class)\s+([A-Za-z0-9_]+)", text)[:12]
+              visible = re.findall(r"[\"']([^\"'\n]{3,55})[\"']", text)
+              visible = [item for item in visible if not item.startswith(("http", "../", "./", "/api"))][:12]
+              excerpt = text[:1200]
+              return (
+                  f"\n### {path}\n"
+                  f"SYMBOLS: {', '.join(symbols)}\n"
+                  f"IMPORTS: {' | '.join(imports)}\n"
+                  f"UI TEXT: {' | '.join(visible)}\n"
+                  f"EXCERPT:\n```tsx\n{excerpt}\n```\n"
+              )
+
+          batch_size = 10
+          batch_reports = []
+          total_batches = (len(files) + batch_size - 1) // batch_size
+
+          for index in range(0, len(files), batch_size):
+              batch = files[index:index + batch_size]
+              batch_no = index // batch_size + 1
+              evidence = "".join(compact_source(path) for path in batch)
+              prompt = f"""
+              Scope: {scope}. Full-app batch {batch_no}/{total_batches}.
+              Review every listed file. Return concise sections: P0/P1 defects; premium UI opportunities; design-system inconsistencies; accessibility/responsive issues; graphics/icon/motion opportunities; reusable tokens/components; behavior-sensitive files; screenshot/device verification targets. Reference paths. Keep the response under 500 words.
+
+              {evidence}
+              """
+              report = call_gemma(prompt, 800, f"batch {batch_no}")
+              if report is None:
+                  report = "## Gemma service unavailable for this batch\n" + "\n".join(f"- `{path}`" for path in batch)
+              batch_reports.append(report)
+              pathlib.Path(f"gemma-ui-batch-{batch_no:02d}.md").write_text(report, encoding="utf-8")
+              print(f"Recorded UI audit batch {batch_no}/{total_batches}")
+              time.sleep(1)
+
+          group_summaries = []
+          group_size = 5
+          for index in range(0, len(batch_reports), group_size):
+              group = batch_reports[index:index + group_size]
+              group_no = index // group_size + 1
+              prompt = "Consolidate these TrackMyRMC mobile UI audit reports. Keep exact paths, P0/P1 items, shared components/tokens, security-sensitive warnings and device-verification needs. Remove duplication. Stay under 700 words.\n\n" + "\n\n---\n\n".join(group)
+              summary = call_gemma(prompt, 1000, f"group {group_no}")
+              if summary is None:
+                  summary = "\n\n---\n\n".join(group)
+              group_summaries.append(summary)
+              pathlib.Path(f"gemma-ui-group-{group_no:02d}.md").write_text(summary, encoding="utf-8")
+              time.sleep(1)
+
+          final_prompt = """
+          Create the FINAL implementation roadmap for the entire TrackMyRMC mobile UI from the audits below. Required sections: Executive UI Verdict; Non-Negotiable Mobile/Admin Boundary; Global Design System; Typography; Light/Dark Color; Buttons/Inputs/Form States; Cards/Surfaces/Data Density; Navigation/Headers/Tabs/FAB; Icons/Graphics/Maps/Motion; Login/OTP/Auth UX; Customer/Ordering UX; Plant Staff/Operations UX; Driver/Tracking/Attendance/SOS UX; KYC/Payments/Profile/Settings UX; Shared Components/Tokens First; File Groups In Order; Behavior-Sensitive Test Areas; Accessibility/Responsive/Reduced Motion; Screenshot/Real-Device Matrix; P0/P1/P2/P3 Coding Roadmap. Keep privileged Central Admin/Authority web-only. Do not recommend wholesale language conversion. Use React Native/TypeScript, and Kotlin only where native Android capability is genuinely needed.
+
+          AUDITS:
+          """ + "\n\n=====\n\n".join(group_summaries)
+
+          final_report = call_gemma(final_prompt, 2500, "final consolidation")
+          if final_report is None:
+              final_report = (
+                  "# Partial Full-Application UI Audit\n\n"
+                  "Gemma's hosted endpoint was intermittently unavailable during final consolidation. "
+                  "The per-batch evidence and any successful Gemma reports are preserved below for implementation review.\n\n"
+                  + "\n\n=====\n\n".join(group_summaries)
+              )
+
+          header = (
+              f"# Gemma Full Application UI Audit\n\n"
+              f"Inventory: **{len(files)} UI source files**. Gemma calls succeeded: **{successful_calls}**; degraded/fallback calls: **{failed_calls}**.\n\n"
+          )
+          pathlib.Path("gemma-full-ui-audit.md").write_text(header + final_report, encoding="utf-8")
+
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_file:
+              with open(summary_file, "a", encoding="utf-8") as handle:
+                  handle.write(header)
+                  handle.write(final_report[:30000])
+                  handle.write("\n")
+
+          print(f"Full UI inventory recorded for {len(files)} files; Gemma successful calls={successful_calls}, fallback calls={failed_calls}.")
+          PY
+
+      - name: Upload complete Gemma UI audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemma-full-ui-audit
+          path: |
+            gemma-full-ui-audit.md
+            gemma-ui-files.txt
+            gemma-ui-batch-*.md
+            gemma-ui-group-*.md
+          if-no-files-found: warn
+          retention-days: 7

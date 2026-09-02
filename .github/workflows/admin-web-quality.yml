@@ -1,0 +1,64 @@
+name: Admin Web Quality Gate
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - "admin-web/**"
+      - "frontend/src/auth/roleRoutes.ts"
+      - ".github/workflows/admin-web-quality.yml"
+  pull_request:
+    paths:
+      - "admin-web/**"
+      - "frontend/src/auth/roleRoutes.ts"
+      - ".github/workflows/admin-web-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  admin-web-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enforce privileged web-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d admin-web/src
+          test ! -d frontend/app/central_admin
+          test ! -d frontend/app/authority
+          python3 <<'PY'
+          from pathlib import Path
+          route_file = Path('frontend/src/auth/roleRoutes.ts')
+          text = route_file.read_text(encoding='utf-8')
+          forbidden = ('central_admin', 'authority')
+          found = [name for name in forbidden if name in text]
+          if found:
+              raise SystemExit(f'Privileged mobile role routing detected: {found}')
+          print('Privileged web-only boundary passed.')
+          PY
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: admin-web/package.json
+
+      - name: Install admin web dependencies
+        working-directory: admin-web
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck admin web
+        working-directory: admin-web
+        run: npm run typecheck
+
+      - name: Build admin web
+        working-directory: admin-web
+        run: npm run build

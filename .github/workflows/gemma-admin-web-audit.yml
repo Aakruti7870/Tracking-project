@@ -1,0 +1,173 @@
+name: Gemma Admin Web Premium Audit
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - "admin-web/**"
+      - "frontend/src/auth/roleRoutes.ts"
+      - ".github/workflows/gemma-admin-web-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  admin-web-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enforce mobile and Super Admin separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d admin-web/src
+          test ! -d frontend/app/central_admin
+          test ! -d frontend/app/authority
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/auth/roleRoutes.ts')
+          text = p.read_text(encoding='utf-8')
+          forbidden = ['central_admin', 'authority']
+          found = [x for x in forbidden if x in text]
+          if found:
+              raise SystemExit(f'Privileged mobile roles must stay out of ROLE_ROUTES: {found}')
+          print('Mobile/Super Admin separation guard passed.')
+          PY
+
+      - name: Audit dedicated Super Admin web portal with Gemma
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMMA_MODEL: ${{ vars.GEMMA_MODEL }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get('NVIDIA_API_KEY')
+          model = os.environ.get('GEMMA_MODEL')
+          if not api_key:
+              raise SystemExit('NVIDIA_API_KEY is missing')
+          if not model:
+              raise SystemExit('GEMMA_MODEL is missing')
+
+          allowed = [
+              pathlib.Path('admin-web/package.json'),
+              pathlib.Path('admin-web/README.md'),
+              pathlib.Path('admin-web/src/main.tsx'),
+              pathlib.Path('admin-web/src/styles.css'),
+              pathlib.Path('admin-web/src/api.ts'),
+              pathlib.Path('frontend/src/auth/roleRoutes.ts'),
+          ]
+
+          chunks = []
+          for path in allowed:
+              if not path.is_file():
+                  continue
+              text = path.read_text(encoding='utf-8', errors='replace')
+              if len(text) > 16000:
+                  text = text[:16000] + '\n/* truncated for bounded audit */\n'
+              chunks.append(f'\n### FILE: {path}\n```\n{text}\n```\n')
+
+          system = '''
+          You are the senior UI/UX and frontend architecture reviewer for the dedicated TrackMyRMC privileged administration website.
+
+          NON-NEGOTIABLE ARCHITECTURE:
+          - Super Admin / Central Admin must NOT exist as a public mobile-app page, mobile route, deep link, reviewer shortcut, or navigation destination.
+          - Privileged administration belongs only in the dedicated web portal under admin-web.
+          - Preserve server-side RBAC, MFA/TOTP, recent step-up requirements, audit logging, logout-all/session-revocation behavior, and generic authentication failures.
+          - Never recommend moving privileged controls back into the Expo mobile app.
+
+          PRODUCT GOAL:
+          Review the current implementation for premium enterprise UI, accessibility, responsive desktop/tablet behavior, security UX, reusable design-system quality, and implementation risks. Keep recommendations concise and implementation-ready. Do not weaken security for visual polish.
+          '''
+
+          user = f'''
+          Audit the current dedicated TrackMyRMC Super Admin web implementation.
+          Return these concise sections:
+          ## Current Portal Verdict
+          ## P0 Security UX And Separation Requirements
+          ## Global Web Design System
+          ## Navigation And Information Architecture
+          ## Dashboard And Data-Dense Components
+          ## Buttons Forms Dialogs And Destructive Actions
+          ## Responsive And Accessibility Rules
+          ## Graphics Icons And Motion
+          ## File-By-File Coding Plan
+          ## P0 P1 P2 P3 Implementation Order
+
+          SOURCE:
+          {''.join(chunks)}
+          '''
+
+          payload = {
+              'model': model,
+              'messages': [
+                  {'role': 'system', 'content': system},
+                  {'role': 'user', 'content': user},
+              ],
+              'temperature': 0.2,
+              'max_tokens': 3500,
+              'stream': False,
+          }
+
+          request = urllib.request.Request(
+              'https://integrate.api.nvidia.com/v1/chat/completions',
+              data=json.dumps(payload).encode('utf-8'),
+              headers={
+                  'Authorization': f'Bearer {api_key}',
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+              },
+              method='POST',
+          )
+
+          result = None
+          for attempt in range(2):
+              try:
+                  with urllib.request.urlopen(request, timeout=360) as response:
+                      result = json.loads(response.read().decode('utf-8'))
+                  break
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  raise SystemExit(f'Gemma API failed: HTTP {exc.code}\n{body[:1200]}')
+              except (TimeoutError, socket.timeout) as exc:
+                  if attempt == 1:
+                      raise SystemExit(f'Gemma API timed out after retry: {exc}')
+                  print('Gemma request timed out once; retrying after 10 seconds...')
+                  time.sleep(10)
+
+          if result is None:
+              raise SystemExit('Gemma returned no result')
+
+          try:
+              answer = result['choices'][0]['message']['content']
+          except Exception:
+              raise SystemExit('Unexpected Gemma response format')
+
+          pathlib.Path('gemma-admin-web-audit.md').write_text(answer, encoding='utf-8')
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as fh:
+                  fh.write('# Gemma Admin Web Premium Audit\n\n')
+                  fh.write(answer)
+                  fh.write('\n')
+          print('Gemma admin-web audit completed.')
+          PY
+
+      - name: Upload admin web audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemma-admin-web-audit
+          path: gemma-admin-web-audit.md
+          retention-days: 7

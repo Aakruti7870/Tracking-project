@@ -1,0 +1,46 @@
+name: Kimi K3 Connection Test
+
+on:
+  push:
+    branches:
+      - feat/kimi-k3-agent
+  workflow_dispatch:
+
+jobs:
+  test-kimi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test Kimi K3 API
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
+        run: |
+          response=$(curl -sS \
+            -X POST \
+            "https://integrate.api.nvidia.com/v1/chat/completions" \
+            -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "{
+              \"model\": \"${KIMI_MODEL}\",
+              \"messages\": [
+                {
+                  \"role\": \"user\",
+                  \"content\": \"Reply exactly with KIMI_K3_CONNECTION_OK\"
+                }
+              ],
+              \"temperature\": 1,
+              \"reasoning_effort\": \"low\",
+              \"max_tokens\": 200,
+              \"stream\": false
+            }")
+
+          echo "$response"
+
+          echo "$response" | grep -q "KIMI_K3_CONNECTION_OK" || {
+            echo "Kimi K3 connection test failed."
+            exit 1
+          }
+
+          echo "Kimi K3 connection successful."

@@ -1,0 +1,458 @@
+name: Kimi K3 Full TypeScript Migration Audit
+
+on:
+  push:
+    branches:
+      - feat/kimi-k3-agent
+    paths:
+      - ".github/workflows/kimi-ts-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      batch_indices: ${{ steps.plan.outputs.batch_indices }}
+      batch_count: ${{ steps.plan.outputs.batch_count }}
+      file_count: ${{ steps.plan.outputs.file_count }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build safe TypeScript audit plan
+        id: plan
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          excluded_parts = {
+              ".git", "node_modules", "dist", "build", ".expo", ".next",
+              "coverage", "Pods", ".gradle", ".idea", "vendor"
+          }
+          blocked_names = {
+              ".env", ".env.local", ".env.production", "google-services.json"
+          }
+
+          def allowed(path: pathlib.Path) -> bool:
+              rel = path.relative_to(workspace)
+              if any(part in excluded_parts for part in rel.parts):
+                  return False
+              if path.name in blocked_names:
+                  return False
+              lower = str(rel).lower()
+              if any(x in lower for x in ["secret", "credential", "keystore", ".pem", ".p12", ".jks"]):
+                  return False
+              return path.suffix.lower() in {".ts", ".tsx"}
+
+          files = sorted(p for p in workspace.rglob("*") if p.is_file() and allowed(p))
+          if not files:
+              raise SystemExit("No TypeScript/TSX files found")
+
+          inventory = []
+          batches = []
+          current = []
+          current_chars = 0
+          max_files_per_batch = 6
+          max_chars_per_batch = 32000
+          max_chars_per_file = 16000
+
+          for path in files:
+              rel = str(path.relative_to(workspace))
+              raw = path.read_text(encoding="utf-8", errors="replace")
+              size = len(raw.encode("utf-8"))
+              inventory.append({"path": rel, "bytes": size})
+              estimated = min(len(raw), max_chars_per_file) + 300
+
+              if current and (
+                  len(current) >= max_files_per_batch
+                  or current_chars + estimated > max_chars_per_batch
+              ):
+                  batches.append(current)
+                  current = []
+                  current_chars = 0
+
+              current.append(rel)
+              current_chars += estimated
+
+          if current:
+              batches.append(current)
+
+          pathlib.Path("typescript-inventory.json").write_text(
+              json.dumps(inventory, indent=2), encoding="utf-8"
+          )
+          pathlib.Path("typescript-batch-plan.json").write_text(
+              json.dumps(batches, indent=2), encoding="utf-8"
+          )
+
+          indices = list(range(1, len(batches) + 1))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"batch_indices={json.dumps(indices, separators=(',', ':'))}\n")
+              fh.write(f"batch_count={len(batches)}\n")
+              fh.write(f"file_count={len(files)}\n")
+
+          print(f"Prepared {len(files)} TS/TSX files in {len(batches)} small batches.")
+          PY
+
+      - name: Upload audit plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: kimi-ts-audit-plan
+          path: |
+            typescript-inventory.json
+            typescript-batch-plan.json
+          retention-days: 14
+
+  audit-batches:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        batch: ${{ fromJSON(needs.prepare.outputs.batch_indices) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download audit plan
+        uses: actions/download-artifact@v4
+        with:
+          name: kimi-ts-audit-plan
+          path: audit-plan
+
+      - name: Audit TypeScript batch with Kimi K3
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
+          BATCH_INDEX: ${{ matrix.batch }}
+          BATCH_COUNT: ${{ needs.prepare.outputs.batch_count }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("KIMI_MODEL")
+          batch_index = int(os.environ["BATCH_INDEX"])
+          batch_count = int(os.environ["BATCH_COUNT"])
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+          if not model:
+              raise SystemExit("KIMI_MODEL is missing")
+
+          plan = json.loads(pathlib.Path("audit-plan/typescript-batch-plan.json").read_text(encoding="utf-8"))
+          if batch_index < 1 or batch_index > len(plan):
+              raise SystemExit(f"Invalid batch index: {batch_index}")
+
+          selected = plan[batch_index - 1]
+
+          def scrub(text: str) -> str:
+              patterns = [
+                  r'(?i)((?:api[_-]?key|secret|password|passwd|token|auth[_-]?token)\s*[:=]\s*["\'])[^"\']+(["\'])',
+                  r'(?i)(authorization\s*[:=]\s*["\']bearer\s+)[^"\']+(["\'])',
+                  r'(?i)(bearer\s+)[A-Za-z0-9._~+\-/=]{16,}',
+              ]
+              for pattern in patterns:
+                  replacement = r'\1[REDACTED]' if pattern == patterns[-1] else r'\1[REDACTED]\2'
+                  text = re.sub(pattern, replacement, text)
+              return text
+
+          blocks = []
+          for rel in selected:
+              path = (workspace / rel).resolve()
+              try:
+                  path.relative_to(workspace)
+              except ValueError:
+                  raise SystemExit(f"Blocked path outside repository: {rel}")
+              if not path.is_file():
+                  raise SystemExit(f"File not found: {rel}")
+
+              raw = path.read_text(encoding="utf-8", errors="replace")
+              max_chars = 16000
+              truncated = len(raw) > max_chars
+              body = scrub(raw[:max_chars])
+              blocks.append(
+                  f"\n===== FILE: {rel} | bytes={len(raw.encode('utf-8'))} | truncated={truncated} =====\n"
+                  f"{body}\n===== END FILE: {rel} =====\n"
+              )
+
+          system_prompt = """
+          You are the senior migration architect for TrackMyRMC.
+          The mobile frontend uses Expo + React Native + TypeScript and the backend is Python.
+
+          Classify every supplied TypeScript/TSX file as exactly one of:
+          KEEP_TYPESCRIPT, CONVERT_TO_KOTLIN, REDESIGN_BEFORE_CONVERSION,
+          SECURITY_REVIEW, POSSIBLY_REMOVE.
+
+          Preserve API contracts, authentication behavior, business logic and Play Store compliance.
+          Prefer Kotlin only for genuinely Android-native concerns such as permissions, secure storage,
+          notifications, deep links, background tasks, GPS/location, native payment bridges and lifecycle work.
+          Separate confirmed findings from assumptions. Flag likely bugs, duplicate logic, unsafe patterns,
+          brittle routing and important cross-file dependencies. Do not modify code.
+          """
+
+          user_prompt = f"""
+          Audit batch {batch_index} of {batch_count}. Analyze EVERY supplied file.
+
+          Return a compact Markdown table with exactly these columns:
+          PATH | CLASSIFICATION | ANDROID RELEVANCE | RISK | KEY DEPENDENCIES | REASON
+
+          Then add only these concise sections:
+          ## Confirmed Bugs / Defects
+          ## Security / Reliability Concerns
+          ## Migration Notes
+
+          FILES:
+          {''.join(blocks)}
+          """
+
+          def call_kimi(retries=4):
+              payload = {
+                  "model": model,
+                  "messages": [
+                      {"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_prompt},
+                  ],
+                  "temperature": 0.1,
+                  "reasoning_effort": "low",
+                  "max_tokens": 2600,
+                  "stream": False,
+              }
+
+              for attempt in range(1, retries + 1):
+                  request = urllib.request.Request(
+                      API_URL,
+                      data=json.dumps(payload).encode("utf-8"),
+                      headers={
+                          "Authorization": f"Bearer {api_key}",
+                          "Content-Type": "application/json",
+                          "Accept": "application/json",
+                      },
+                      method="POST",
+                  )
+                  try:
+                      with urllib.request.urlopen(request, timeout=180) as response:
+                          result = json.loads(response.read().decode("utf-8"))
+                      answer = result["choices"][0]["message"]["content"]
+                      if not answer:
+                          raise RuntimeError("Empty Kimi response")
+                      return answer
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, socket.timeout, RuntimeError) as exc:
+                      print(f"Kimi batch {batch_index} attempt {attempt} failed: {type(exc).__name__}: {exc}")
+                      if attempt == retries:
+                          raise
+                      time.sleep(10 * attempt)
+
+          report = call_kimi()
+          out = pathlib.Path(f"kimi-ts-audit-batch-{batch_index:03d}.md")
+          out.write_text(report, encoding="utf-8")
+          print(f"Kimi batch {batch_index}/{batch_count} completed: {', '.join(selected)}")
+          PY
+
+      - name: Upload batch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kimi-ts-batch-${{ matrix.batch }}
+          path: kimi-ts-audit-batch-*.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+  synthesize:
+    needs:
+      - prepare
+      - audit-batches
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Download audit plan
+        uses: actions/download-artifact@v4
+        with:
+          name: kimi-ts-audit-plan
+          path: audit-plan
+
+      - name: Download all completed batch reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kimi-ts-batch-*
+          path: batch-reports
+          merge-multiple: true
+
+      - name: Build final migration roadmap with Kimi K3
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
+          EXPECTED_BATCHES: ${{ needs.prepare.outputs.batch_count }}
+          EXPECTED_FILES: ${{ needs.prepare.outputs.file_count }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("KIMI_MODEL")
+          expected_batches = int(os.environ["EXPECTED_BATCHES"])
+          expected_files = int(os.environ["EXPECTED_FILES"])
+
+          reports = sorted(pathlib.Path("batch-reports").glob("kimi-ts-audit-batch-*.md"))
+          if len(reports) != expected_batches:
+              raise SystemExit(
+                  f"Audit incomplete: expected {expected_batches} batch reports, found {len(reports)}. "
+                  "No final roadmap will be claimed until every batch succeeds."
+              )
+
+          inventory = json.loads(pathlib.Path("audit-plan/typescript-inventory.json").read_text(encoding="utf-8"))
+          if len(inventory) != expected_files:
+              raise SystemExit("Inventory count mismatch")
+
+          texts = [p.read_text(encoding="utf-8", errors="replace") for p in reports]
+
+          def call_kimi(prompt, max_tokens=2600, retries=4):
+              payload = {
+                  "model": model,
+                  "messages": [
+                      {
+                          "role": "system",
+                          "content": (
+                              "You are the senior TrackMyRMC migration architect. Preserve every confirmed "
+                              "classification and distinguish facts from assumptions. Do not modify code."
+                          ),
+                      },
+                      {"role": "user", "content": prompt},
+                  ],
+                  "temperature": 0.1,
+                  "reasoning_effort": "low",
+                  "max_tokens": max_tokens,
+                  "stream": False,
+              }
+              for attempt in range(1, retries + 1):
+                  request = urllib.request.Request(
+                      API_URL,
+                      data=json.dumps(payload).encode("utf-8"),
+                      headers={
+                          "Authorization": f"Bearer {api_key}",
+                          "Content-Type": "application/json",
+                          "Accept": "application/json",
+                      },
+                      method="POST",
+                  )
+                  try:
+                      with urllib.request.urlopen(request, timeout=180) as response:
+                          result = json.loads(response.read().decode("utf-8"))
+                      answer = result["choices"][0]["message"]["content"]
+                      if not answer:
+                          raise RuntimeError("Empty Kimi response")
+                      return answer
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, socket.timeout, RuntimeError) as exc:
+                      print(f"Synthesis attempt {attempt} failed: {type(exc).__name__}: {exc}")
+                      if attempt == retries:
+                          raise
+                      time.sleep(10 * attempt)
+
+          # Hierarchical synthesis keeps each Kimi request small enough to avoid the timeout that
+          # affected the original full-repository request.
+          group_summaries = []
+          group_size = 4
+          for start in range(0, len(texts), group_size):
+              chunk = texts[start:start + group_size]
+              group_number = start // group_size + 1
+              prompt = f"""
+          Synthesize these completed TypeScript audit reports into a concise migration summary.
+          Do not drop Kotlin candidates, security findings, confirmed defects, or high-risk dependencies.
+          Preserve exact file paths and classifications when mentioned.
+
+          REPORTS:
+          {'\n\n'.join(chunk)}
+          """
+              summary = call_kimi(prompt, max_tokens=2400)
+              group_summaries.append(summary)
+              pathlib.Path(f"kimi-ts-group-summary-{group_number:02d}.md").write_text(summary, encoding="utf-8")
+
+          final_prompt = f"""
+          Produce the FINAL TrackMyRMC TypeScript-to-Kotlin migration roadmap from the group summaries below.
+          The complete audit covered {expected_files} TypeScript/TSX files across {expected_batches} successful batches.
+
+          REQUIRED OUTPUT:
+          # Executive Summary
+          # Android Kotlin Conversion Candidates
+          Prioritize P0 / P1 / P2 and include exact paths.
+          # Files / Areas That Should Stay TypeScript
+          # Redesign Before Conversion
+          # Confirmed Bugs / Defects
+          # Security / Reliability Risks
+          # Dependency / Coupling Risks
+          # Recommended Migration Sequence
+          # Tests Required Before Conversion
+          # Stop Conditions / Rollback Strategy
+          # Final Recommendation
+
+          Do not recommend a mass rewrite just to change language. Optimize for reliability,
+          debuggability, Android performance, maintainability, and minimal regression risk.
+
+          GROUP SUMMARIES:
+          {'\n\n'.join(group_summaries)}
+          """
+
+          executive = call_kimi(final_prompt, max_tokens=5000)
+
+          all_batches = "\n\n".join(
+              f"## Batch {i:03d}\n\n{text}"
+              for i, text in enumerate(texts, start=1)
+          )
+          final_report = (
+              executive
+              + "\n\n# Complete Per-File Batch Audit\n\n"
+              + all_batches
+          )
+          pathlib.Path("kimi-typescript-migration-audit.md").write_text(final_report, encoding="utf-8")
+
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_file:
+              with open(summary_file, "a", encoding="utf-8") as fh:
+                  fh.write("# Kimi K3 TypeScript Migration Audit\n\n")
+                  fh.write(f"Completed **{expected_files}** `.ts` / `.tsx` files across **{expected_batches}** successful small batches.\n\n")
+                  fh.write(executive[:50000])
+
+          print("Full resilient TypeScript/TSX migration audit completed successfully.")
+          PY
+
+      - name: Upload complete migration audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kimi-typescript-migration-audit
+          path: |
+            kimi-typescript-migration-audit.md
+            kimi-ts-group-summary-*.md
+            batch-reports/kimi-ts-audit-batch-*.md
+            audit-plan/typescript-inventory.json
+            audit-plan/typescript-batch-plan.json
+          if-no-files-found: ignore
+          retention-days: 14
