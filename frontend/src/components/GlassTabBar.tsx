@@ -18,19 +18,42 @@ export type TabDef = {
   active: keyof typeof Ionicons.glyphMap;
 };
 
-export function GlassTabBar({ state, navigation, tabs }: any & { tabs: TabDef[] }) {
+type TabRoute = {
+  key: string;
+  name: string;
+};
+
+type TabState = {
+  index: number;
+  routes: TabRoute[];
+};
+
+type TabNavigation = {
+  emit: (event: { type: "tabPress"; target: string; canPreventDefault: true }) => {
+    defaultPrevented: boolean;
+  };
+  navigate: (name: string) => void;
+};
+
+type GlassTabBarProps = {
+  state: TabState;
+  navigation: TabNavigation;
+  tabs: TabDef[];
+};
+
+export function GlassTabBar({ state, navigation, tabs }: GlassTabBarProps) {
   const { colors, scheme } = useTheme();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [hubOpen, setHubOpen] = useState(false);
 
-  const visibleRoutes = state.routes.filter((route: any) => tabs.some((tab: TabDef) => tab.name === route.name));
+  const visibleRoutes = state.routes.filter((route) => tabs.some((tab) => tab.name === route.name));
   const leftRoutes = visibleRoutes.slice(0, 2);
   const rightRoutes = visibleRoutes.slice(2, 4);
 
-  const renderTab = (route: any) => {
-    const tab = tabs.find((definition: TabDef) => definition.name === route.name)!;
-    const index = state.routes.findIndex((candidate: any) => candidate.key === route.key);
+  const renderTab = (route: TabRoute) => {
+    const tab = tabs.find((definition) => definition.name === route.name)!;
+    const index = state.routes.findIndex((candidate) => candidate.key === route.key);
     const focused = state.index === index;
 
     return (
