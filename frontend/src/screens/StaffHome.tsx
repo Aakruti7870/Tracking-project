@@ -11,7 +11,6 @@ import { AppText } from "@/src/components/ui/AppText";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
 import { StaffCollection } from "@/src/screens/StaffCollection";
-import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Kpi = { label: string; value: number; icon: keyof typeof Ionicons.glyphMap; unit?: string | null };
@@ -126,7 +125,6 @@ export function StaffHome() {
             </>
           ) : data ? (
             <>
-              <HomeHero />
               <View style={styles.grid}>
                 {data.kpis.map((c) => (
                   <View key={c.label} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
