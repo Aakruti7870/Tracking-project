@@ -8,21 +8,36 @@ export type StorageItemValue = string | number | boolean | null;
 // StorageBase. Use as: type _ = AssertNoExtras<Exclude<keyof Storage, keyof StorageBase>>;
 export type AssertNoExtras<T extends never> = T;
 
+function isStorageItemValue(value: unknown): value is StorageItemValue {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
 export abstract class StorageBase {
   protected warn(op: string, key: StorageItemKey, e: unknown) {
     console.warn(`[storage] ${op}(${key}) failed`, e);
   }
 
-  // raw is whatever AsyncStorage / SecureStore returned: a JSON-encoded string
+  // raw is whatever AsyncStorage / SecureStore returned: a JSON-encoded primitive
   // (because setItem always JSON.stringifies) or null if the key was missing.
-  // We always JSON.parse so values round-trip correctly across types.
+  // Reject objects/arrays from corrupted or legacy entries instead of unsafely
+  // casting them into a primitive caller type.
   protected retrieve<Fallback extends StorageItemValue>(
     raw: string | null,
     fallback: Fallback,
   ): Fallback | null {
     if (raw === null) return fallback;
     try {
-      return JSON.parse(raw) as Fallback;
+      const parsed: unknown = JSON.parse(raw);
+      if (!isStorageItemValue(parsed)) {
+        this.warn("retrieve", "invalid stored value", new Error("Stored value is not a supported primitive"));
+        return fallback;
+      }
+      return parsed as Fallback | null;
     } catch (e) {
       this.warn("retrieve", "parse error", e);
       return fallback;
