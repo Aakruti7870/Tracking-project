@@ -8,7 +8,11 @@ on:
       - "frontend/src/api/**/*.ts"
       - "frontend/src/auth/**/*.ts"
       - "frontend/src/auth/**/*.tsx"
+      - "frontend/src/hooks/**/*.ts"
+      - "frontend/src/theme/**/*.tsx"
       - "frontend/src/utils/storage/**/*.ts"
+      - "frontend/app/_layout.tsx"
+      - "frontend/app/employee-master.tsx"
       - ".github/workflows/laguna-ts-hardening.yml"
   workflow_dispatch:
 
@@ -51,9 +55,13 @@ jobs:
               "frontend/src/api/client.ts",
               "frontend/src/auth/AuthContext.tsx",
               "frontend/src/auth/roleRoutes.ts",
+              "frontend/src/hooks/useApi.ts",
+              "frontend/src/theme/ThemeProvider.tsx",
               "frontend/src/utils/storage/storage-base.ts",
               "frontend/src/utils/storage/index.ts",
               "frontend/src/utils/storage/index.web.ts",
+              "frontend/app/_layout.tsx",
+              "frontend/app/employee-master.tsx",
           ]
 
           def scrub(text: str) -> str:
@@ -79,22 +87,24 @@ jobs:
               blocks.append(f"\n===== FILE: {rel} =====\n{body}\n===== END FILE =====\n")
 
           system_prompt = """
-          You are Laguna XS acting as the production TypeScript security and performance reviewer for TrackMyRMC.
+          You are Laguna XS acting as the production TypeScript security, correctness, cleanup and performance reviewer for TrackMyRMC.
 
-          Review only the evidence in the supplied files. The application is Expo/React Native TypeScript with a Python backend and Kotlin only for genuinely Android-native services.
+          Review only the evidence in the supplied files. The application is Expo/React Native TypeScript with a Python/FastAPI + MongoDB backend and Kotlin only for genuinely Android-native services.
 
           Priorities, in order:
           1. Authentication/session security and fail-closed behavior.
-          2. Unsafe API/error contracts, secret/token handling, transport security and privilege-boundary mistakes.
-          3. Corrupted or malformed local data handling.
-          4. Duplicate logic, dead code and unnecessary abstractions.
-          5. React Native/Android performance risks, avoidable network waits and memory/state issues.
-          6. Maintainability without broad rewrites.
+          2. Cross-user or cross-route stale-state/data exposure.
+          3. Unsafe API/error contracts, secret/token handling, transport security and privilege-boundary mistakes.
+          4. Corrupted or malformed local data handling.
+          5. Startup/theme hydration correctness and React Native performance.
+          6. Proven duplicate/dead code, broad any usage and unnecessary abstractions.
+          7. Maintainability without broad rewrites.
 
           Rules:
           - Distinguish PROVEN findings from hypotheses.
           - Do not propose moving ordinary React Native UI/business logic to Kotlin.
           - Preserve auth, KYC, payment, order and Play Store review behavior.
+          - Plant admin/accountant are legitimate mobile operational roles; Central/Super Admin and Authority control-plane UI remain web-only.
           - Do not invent backend behavior or repository files.
           - Prefer the smallest safe patch.
           - Treat current code as a candidate patch that must be reviewed, not automatically accepted.
@@ -102,7 +112,7 @@ jobs:
           """
 
           user_prompt = """
-          Audit this critical TypeScript hardening batch.
+          Audit this current TypeScript hardening and performance batch.
 
           Return exactly these sections:
           ## Verdict
@@ -181,7 +191,7 @@ jobs:
                   fh.write(answer)
                   fh.write("\n")
 
-          print("Laguna critical TypeScript hardening review completed.")
+          print("Laguna TypeScript hardening review completed.")
           PY
 
       - name: Upload Laguna hardening report
