@@ -77,6 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           await stopTripLocationTracking();
           await storage.secureRemove(TOKEN_KEY);
+          setToken(null);
+          setUser(null);
         }
       }
       setHydrating(false);
