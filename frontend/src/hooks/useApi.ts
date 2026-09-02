@@ -22,16 +22,26 @@ export function useGet<T>(path: string | null) {
     error: null,
   });
   const requestId = useRef(0);
+  const activeAbort = useRef<AbortController | null>(null);
 
   const load = useCallback(
     async (showSpinner = true) => {
       const currentRequest = ++requestId.current;
       const currentKey = requestKey;
 
+      // Stop the previous network request, not just its eventual state update.
+      // This avoids wasting mobile bandwidth/server work when path, token or
+      // an explicit refresh supersedes an in-flight GET.
+      activeAbort.current?.abort();
+      activeAbort.current = null;
+
       if (!token || !path || !currentKey) {
         setState({ key: null, data: null, loading: false, error: null });
         return;
       }
+
+      const controller = new AbortController();
+      activeAbort.current = controller;
 
       setState((previous) => ({
         key: currentKey,
@@ -41,7 +51,7 @@ export function useGet<T>(path: string | null) {
       }));
 
       try {
-        const res = await apiGet<T>(path, token);
+        const res = await apiGet<T>(path, token, controller.signal);
         if (currentRequest === requestId.current) {
           setState({ key: currentKey, data: res, loading: false, error: null });
         }
@@ -54,6 +64,10 @@ export function useGet<T>(path: string | null) {
             error: apiErrorDetail(error, "Something went wrong"),
           }));
         }
+      } finally {
+        if (currentRequest === requestId.current && activeAbort.current === controller) {
+          activeAbort.current = null;
+        }
       }
     },
     [path, requestKey, token],
@@ -63,6 +77,8 @@ export function useGet<T>(path: string | null) {
     void load(true);
     return () => {
       requestId.current += 1;
+      activeAbort.current?.abort();
+      activeAbort.current = null;
     };
   }, [load]);
 
