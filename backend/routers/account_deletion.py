@@ -29,6 +29,7 @@ from database import (
 )
 from push_notifications import device_push_tokens
 from roles import Role
+from routers.admin_auth import require_recent_admin_step_up
 from security import (
     as_aware,
     current_user,
@@ -186,6 +187,7 @@ async def complete_deletion(
     request_id: str,
     body: CompleteDeletionBody,
     ctx: dict = Depends(central_admin_only),
+    _step_up: dict = Depends(require_recent_admin_step_up),
 ):
     request = await account_deletion_requests.find_one({"_id": oid(request_id), "status": "PENDING"})
     if not request:
