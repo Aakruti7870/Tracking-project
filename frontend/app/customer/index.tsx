@@ -14,7 +14,6 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { MapPlaceholder } from "@/src/components/ui/MapPlaceholder";
 import { KycBanner } from "@/src/components/KycBanner";
 import { ErrorView } from "@/src/components/StateViews";
-import { HomeHero } from "@/src/components/HomeHero";
 import { OrderData } from "@/src/components/OrderCard";
 import { PlantData } from "@/src/components/PlantCard";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
@@ -106,8 +105,6 @@ export default function CustomerHome() {
             </>
           ) : data ? (
             <>
-              <HomeHero height={210} />
-
               {data.kyc_status !== "VERIFIED" ? <KycBanner status={data.kyc_status} /> : null}
 
               <View style={styles.section}>
