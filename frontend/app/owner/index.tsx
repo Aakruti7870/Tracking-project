@@ -99,8 +99,12 @@ export default function OwnerHome() {
                   </Card>
                 ) : (
                   <View style={{ gap: spacing.md }}>
-                    {data.pending_orders.map((o) => (
-                      <OrderCard key={o.id} order={o} onPress={() => router.push(`/order/${o.id}` as any)} />
+                    {data.pending_orders.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        onPress={() => router.push({ pathname: "/order/[id]", params: { id: order.id } })}
+                      />
                     ))}
                   </View>
                 )}
