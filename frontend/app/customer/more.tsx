@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { Href, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
@@ -11,7 +11,7 @@ import { Card } from "@/src/components/ui/Card";
 import { Badge } from "@/src/components/ui/Badge";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
+const ITEMS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: Href }[] = [
   { key: "projects", label: "Project & Site Hub", icon: "briefcase-outline", route: "/customer/projects" },
   { key: "pour_planner", label: "Concrete Pour Planner", icon: "time-outline", route: "/customer/pour-planner" },
   { key: "receiving", label: "Receiving & Quality Guide", icon: "shield-checkmark-outline", route: "/customer/receiving-guide" },
@@ -98,7 +98,7 @@ export default function CustomerMore() {
             <Pressable
               key={item.key}
               testID={`more-${item.key}`}
-              onPress={() => router.push(item.route as any)}
+              onPress={() => router.push(item.route)}
               style={[styles.item, i < ITEMS.length - 1 && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}
             >
               <Ionicons name={item.icon} size={20} color={item.key === "delete" ? colors.error : colors.onSurfaceSecondary} />
