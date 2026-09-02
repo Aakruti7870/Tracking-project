@@ -6,8 +6,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
@@ -27,9 +25,6 @@ import { Input } from "@/src/components/ui/Input";
 import { useToast } from "@/src/components/ui/Toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
-
-const HERO_LIGHT = require("../../assets/images/login-hero-light.jpg");
-const HERO_DARK = require("../../assets/images/login-hero-dark.jpg");
 
 const PRIVACY_POLICY_URL = "https://trackmyrmc.com/privacy_policy";
 const ACCOUNT_DELETION_URL = "https://trackmyrmc.com/account-deletion";
@@ -54,7 +49,6 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function LoginScreen() {
   const { colors } = useTheme();
-  const heroSource = colors.isDark ? HERO_DARK : HERO_LIGHT;
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -533,8 +527,6 @@ export default function LoginScreen() {
     );
   };
 
-  const heroBackground = colors.isDark ? "#080A0C" : "#F7F8F6";
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style={colors.isDark ? "light" : "dark"} />
@@ -544,24 +536,7 @@ export default function LoginScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ width: "100%", height: insets.top, backgroundColor: heroBackground }} />
-        <View style={[styles.hero, { backgroundColor: heroBackground }]}>
-          <Image
-            source={heroSource}
-            style={styles.heroImage}
-            contentFit="contain"
-            contentPosition="center"
-            priority="high"
-            cachePolicy="memory-disk"
-            transition={0}
-          />
-          <LinearGradient
-            pointerEvents="none"
-            colors={colors.isDark ? ["rgba(0,0,0,0)", "rgba(0,0,0,0.02)", colors.surface] : ["rgba(255,255,255,0)", "rgba(255,255,255,0.02)", colors.surface]}
-            locations={[0, 0.80, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-        </View>
+        <View style={{ width: "100%", height: insets.top }} />
 
         <View style={[styles.loginShell, {
           backgroundColor: colors.surfaceSecondary,
@@ -670,22 +645,10 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, alignItems: "center" },
-  hero: {
-    width: "100%",
-    maxWidth: 760,
-    aspectRatio: 16 / 9,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroImage: {
-    width: "100%",
-    height: "100%",
-  },
   loginShell: {
     width: "92%",
     maxWidth: 470,
-    marginTop: -24,
+    marginTop: spacing.lg,
     borderWidth: 1,
     borderRadius: 28,
     paddingHorizontal: spacing.lg,
