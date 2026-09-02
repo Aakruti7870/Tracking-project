@@ -12,7 +12,6 @@ import { Card } from "@/src/components/ui/Card";
 import { Badge } from "@/src/components/ui/Badge";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 import { ErrorView } from "@/src/components/StateViews";
-import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Trip = { id: string; order_number: string; status: string; grade: string; quantity: number; tm_number: string; site_name: string };
@@ -56,8 +55,14 @@ export default function DriverHome() {
             </>
           ) : data ? (
             <>
-              {/* Attendance + stats */}
-              <HomeHero />
+              <Card variant="brand" style={styles.summary} testID="driver-home-summary">
+                <View style={{ flex: 1, gap: spacing.xs }}>
+                  <AppText variant="caption">TODAY&apos;S SHIFT</AppText>
+                  <AppText style={styles.summaryTitle}>{data.active_trip ? "Delivery underway" : data.checked_in ? "Ready for assignment" : "Start your shift"}</AppText>
+                  <AppText variant="bodyMuted" numberOfLines={1}>{data.active_trip ? `${data.active_trip.order_number} · ${data.active_trip.site_name}` : data.vehicle ? `Assigned to ${data.vehicle}` : "No vehicle assigned"}</AppText>
+                </View>
+                <Pressable onPress={() => data.active_trip ? router.push(`/trip/${data.active_trip.id}` as any) : router.push("/driver/attendance")} style={[styles.summaryAction, { backgroundColor: colors.brand }]}><Ionicons name={data.active_trip ? "navigate" : "finger-print"} size={20} color={colors.onBrand} /></Pressable>
+              </Card>
               <View style={{ flexDirection: "row", gap: spacing.sm }}>
                 <Pressable onPress={() => router.push("/driver/attendance")} style={[styles.stat, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                   <Ionicons name={data.checked_in ? "checkmark-circle" : "time-outline"} size={20} color={data.checked_in ? colors.success : colors.warning} />
@@ -109,6 +114,9 @@ export default function DriverHome() {
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, paddingTop: spacing.sm },
   iconBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  summary: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 108 },
+  summaryTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
+  summaryAction: { width: 48, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   stat: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   siteRow: { flexDirection: "row", alignItems: "center", gap: 6 },

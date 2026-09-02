@@ -13,7 +13,6 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { OrderCard, OrderData } from "@/src/components/OrderCard";
 import { WeeklyInsights } from "@/src/components/WeeklyInsights";
 import { ErrorView } from "@/src/components/StateViews";
-import { HomeHero } from "@/src/components/HomeHero";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type OwnerHomeData = {
@@ -67,7 +66,15 @@ export default function OwnerHome() {
             </>
           ) : data ? (
             <>
-              <HomeHero />
+              <Card variant="brand" style={styles.summary} testID="owner-home-summary">
+                <View style={styles.summaryIcon}><Ionicons name="business" size={22} color={colors.onBrandSoft} /></View>
+                <View style={{ flex: 1, gap: spacing.xs }}>
+                  <AppText variant="caption">LIVE PLANT OVERVIEW</AppText>
+                  <AppText style={styles.summaryTitle}>{data.plant_count} {data.plant_count === 1 ? "plant" : "plants"} connected</AppText>
+                  <AppText variant="bodyMuted">{data.cards.pending_approvals ?? 0} orders need your approval</AppText>
+                </View>
+                <Pressable onPress={() => router.push("/owner/orders")} style={[styles.summaryAction, { backgroundColor: colors.brand }]}><Ionicons name="arrow-forward" size={20} color={colors.onBrand} /></Pressable>
+              </Card>
               <View style={styles.grid}>
                 {CARD_DEFS.map((c) => (
                   <View key={c.key} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
@@ -120,6 +127,10 @@ export default function OwnerHome() {
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, paddingTop: spacing.sm },
   iconBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  summary: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 112 },
+  summaryIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  summaryTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
+  summaryAction: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   kpi: { width: "48%", flexGrow: 1, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, gap: spacing.xs },
   kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: spacing.xs },
