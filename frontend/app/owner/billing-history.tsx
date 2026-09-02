@@ -88,15 +88,15 @@ export default function OwnerBillingHistory() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
         <Pressable testID="billing-history-back" onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <AppText style={styles.headerTitle}>Billing & Payment History</AppText>
-          <AppText style={styles.headerSub}>Cashfree-verified plan transactions</AppText>
+          <AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Billing & Payment History</AppText>
+          <AppText style={[styles.headerSub, { color: colors.onSurfaceSecondary }]}>Cashfree-verified plan transactions</AppText>
         </View>
-        <Ionicons name="receipt-outline" size={26} color="#FF6A00" />
+        <Ionicons name="receipt-outline" size={26} color={colors.brand} />
       </View>
 
       <ScrollView
@@ -212,9 +212,9 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" },
-  headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl },
-  headerSub: { color: "rgba(255,255,255,.7)", fontFamily: fonts.regular, fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
+  headerSub: { fontFamily: fonts.regular, fontSize: 12 },
   summaryRow: { flexDirection: "row", gap: spacing.sm },
   total: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
   filter: { minHeight: 40, minWidth: 76, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },

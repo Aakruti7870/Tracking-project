@@ -50,12 +50,20 @@ export function Button({
   const { colors } = useTheme();
   const isDisabled = Boolean(disabled || loading);
 
-  const baseBackground = {
+  const background = {
     primary: colors.brand,
-    secondary: colors.surfaceTertiary,
+    secondary: colors.surfaceElevated,
     outline: "transparent",
     ghost: "transparent",
     danger: colors.error,
+  }[variant];
+
+  const pressedBackground = {
+    primary: colors.brandPressed,
+    secondary: colors.surfaceTertiary,
+    outline: colors.surfaceTertiary,
+    ghost: colors.brandSoft,
+    danger: colors.isDark ? "#C6363B" : "#C83239",
   }[variant];
 
   const foreground = {
@@ -72,14 +80,6 @@ export function Button({
     outline: colors.borderStrong,
     ghost: "transparent",
     danger: colors.error,
-  }[variant];
-
-  const pressedBackground = {
-    primary: colors.brandPressed,
-    secondary: colors.surfaceElevated,
-    outline: colors.surfaceTertiary,
-    ghost: colors.brandSoft,
-    danger: colors.isDark ? "#C6363B" : "#C83239",
   }[variant];
 
   return (
@@ -104,20 +104,36 @@ export function Button({
         styles.base,
         size === "lg" ? styles.large : size === "sm" ? styles.small : styles.medium,
         {
-          backgroundColor: isDisabled ? colors.disabledSurface : pressed ? pressedBackground : baseBackground,
-          borderColor: isDisabled ? colors.border : borderColor,
-          opacity: 1,
           alignSelf: fullWidth ? "stretch" : "flex-start",
+          backgroundColor: isDisabled
+            ? colors.disabledSurface
+            : pressed
+              ? pressedBackground
+              : background,
+          borderColor: isDisabled ? colors.border : borderColor,
           transform: [{ scale: pressed && !isDisabled ? 0.985 : 1 }],
-          shadowColor: variant === "primary" && !isDisabled ? colors.brand : colors.shadow,
-          shadowOpacity: variant === "primary" && !isDisabled ? (colors.isDark ? 0.28 : 0.18) : 0,
-          elevation: variant === "primary" && !isDisabled ? 3 : 0,
+          shadowColor: variant === "primary" ? colors.brand : colors.shadow,
+          shadowOpacity:
+            variant === "primary" && !isDisabled
+              ? colors.isDark
+                ? 0.26
+                : 0.16
+              : variant === "secondary" && !isDisabled
+                ? colors.isDark
+                  ? 0.2
+                  : 0.07
+                : 0,
+          elevation: variant === "primary" && !isDisabled ? 4 : variant === "secondary" ? 2 : 0,
         },
         style,
       ]}
     >
       <View style={styles.content}>
-        {loading ? <ActivityIndicator color={isDisabled ? colors.disabledContent : foreground} size="small" /> : icon}
+        {loading ? (
+          <ActivityIndicator color={isDisabled ? colors.disabledContent : foreground} size="small" />
+        ) : (
+          icon
+        )}
         <Text
           numberOfLines={1}
           style={[
@@ -138,8 +154,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 7 },
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 18,
   },
   large: {
     minHeight: control.buttonHeightLarge,
@@ -165,10 +181,18 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    lineHeight: 20,
+    letterSpacing: 0.15,
+  },
+  largeLabel: {
+    fontFamily: fonts.bold,
     fontSize: fontSize.lg,
     lineHeight: 22,
-    letterSpacing: 0.05,
+    letterSpacing: 0.1,
   },
-  largeLabel: { fontFamily: fonts.bold, fontSize: fontSize.lg, letterSpacing: 0.1 },
-  smallLabel: { fontSize: fontSize.sm, lineHeight: 17 },
+  smallLabel: {
+    fontSize: fontSize.sm,
+    lineHeight: 17,
+  },
 });

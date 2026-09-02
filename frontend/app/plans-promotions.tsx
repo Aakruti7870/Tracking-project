@@ -149,16 +149,14 @@ export default function PlansPromotions() {
     finally { setBusy(false); }
   };
 
-
-
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={[styles.header, { backgroundColor: "#01153E" }]}>
-        <Pressable testID="plans-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#fff" /></Pressable>
-        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Plans &amp; Promotions</AppText><AppText style={styles.headerSub}>Grow your RMC business</AppText></View>
-        <Ionicons name="diamond-outline" size={26} color="#FF6A00" />
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
+        <Pressable testID="plans-back" onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color={colors.onSurface} /></Pressable>
+        <View style={{ flex: 1 }}><AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Plans &amp; Promotions</AppText><AppText style={[styles.headerSub, { color: colors.onSurfaceSecondary }]}>Grow your RMC business</AppText></View>
+        <Ionicons name="diamond-outline" size={26} color={colors.brand} />
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 80, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
         {loading && !data ? <><Skeleton height={72} /><Skeleton height={220} /></> : !plant ? <Card><AppText>No plant is assigned to this account.</AppText></Card> : <>
@@ -205,7 +203,6 @@ export default function PlansPromotions() {
     </View>
   );
 }
-
 
 function PlantSearchCard({
   plants, selected, search, onSearch, stateFilter, districtFilter, talukaFilter,
@@ -324,7 +321,7 @@ function PlanCard({ selected, label, price, onPress, colors }: any) { return <Pr
 function Line({ label, value, bold, green }: any) { const { colors } = useTheme(); return <View style={styles.line}><AppText style={{ fontFamily: bold ? fonts.bold : fonts.regular, color: colors.onSurface }}>{label}</AppText><AppText style={{ fontFamily: bold ? fonts.bold : fonts.semibold, color: green ? colors.success : colors.onSurface }}>{value}</AppText></View>; }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md }, headerTitle: { color: "#fff", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontFamily: fonts.regular, fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth }, headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { fontFamily: fonts.regular, fontSize: 12 },
   searchBox: { height: 48, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md }, locationFilters: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, zIndex: 5 }, filterSelect: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 3, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.sm }, optionMenu: { position: "absolute", top: 66, left: 0, right: 0, zIndex: 20, maxHeight: 220, borderWidth: 1, borderRadius: radius.md, padding: spacing.xs }, option: { minHeight: 38, justifyContent: "center", paddingHorizontal: spacing.sm }, plantResult: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm }, plantIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center" }, tabs: { flexDirection: "row", padding: 4, borderWidth: 1, borderRadius: radius.md }, tab: { flex: 1, minHeight: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   statusRow: { flexDirection: "row", gap: spacing.sm }, planRow: { flexDirection: "row", gap: spacing.sm }, plan: { flex: 1, minHeight: 88, borderWidth: 1, borderRadius: radius.md, alignItems: "center", justifyContent: "center", gap: 5, position: "relative" }, check: { position: "absolute", right: 6, top: 6 }, textInput: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, marginTop: 6, fontFamily: fonts.medium }, apply: { height: 44, paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, justifyContent: "center" }, quote: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, gap: spacing.sm }, line: { flexDirection: "row", justifyContent: "space-between" }, toggleRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, audit: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
 });

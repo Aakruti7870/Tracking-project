@@ -137,15 +137,15 @@ export default function ComparePlants() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
         <Pressable testID="compare-back" onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <AppText style={styles.headerTitle}>Estimate & Compare</AppText>
-          <AppText style={styles.headerSub}>Transparent plant rates for your requirement</AppText>
+          <AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Estimate & Compare</AppText>
+          <AppText style={[styles.headerSub, { color: colors.onSurfaceSecondary }]}>Transparent plant rates for your requirement</AppText>
         </View>
-        <Ionicons name="git-compare-outline" size={25} color="#FF6A00" />
+        <Ionicons name="git-compare-outline" size={25} color={colors.brand} />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
@@ -232,9 +232,9 @@ function Cost({ label, value, warning }: { label: string; value?: number | null;
   return <View style={styles.between}><AppText variant="caption">{label}</AppText><AppText style={{ fontFamily: fonts.medium, fontSize: fontSize.sm, color: warning ? colors.warning : colors.onSurface }}>{warning && value == null ? "Not included" : money(value)}</AppText></View>;
 }
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" },
-  headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl },
-  headerSub: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl },
+  headerSub: { fontSize: 12 },
   notice: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   chip: { minHeight: 40, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   toggle: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderWidth: 1, borderRadius: radius.md },

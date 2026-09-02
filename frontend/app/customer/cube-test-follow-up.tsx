@@ -73,10 +73,10 @@ export default function CubeTestFollowUp() {
 
   return <View style={{ flex: 1, backgroundColor: colors.surface }}>
     <View style={{ height: insets.top }} />
-    <View style={styles.header}>
-      <Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#FFFFFF" /></Pressable>
-      <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Cube Test Follow-up</AppText><AppText style={styles.headerSub}>7-day and 28-day quality records</AppText></View>
-      <Ionicons name="flask-outline" size={26} color="#FF6A00" />
+    <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
+      <Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color={colors.onSurface} /></Pressable>
+      <View style={{ flex: 1 }}><AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Cube Test Follow-up</AppText><AppText style={[styles.headerSub, { color: colors.onSurfaceTertiary }]}>7-day and 28-day quality records</AppText></View>
+      <Ionicons name="flask-outline" size={26} color={colors.brand} />
     </View>
     <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={records.refetch} tintColor={colors.brand} />} keyboardShouldPersistTaps="handled">
       <Card style={{ gap: spacing.sm, borderColor: colors.warning }}>
@@ -113,8 +113,8 @@ export default function CubeTestFollowUp() {
 }
 function Metric({ label, value, color }: { label: string; value: string; color: string }) { const { colors } = useTheme(); return <Card style={{ flex: 1, alignItems: "center", gap: 4 }}><AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize["2xl"], color }}>{value}</AppText><AppText variant="caption" style={{ color: colors.onSurfaceSecondary }}>{label}</AppText></Card>; }
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" },
-  headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { fontSize: 12 },
   notice: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }, metrics: { flexDirection: "row", gap: spacing.md },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   followRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.md },

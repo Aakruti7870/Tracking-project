@@ -74,7 +74,8 @@ export function Input({
             backgroundColor: editable ? colors.surfaceSecondary : colors.disabledSurface,
             borderColor,
             shadowColor: focused && !error ? colors.brand : colors.shadow,
-            shadowOpacity: focused && !error ? (colors.isDark ? 0.18 : 0.10) : 0,
+            shadowOpacity: focused && !error ? (colors.isDark ? 0.2 : 0.11) : 0,
+            elevation: focused && !error ? 1 : 0,
           },
         ]}
       >
@@ -125,7 +126,7 @@ export function Input({
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs },
   label: {
-    paddingHorizontal: 1,
+    paddingHorizontal: 2,
     fontFamily: fonts.semibold,
     fontSize: fontSize.sm,
     lineHeight: 17,
@@ -137,9 +138,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 13,
-    elevation: 0,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
   },
   input: {
     minWidth: 0,
@@ -148,11 +148,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: 0,
     fontFamily: fonts.medium,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.base,
+    lineHeight: 20,
   },
   adornment: {
-    minWidth: 28,
-    minHeight: 28,
+    minWidth: 30,
+    minHeight: 30,
     alignItems: "center",
     justifyContent: "center",
   },

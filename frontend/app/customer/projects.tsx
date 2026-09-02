@@ -52,10 +52,10 @@ export default function CustomerProjects() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ height: insets.top }} />
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#FFFFFF" /></Pressable>
-        <View style={{ flex: 1 }}><AppText style={styles.headerTitle}>Project & Site Hub</AppText><AppText style={styles.headerSub}>Everything for each concrete delivery site</AppText></View>
-        <Ionicons name="briefcase-outline" size={25} color="#FF6A00" />
+      <View style={[styles.header, { backgroundColor: colors.surfaceSecondary, borderBottomColor: colors.divider }]}>
+        <Pressable onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color={colors.onSurface} /></Pressable>
+        <View style={{ flex: 1 }}><AppText style={[styles.headerTitle, { color: colors.onSurface }]}>Project & Site Hub</AppText><AppText style={[styles.headerSub, { color: colors.onSurfaceTertiary }]}>Everything for each concrete delivery site</AppText></View>
+        <Ionicons name="briefcase-outline" size={25} color={colors.brand} />
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110, gap: spacing.lg }} refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}>
         <Card style={{ gap: spacing.sm }}>
@@ -126,8 +126,8 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
   return <View style={styles.between}><AppText variant="caption">{label}</AppText><AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm }}>{value}</AppText></View>;
 }
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, backgroundColor: "#01153E" },
-  headerTitle: { color: "#FFFFFF", fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, paddingTop: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: fontSize.xl }, headerSub: { fontSize: 12 },
   notice: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   siteTitle: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }, siteIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
