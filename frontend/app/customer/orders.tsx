@@ -92,7 +92,12 @@ export default function CustomerOrders() {
           showsVerticalScrollIndicator={false}
           onRefresh={refetch}
           refreshing={false}
-          renderItem={({ item }) => <OrderCard order={item} onPress={() => router.push(`/order/${item.id}` as any)} />}
+          renderItem={({ item }) => (
+            <OrderCard
+              order={item}
+              onPress={() => router.push({ pathname: "/order/[id]", params: { id: item.id } })}
+            />
+          )}
           ListEmptyComponent={
             <EmptyView
               icon="cube-outline"
