@@ -1,0 +1,225 @@
+name: MiniMax Parallel Refactor Planner
+
+on:
+  push:
+    branches:
+      - feat/admin-web-premium-ui-v2
+    paths:
+      - "frontend/src/screens/BusinessModule.tsx"
+      - "frontend/src/screens/LoginScreen.tsx"
+      - "frontend/src/screens/StaffCollection.tsx"
+      - "frontend/src/components/OwnerProductionBilling.tsx"
+      - "frontend/src/components/LoadPlanner.tsx"
+      - "frontend/app/workforce.tsx"
+      - "frontend/app/new-order.tsx"
+      - "frontend/app/order/[id].tsx"
+      - "frontend/app/trip/[id].tsx"
+      - "frontend/app/pod/[id].tsx"
+      - "frontend/src/api/client.ts"
+      - "frontend/src/auth/AuthContext.tsx"
+      - "docs/frontend-simplification-audit.md"
+      - ".github/workflows/minimax-parallel-planner.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  minimax-parallel-planner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Plan safe parallel batches with MiniMax M3
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          MINIMAX_MODEL: ${{ vars.MINIMAX_MODEL || 'minimaxai/minimax-m3' }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import socket
+          import time
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("MINIMAX_MODEL") or "minimaxai/minimax-m3"
+          if not api_key:
+              raise SystemExit("NVIDIA_API_KEY is missing")
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          selected = [
+              "docs/frontend-simplification-audit.md",
+              "frontend/src/api/client.ts",
+              "frontend/src/auth/AuthContext.tsx",
+              "frontend/src/screens/StaffCollection.tsx",
+              "frontend/src/components/OwnerProductionBilling.tsx",
+              "frontend/src/components/LoadPlanner.tsx",
+              "frontend/app/new-order.tsx",
+              "frontend/app/order/[id].tsx",
+              "frontend/app/trip/[id].tsx",
+              "frontend/app/pod/[id].tsx",
+              "frontend/app/workforce.tsx",
+              "frontend/src/screens/BusinessModule.tsx",
+              "frontend/src/screens/LoginScreen.tsx",
+          ]
+
+          def scrub(text: str) -> str:
+              patterns = [
+                  r'(?i)((?:api[_-]?key|secret|password|passwd|token|auth[_-]?token)\s*[:=]\s*["\'])[^"\']+(["\'])',
+                  r'(?i)(authorization\s*[:=]\s*["\']bearer\s+)[^"\']+(["\'])',
+              ]
+              for pattern in patterns:
+                  text = re.sub(pattern, r'\1[REDACTED]\2', text)
+              return text
+
+          blocks = []
+          total_chars = 0
+          max_total_chars = 220000
+          for rel in selected:
+              path = (workspace / rel).resolve()
+              try:
+                  path.relative_to(workspace)
+              except ValueError:
+                  raise SystemExit(f"Blocked path outside repository: {rel}")
+              if not path.is_file():
+                  continue
+              raw = scrub(path.read_text(encoding="utf-8", errors="replace"))
+              remaining = max_total_chars - total_chars
+              if remaining <= 0:
+                  break
+              body = raw[: min(30000, remaining)]
+              total_chars += len(body)
+              blocks.append(f"\n===== FILE: {rel} =====\n{body}\n===== END FILE =====\n")
+
+          system_prompt = """
+          You are MiniMax M3 acting as TrackMyRMC's large-context repository planner and cross-module reviewer.
+
+          Architecture constraints:
+          - Mobile: Expo/React Native + TypeScript.
+          - Backend: Python/FastAPI + MongoDB.
+          - Kotlin only for genuinely Android-native services/modules.
+          - Dedicated React + TypeScript web admin for Central/Super Admin/Authority control-plane.
+          - Mobile plant-side admin and accountant are legitimate operational roles and must remain mobile.
+
+          Objective: reduce time to a production-safe signed Android AAB without sacrificing security or correctness.
+
+          Review the supplied current files together and identify the maximum SAFE parallelization. Do not edit code. Produce a plan for independent batches that can be implemented simultaneously without touching the same files or coupling-sensitive domains.
+
+          Hard protections:
+          - Auth/OTP/MFA/passkey/session, KYC/DigiLocker, payments, GPS/tracking, Android signing/package/App Links, production order lifecycle, and backend API/MongoDB contracts are high-risk and must remain sequential unless the supplied evidence proves a batch is presentation-only.
+          - Do not invent files, endpoints, backend behavior, or dependencies.
+          - Do not recommend converting TypeScript UI/business logic to Kotlin.
+          - Prefer typed fixes, proven duplicate/dead-code cleanup, narrow helpers, bounded performance improvements, and explicit API contracts.
+          - Distinguish proven findings from hypotheses.
+          - For every proposed batch, list exact files and why the batch is independent from every other batch in the same wave.
+          - Flag any file that should NOT be parallel-edited.
+          """
+
+          user_prompt = """
+          Build the fastest safe execution plan from the current repository evidence.
+
+          Return exactly these sections:
+          ## Current Risk Map
+          ## Wave 1 — Safe Parallel Batches
+          ## Wave 2 — Safe Parallel Batches
+          ## Sequential Protected Work
+          ## Proven TypeScript / Correctness Findings
+          ## Performance Opportunities
+          ## Duplicate / Dead Code Candidates Requiring Proof
+          ## Tests Per Batch
+          ## Integration Order
+          ## AAB Readiness Gates
+          ## Stop / Go Criteria
+
+          For each parallel batch include:
+          - Batch name
+          - Exact files
+          - Exact change class
+          - Risk level
+          - Why it can run in parallel
+          - CI/tests required
+          - What must not be changed
+
+          Keep the plan implementation-oriented and prioritize the work that removes the most risk/time first.
+          """ + "".join(blocks)
+
+          payload = {
+              "model": model,
+              "messages": [
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user", "content": user_prompt},
+              ],
+              "temperature": 0.1,
+              "max_tokens": 6500,
+              "stream": False,
+          }
+
+          request = urllib.request.Request(
+              "https://integrate.api.nvidia.com/v1/chat/completions",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              },
+              method="POST",
+          )
+
+          answer = None
+          last_error = None
+          for attempt in range(1, 4):
+              try:
+                  with urllib.request.urlopen(request, timeout=300) as response:
+                      result = json.loads(response.read().decode("utf-8"))
+                  answer = result["choices"][0]["message"]["content"]
+                  if answer:
+                      break
+                  last_error = "empty response"
+              except (TimeoutError, socket.timeout, ConnectionResetError, ConnectionAbortedError, urllib.error.URLError) as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  last_error = f"HTTP {exc.code}: {body[:1000]}"
+                  if 400 <= exc.code < 500 and exc.code != 429:
+                      break
+              except Exception as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+
+              if attempt < 3:
+                  time.sleep(10 * attempt)
+
+          output = pathlib.Path("minimax-parallel-plan.md")
+          if not answer:
+              output.write_text(
+                  "# MiniMax Parallel Planner\n\nMiniMax M3 did not return a usable response.\n\n"
+                  f"Last error: `{last_error}`\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(f"MiniMax review failed: {last_error}")
+
+          output.write_text(answer, encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("# MiniMax Parallel Refactor Planner\n\n")
+                  fh.write(answer)
+                  fh.write("\n")
+
+          print(f"MiniMax parallel plan completed with model {model}.")
+          PY
+
+      - name: Upload MiniMax parallel plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimax-parallel-plan
+          path: minimax-parallel-plan.md
+          if-no-files-found: ignore
+          retention-days: 14
