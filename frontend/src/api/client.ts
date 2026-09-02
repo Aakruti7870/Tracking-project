@@ -45,6 +45,32 @@ function apiBase(): string {
   return `${RAW_BACKEND.replace(/\/$/, "")}/api`;
 }
 
+function validatedApiPath(path: string): string {
+  if (
+    !path.startsWith("/") ||
+    path.startsWith("//") ||
+    path.includes("#") ||
+    path.includes("\\") ||
+    /[\u0000-\u001F\u007F]/.test(path)
+  ) {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path" } as ApiError;
+  }
+
+  const pathname = path.split("?", 1)[0];
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path encoding" } as ApiError;
+  }
+
+  if (decodedPathname.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw { status: 0, detail: "Invalid TrackMyRMC API path" } as ApiError;
+  }
+
+  return path;
+}
+
 export type AuthSessionResponse = {
   access_token: string;
   token_type: string;
@@ -165,18 +191,18 @@ async function request<T>(
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     token?: string;
     body?: unknown;
-    timeoutMs?: number;
   } = {},
 ): Promise<T> {
+  const safePath = validatedApiPath(path);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const headers: Record<string, string> = { Accept: "application/json" };
 
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
   try {
-    const res = await fetch(`${apiBase()}${path}`, {
+    const res = await fetch(`${apiBase()}${safePath}`, {
       method: options.method ?? "GET",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
