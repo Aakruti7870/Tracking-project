@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { Href, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -13,7 +13,7 @@ type Section = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   desc: string;
-  route: string;
+  route: Href;
 };
 
 const SECTIONS: Section[] = [
@@ -52,7 +52,7 @@ export default function OwnerOperations() {
           <Pressable
             key={s.key}
             testID={`ops-${s.key}`}
-            onPress={() => router.push(s.route as any)}
+            onPress={() => router.push(s.route)}
             style={[styles.row, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
