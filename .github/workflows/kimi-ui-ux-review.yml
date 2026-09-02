@@ -1,0 +1,121 @@
+name: Kimi Final UI UX Implementation Review
+
+on:
+  push:
+    branches:
+      - feat/ui-ux-final-polish
+    paths:
+      - "docs/ui/trackmyrmc-final-ui-reference.md"
+      - "frontend/src/theme/**"
+      - "frontend/src/components/ui/**"
+      - "frontend/src/components/OrderCard.tsx"
+      - "frontend/src/components/PlantCard.tsx"
+      - "frontend/src/components/KycBanner.tsx"
+      - "frontend/src/screens/**"
+      - "frontend/app/**"
+      - ".github/workflows/kimi-ui-ux-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Review UI implementation with Kimi K3
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
+        run: |
+          python3 <<'PY'
+          import json, os, pathlib, re, socket, time, urllib.error, urllib.request
+
+          key = os.environ.get("NVIDIA_API_KEY")
+          model = os.environ.get("KIMI_MODEL")
+          if not key: raise SystemExit("NVIDIA_API_KEY is missing")
+          if not model: raise SystemExit("KIMI_MODEL is missing")
+
+          root = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          contract = (root / "docs/ui/trackmyrmc-final-ui-reference.md").read_text(encoding="utf-8", errors="replace")
+          preferred = [
+            "frontend/src/theme/tokens.ts",
+            "frontend/src/components/ui/Button.tsx",
+            "frontend/src/components/ui/Input.tsx",
+            "frontend/src/components/ui/Card.tsx",
+            "frontend/src/components/ui/AppText.tsx",
+            "frontend/src/components/OrderCard.tsx",
+            "frontend/src/components/PlantCard.tsx",
+            "frontend/src/components/KycBanner.tsx",
+            "frontend/src/screens/LoginScreen.tsx",
+            "frontend/src/screens/StaffHome.tsx",
+            "frontend/app/role-home.tsx",
+            "frontend/app/kyc.tsx",
+            "frontend/app/kyc/return.tsx",
+            "frontend/app/notifications.tsx",
+          ]
+
+          blocks=[]
+          for rel in preferred:
+            p=(root/rel).resolve()
+            if not p.is_file(): continue
+            raw=p.read_text(encoding="utf-8", errors="replace")
+            raw=re.sub(r'(?i)((?:api[_-]?key|secret|password|token)\s*[:=]\s*["\'])[^"\']+(["\'])', r'\1[REDACTED]\2', raw)
+            blocks.append(f"\n===== {rel} =====\n{raw[:14000]}\n")
+
+          system="""You are Kimi K3 acting as senior mobile product architect and React Native UI systems reviewer for TrackMyRMC. Review repository evidence only. The attached textual contract is the normalized implementation of the approved visual reference. Do not invent backend fields or routes. Preserve auth, KYC, payments, tracking, Android identity/signing/App Links, order lifecycle, MongoDB/API contracts, Play policy, and the privileged-role boundary. Ordinary React Native UI should stay TypeScript. Prefer reusable shared primitives and minimal behavioral change. Separate proven findings from recommendations."""
+
+          user=f"""Compare the current implementation against this FINAL UI CONTRACT and produce a concrete implementation review.
+
+FINAL UI CONTRACT:
+{contract}
+
+REPOSITORY FILES:
+{''.join(blocks)}
+
+Return exactly:
+## Verdict
+## Already Matching The Contract
+## Proven Visual Inconsistencies
+## Reusable Component Changes Required
+## Screen-Level Changes Required
+## KYC Identity Presentation Check
+## Interaction / Accessibility Gaps
+## Performance / Render Risks
+## Protected Logic That Must Not Change
+## Recommended Implementation Order
+## Final Go / No-Go
+
+For every actionable item name exact repository files. Do not claim image vision; the contract above is the authoritative visual interpretation."""
+
+          payload={"model":model,"messages":[{"role":"system","content":system},{"role":"user","content":user}],"temperature":0.1,"reasoning_effort":"high","max_tokens":5000,"stream":False}
+          req=urllib.request.Request("https://integrate.api.nvidia.com/v1/chat/completions",data=json.dumps(payload).encode(),headers={"Authorization":f"Bearer {key}","Content-Type":"application/json","Accept":"application/json"},method="POST")
+          answer=None; last=None
+          for attempt in range(1,4):
+            try:
+              with urllib.request.urlopen(req,timeout=240) as r: result=json.loads(r.read().decode())
+              answer=result["choices"][0]["message"]["content"]
+              if answer: break
+            except Exception as e:
+              last=f"{type(e).__name__}: {e}"
+              if attempt<3: time.sleep(attempt*10)
+          out=pathlib.Path("kimi-final-ui-review.md")
+          if not answer:
+            out.write_text(f"# Kimi Final UI Review\n\nNo usable response.\n\n{last}\n",encoding="utf-8")
+            raise SystemExit(last)
+          out.write_text(answer,encoding="utf-8")
+          if os.environ.get("GITHUB_STEP_SUMMARY"):
+            pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("# Kimi Final UI UX Review\n\n"+answer,encoding="utf-8")
+          PY
+
+      - name: Upload Kimi UI review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kimi-final-ui-review
+          path: kimi-final-ui-review.md
+          if-no-files-found: ignore
+          retention-days: 14
