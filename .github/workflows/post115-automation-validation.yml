@@ -1,0 +1,234 @@
+name: Post-115 Automation Production Validation
+
+on:
+  push:
+    branches:
+      - ops/post115-automation-validation
+    paths:
+      - .github/workflows/post115-automation-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare isolated production-runtime jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/service.json').read_text())
+          spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or svc.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('live container missing')
+          c = containers[0]
+          image = c.get('image')
+          env = c.get('env', [])
+          sa = spec.get('serviceAccountName') or svc.get('template', {}).get('serviceAccount')
+          if not image or not sa:
+              raise SystemExit('live image/runtime service account missing')
+
+          def manifest(name, script, timeout='300'):
+              return {
+                  'apiVersion': 'run.googleapis.com/v1',
+                  'kind': 'Job',
+                  'metadata': {'name': name},
+                  'spec': {'template': {'spec': {
+                      'taskCount': 1,
+                      'template': {'spec': {
+                          'containers': [{
+                              'image': image,
+                              'command': ['python'],
+                              'args': ['-c', script],
+                              'env': env,
+                          }],
+                          'maxRetries': 0,
+                          'timeoutSeconds': timeout,
+                          'serviceAccountName': sa,
+                      }},
+                  }}},
+              }
+
+          cleanup_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from database import order_status_history
+          from order_automation import (
+              order_automation_events, order_automation_actions, order_automation_attempts,
+              STATE_PENDING, STATE_RETRY, STATE_PROCESSING,
+          )
+
+          async def main():
+              now = datetime.now(timezone.utc)
+              claimable = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+
+              history_before = await order_status_history.count_documents({})
+              rows = await order_automation_events.find(
+                  claimable, {'_id': 1, 'source_history_id': 1}
+              ).to_list(5000)
+              ids = [r['_id'] for r in rows]
+              sids = [str(r.get('source_history_id') or r.get('_id')) for r in rows]
+
+              if sids:
+                  await order_automation_actions.delete_many({'source_history_id': {'$in': sids}})
+                  await order_automation_attempts.delete_many({'event_id': {'$in': sids}})
+              if ids:
+                  await order_automation_events.delete_many({'_id': {'$in': ids}})
+
+              history_after = await order_status_history.count_documents({})
+              if history_after != history_before:
+                  raise SystemExit('authoritative order_status_history changed during queue cleanup')
+
+              remaining = await order_automation_events.count_documents(claimable)
+              if remaining:
+                  raise SystemExit(31)
+
+          asyncio.run(main())
+          '''
+
+          stability_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from order_automation import order_automation_events, STATE_PENDING, STATE_RETRY, STATE_PROCESSING
+
+          async def main():
+              await asyncio.sleep(20)
+              now = datetime.now(timezone.utc)
+              claimable = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              remaining = await order_automation_events.count_documents(claimable)
+              if remaining:
+                  raise SystemExit(32)
+
+          asyncio.run(main())
+          '''
+
+          full_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from database import order_status_history
+          from order_automation import (
+              order_automation_events, order_automation_actions, order_automation_attempts,
+              STATE_PENDING, STATE_RETRY, STATE_PROCESSING, STATE_COMPLETED,
+              materialize_history_event, claim_order_status_events,
+              deliver_claimed_event, complete_order_status_event,
+          )
+
+          async def main():
+              now = datetime.now(timezone.utc)
+              claimable = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              if await order_automation_events.find_one(claimable, {'_id': 1}):
+                  raise SystemExit(33)
+
+              hid = ObjectId()
+              sid = str(hid)
+              worker = 'tmrmc-post115-full-n8n-smoke'
+              history = {
+                  '_id': hid,
+                  'order_id': 'TMRMC-SYNTHETIC-POST115-FULL-N8N',
+                  'from_status': None,
+                  'to_status': 'DRAFT',
+                  'created_at': now,
+                  'smoke_test': True,
+              }
+              inserted = False
+              try:
+                  await order_status_history.insert_one(history)
+                  inserted = True
+                  event = await materialize_history_event(history)
+                  assert event.get('_id') == hid and event.get('state') == STATE_PENDING
+
+                  claimed = await claim_order_status_events(worker, 1, 120)
+                  assert len(claimed) == 1 and claimed[0].get('_id') == hid
+                  lease = claimed[0].get('lease_token')
+                  assert lease
+
+                  result = await deliver_claimed_event(hid, worker, lease, ['n8n'])
+                  deliveries = result.get('deliveries') or []
+                  assert any(
+                      d.get('provider') == 'n8n' and d.get('status') == 'accepted'
+                      for d in deliveries
+                  )
+
+                  assert await complete_order_status_event(hid, worker, result, lease)
+                  stored = await order_automation_events.find_one({'_id': hid}, {'state': 1})
+                  assert stored and stored.get('state') == STATE_COMPLETED
+              finally:
+                  await order_automation_actions.delete_many({'source_history_id': sid})
+                  await order_automation_attempts.delete_many({'event_id': sid})
+                  await order_automation_events.delete_one({'_id': hid})
+                  if inserted:
+                      await order_status_history.delete_one({'_id': hid})
+
+              if await order_automation_events.find_one(claimable, {'_id': 1}):
+                  raise SystemExit(34)
+
+          asyncio.run(main())
+          '''
+
+          manifests = {
+              '/tmp/cleanup.json': manifest('automation-post115-queue-cleanup', cleanup_script),
+              '/tmp/stability.json': manifest('automation-post115-queue-stability', stability_script),
+              '/tmp/full.json': manifest('automation-post115-full-n8n', full_script),
+          }
+          for path, data in manifests.items():
+              Path(path).write_text(json.dumps(data))
+          PY
+
+      - name: Clear stale claimable automation queue only
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'gcloud run jobs delete automation-post115-queue-cleanup --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true' EXIT
+          gcloud run jobs replace /tmp/cleanup.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-post115-queue-cleanup --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          echo 'STALE_AUTOMATION_QUEUE_CLEANUP=PASS; ORDER_STATUS_HISTORY_PRESERVED=YES'
+
+      - name: Verify stale queue does not regenerate
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'gcloud run jobs delete automation-post115-queue-stability --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true' EXIT
+          gcloud run jobs replace /tmp/stability.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-post115-queue-stability --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          echo 'CLAIMABLE_QUEUE_STABLE_EMPTY=YES'
+
+      - name: Run full synthetic queue to n8n to ACK lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'gcloud run jobs delete automation-post115-full-n8n --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true' EXIT
+          gcloud run jobs replace /tmp/full.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-post115-full-n8n --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          echo 'AUTOMATION_FULL_E2E_N8N_ACK=PASS; SYNTHETIC_ARTIFACTS_CLEANED=YES'
