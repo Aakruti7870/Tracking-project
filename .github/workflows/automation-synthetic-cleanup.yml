@@ -1,0 +1,125 @@
+name: Automation Synthetic Smoke Cleanup
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-synthetic-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+      JOB_NAME: automation-synthetic-cleanup
+
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare cleanup job from live runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/service.json').read_text())
+          spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or svc.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('live container missing')
+          c = containers[0]
+          image = c.get('image')
+          env = c.get('env', [])
+          sa = spec.get('serviceAccountName') or svc.get('template', {}).get('serviceAccount')
+          if not image or not sa:
+              raise SystemExit('live image/runtime service account missing')
+
+          script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from database import order_status_history
+          from order_automation import (
+              order_automation_events, order_automation_actions, order_automation_attempts,
+              STATE_PENDING, STATE_RETRY, STATE_PROCESSING,
+          )
+
+          async def main():
+              now = datetime.now(timezone.utc)
+              claimable = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+
+              synthetic_filter = {
+                  '$and': [
+                      claimable,
+                      {'aggregate_id': {'$regex': '^TMRMC-SYNTHETIC'}},
+                  ]
+              }
+              rows = await order_automation_events.find(synthetic_filter, {'_id': 1, 'source_history_id': 1}).to_list(500)
+              sids = [str(r.get('source_history_id') or r.get('_id')) for r in rows]
+              ids = [r['_id'] for r in rows]
+
+              if sids:
+                  await order_automation_actions.delete_many({'source_history_id': {'$in': sids}})
+                  await order_automation_attempts.delete_many({'event_id': {'$in': sids}})
+              if ids:
+                  await order_automation_events.delete_many({'_id': {'$in': ids}})
+              await order_status_history.delete_many({'order_id': {'$regex': '^TMRMC-SYNTHETIC'}})
+
+              remaining = await order_automation_events.count_documents(claimable)
+              if remaining:
+                  raise SystemExit(21)
+
+          asyncio.run(main())
+          '''
+
+          job = {
+              'apiVersion': 'run.googleapis.com/v1',
+              'kind': 'Job',
+              'metadata': {'name': os.environ['JOB_NAME']},
+              'spec': {'template': {'spec': {
+                  'taskCount': 1,
+                  'template': {'spec': {
+                      'containers': [{
+                          'image': image,
+                          'command': ['python'],
+                          'args': ['-c', script],
+                          'env': env,
+                      }],
+                      'maxRetries': 0,
+                      'timeoutSeconds': '300',
+                      'serviceAccountName': sa,
+                  }},
+              }}},
+          }
+          Path('/tmp/job.json').write_text(json.dumps(job))
+          PY
+
+      - name: Remove synthetic leftovers and require clean claimable queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            gcloud run jobs delete "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          gcloud run jobs replace /tmp/job.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          echo 'SYNTHETIC_CLEANUP=PASS; CLAIMABLE_QUEUE_EMPTY=YES'
