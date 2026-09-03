@@ -1,0 +1,73 @@
+name: Automation Provider Config Inventory
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-provider-config-inventory.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inventory:
+    name: Inventory provider config presence only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Report provider configuration presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          items = containers[0].get('env', []) if containers else []
+          env = {x.get('name'): x for x in items if x.get('name')}
+
+          groups = {
+              'Core worker': ['AUTOMATION_WORKER_TOKEN', 'AUTOMATION_CALLBACK_TOKEN'],
+              'n8n': ['N8N_WEBHOOK_URL', 'N8N_WEBHOOK_AUTH_TOKEN', 'N8N_WEBHOOK_SIGNING_SECRET'],
+              'Vapi': ['VAPI_API_KEY', 'VAPI_ASSISTANT_ID'],
+              'WhatsApp': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM'],
+              'SMS': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER'],
+              'Email': ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL'],
+              'Push': ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'],
+          }
+
+          print('AUTOMATION PROVIDER CONFIG PRESENCE (VALUES HIDDEN)')
+          print('==================================================')
+          for group, names in groups.items():
+              missing = []
+              for name in names:
+                  item = env.get(name)
+                  if not item:
+                      state = 'MISSING'
+                      missing.append(name)
+                  elif 'valueFrom' in item:
+                      state = 'PRESENT(secret-ref)'
+                  else:
+                      value = str(item.get('value', '')).strip()
+                      state = 'PRESENT(literal-nonempty)' if value else 'PRESENT(literal-empty)'
+                      if not value:
+                          missing.append(name)
+                  print(f'{group}|{name}|{state}')
+              print(f'{group}|READY|{"YES" if not missing else "NO"}')
+          PY
