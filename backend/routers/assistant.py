@@ -16,6 +16,17 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 order_intents = db.assistant_order_intents
 support_cases = db.support_cases
 
+SUPPORT_ROUTES = {
+    "LOGIN": {"action": "OPEN_SECURE_LOGIN_HELP", "guidance": "Use secure sign-in recovery in the app. Never share an OTP, password, passkey, or recovery code."},
+    "KYC": {"action": "OPEN_KYC", "guidance": "Review or restart KYC in the secure in-app KYC flow."},
+    "ORDER": {"action": "OPEN_ORDERS", "guidance": "Review the authorized order details and plant status in My Orders."},
+    "TRACKING": {"action": "OPEN_TRACKING", "guidance": "Live tracking is available only for your authorized dispatched order."},
+    "PAYMENT": {"action": "OPEN_PAYMENTS", "guidance": "Review payment status in the app; never send payment credentials in chat."},
+    "ACCOUNT_DELETION": {"action": "OPEN_ACCOUNT_DELETION", "guidance": "Start the authenticated account-deletion flow from Settings."},
+    "PLANT_ONBOARDING": {"action": "OPEN_PLANT_ONBOARDING", "guidance": "Submit a plant inquiry through the verified onboarding flow."},
+    "GENERAL": {"action": "OPEN_HELP", "guidance": "Describe the app issue without including credentials or payment secrets."},
+}
+
 
 class PrepareOrderBody(StrictModel):
     order: CreateOrderBody
@@ -77,7 +88,8 @@ async def support(body: SupportBody, ctx: dict = Depends(customer_only)):
         if not order:
             raise HTTPException(404, "Order not found")
     now = datetime.now(timezone.utc)
-    response = {"category": body.category, "guidance": "Use the secure in-app flow; never share passwords, OTPs, recovery codes, or payment secrets."}
+    route = SUPPORT_ROUTES[body.category]
+    response = {"category": body.category, **route}
     if order:
         response["order"] = _serialize_order(order)
     if body.escalate:

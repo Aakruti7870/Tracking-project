@@ -18,7 +18,7 @@ from typing import Any, Optional
 from bson import ObjectId
 from pymongo import ReturnDocument
 
-from database import db, order_status_history, orders
+from database import db, order_status_history, orders, users
 
 ORDER_STATUS_CHANGED = "ORDER_STATUS_CHANGED"
 SCHEMA_VERSION = 1
@@ -62,9 +62,9 @@ AUTOMATION_POLICIES = {
     status: {
         "routing_key": f"order.status.{status.lower()}",
         "template": {"en": _MESSAGES[status]},
-        "channels": (["push", "sms", "whatsapp", "vapi"]
+        "channels": (["n8n", "push", "sms", "whatsapp", "vapi"]
                      if status in {"REJECTED", "CANCELLED", "DELIVERED"}
-                     else ["push", "sms", "whatsapp"]),
+                     else ["n8n", "push", "sms", "whatsapp"]),
         "quiet_hours": status not in {"REJECTED", "CANCELLED"},
         "respect_opt_out": True,
         "max_attempts": 5,
@@ -360,4 +360,72 @@ def _safe_provider_result(result: Optional[dict]) -> dict:
     """Persist only non-sensitive delivery metadata returned by a provider."""
     result = result or {}
     allowed = ("provider", "provider_id", "status", "failure_reason", "sent_at", "completed_at")
-    return {key: _as_external(result[key]) for key in allowed if result.get(key) is not None}
+    safe = {key: _as_external(result[key]) for key in allowed if result.get(key) is not None}
+    deliveries = result.get("deliveries")
+    if isinstance(deliveries, list):
+        safe["deliveries"] = [
+            {key: str(row[key])[:500] for key in ("provider", "provider_id", "status") if row.get(key) is not None}
+            for row in deliveries[:10] if isinstance(row, dict)
+        ]
+    return safe
+
+
+async def deliver_claimed_event(event_id: Any, worker_id: str, lease_token: str,
+                                requested_channels: Optional[list[str]] = None) -> dict:
+    """Deliver one currently leased event through configured adapter boundaries.
+
+    Contact information is resolved inside the trusted backend and is never returned
+    through the worker API or stored in provider results.
+    """
+    now = _utcnow()
+    event = await order_automation_events.find_one({
+        "_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id,
+        "lease_token": lease_token, "lease_expires_at": {"$gt": now},
+    })
+    if not event:
+        raise ValueError("Event lease is stale or not owned by this worker")
+    allowed = list(event.get("delivery", {}).get("channels", []))
+    channels = requested_channels or allowed
+    if not channels or any(channel not in allowed for channel in channels):
+        raise ValueError("Requested channel is not allowed by event policy")
+
+    order = await _order_for_history({"order_id": event["aggregate_id"]})
+    customer = None
+    if order and order.get("customer_id"):
+        customer_id = order["customer_id"]
+        candidates: list[Any] = [customer_id]
+        try:
+            candidates.insert(0, ObjectId(str(customer_id)))
+        except Exception:
+            pass
+        customer = await users.find_one({"_id": {"$in": candidates}})
+    customer = customer or {}
+    opted_out = set(customer.get("notification_opt_out_channels") or [])
+    if customer.get("automation_opt_out"):
+        opted_out.update({"sms", "whatsapp", "vapi"})
+
+    from automation_providers import n8n, twilio_messages, vapi
+    from notifications import record_notification
+    results: list[dict] = []
+    message = event.get("delivery", {}).get("template", {}).get("en", "Order status updated.")
+    for channel in channels:
+        if channel in opted_out:
+            results.append({"provider": channel, "provider_id": "opt-out", "status": "skipped"})
+            continue
+        if channel == "n8n":
+            results.append((await n8n.send(event)).as_dict())
+        elif channel == "vapi":
+            results.append((await vapi.send(event, str(customer.get("phone") or ""))).as_dict())
+        elif channel in {"sms", "whatsapp"}:
+            results.append((await twilio_messages.send(channel, str(customer.get("phone") or ""), message)).as_dict())
+        elif channel == "push":
+            customer_id = str((order or {}).get("customer_id") or "")
+            if not customer_id:
+                raise RuntimeError("Order customer is unavailable")
+            await record_notification(customer_id, event["routing_key"], "Order update", message,
+                                      {"order_id": event["aggregate_id"], "status": event["to_status"]})
+            results.append({"provider": "firebase_fcm_v1", "provider_id": event["source_history_id"], "status": "sent"})
+        else:
+            raise ValueError("Unsupported automation channel")
+    return {"provider": "multi", "provider_id": event["source_history_id"],
+            "status": "completed", "deliveries": results}

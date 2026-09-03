@@ -1,7 +1,7 @@
 """Mongo-backed queue lifecycle evidence (the repository CI supplies Mongo 7)."""
-from datetime import datetime, timedelta, timezone
+import asyncio
+from datetime import datetime, timezone
 
-import pytest
 from bson import ObjectId
 
 from database import order_status_history, orders
@@ -18,8 +18,11 @@ from order_automation import (
 )
 
 
-@pytest.mark.asyncio
-async def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter():
+def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter():
+    asyncio.run(_exercise_queue_lifecycle())
+
+
+async def _exercise_queue_lifecycle():
     await order_automation_events.delete_many({})
     await order_automation_attempts.delete_many({})
     order_id = ObjectId()
