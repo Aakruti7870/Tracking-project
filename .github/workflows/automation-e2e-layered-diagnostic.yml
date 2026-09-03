@@ -1,0 +1,263 @@
+name: Automation E2E Layered Diagnostic
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-e2e-layered-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare isolated diagnostic jobs from live runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('Live service container missing')
+          c = containers[0]
+          image = c.get('image')
+          env = c.get('env', [])
+          sa = spec.get('serviceAccountName') or service.get('template', {}).get('serviceAccount')
+          if not image or not sa:
+              raise SystemExit('Live image/runtime service account missing')
+
+          def manifest(name, script):
+              return {
+                  'apiVersion': 'run.googleapis.com/v1', 'kind': 'Job',
+                  'metadata': {'name': name},
+                  'spec': {'template': {'spec': {'taskCount': 1, 'template': {'spec': {
+                      'containers': [{'image': image, 'command': ['python'], 'args': ['-c', script], 'env': env}],
+                      'maxRetries': 0, 'timeoutSeconds': '300', 'serviceAccountName': sa,
+                  }}}}}}
+              }
+
+          queue_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from order_automation import order_automation_events, STATE_PENDING, STATE_RETRY, STATE_PROCESSING
+          async def main():
+              now = datetime.now(timezone.utc)
+              q = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              if await order_automation_events.find_one(q, {'_id': 1}):
+                  raise SystemExit(20)
+          asyncio.run(main())
+          '''
+
+          lifecycle_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from database import order_status_history
+          from order_automation import (
+              order_automation_events, order_automation_actions, order_automation_attempts,
+              STATE_PENDING, STATE_RETRY, STATE_PROCESSING, STATE_COMPLETED,
+              materialize_history_event, claim_order_status_events, complete_order_status_event,
+          )
+          async def main():
+              now = datetime.now(timezone.utc)
+              q = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              if await order_automation_events.find_one(q, {'_id': 1}):
+                  raise SystemExit(20)
+              hid = ObjectId(); sid = str(hid); worker = 'tmrmc-lifecycle-smoke'
+              history = {'_id': hid, 'order_id': 'TMRMC-SYNTHETIC-LIFECYCLE', 'from_status': None,
+                         'to_status': 'DRAFT', 'created_at': now, 'smoke_test': True}
+              inserted = False
+              try:
+                  await order_status_history.insert_one(history); inserted = True
+                  event = await materialize_history_event(history)
+                  assert event.get('_id') == hid and event.get('state') == STATE_PENDING
+                  claimed = await claim_order_status_events(worker, 1, 120)
+                  assert len(claimed) == 1 and claimed[0].get('_id') == hid
+                  lease = claimed[0].get('lease_token'); assert lease
+                  assert await complete_order_status_event(hid, worker, {'provider':'smoke','status':'ok'}, lease)
+                  stored = await order_automation_events.find_one({'_id': hid}, {'state': 1})
+                  assert stored and stored.get('state') == STATE_COMPLETED
+              finally:
+                  await order_automation_actions.delete_many({'source_history_id': sid})
+                  await order_automation_attempts.delete_many({'event_id': sid})
+                  await order_automation_events.delete_one({'_id': hid})
+                  if inserted: await order_status_history.delete_one({'_id': hid})
+          asyncio.run(main())
+          '''
+
+          n8n_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from automation_providers import n8n
+          async def main():
+              sid = str(ObjectId())
+              event = {
+                  'schema_version': 1,
+                  'event_type': 'ORDER_STATUS_CHANGED',
+                  'routing_key': 'order.status.draft',
+                  'aggregate_type': 'order',
+                  'aggregate_id': 'TMRMC-SYNTHETIC-N8N-ADAPTER',
+                  'source_history_id': sid,
+                  'from_status': None,
+                  'to_status': 'DRAFT',
+                  'occurred_at': datetime.now(timezone.utc),
+                  'payload': {},
+                  'delivery': {'template': {'en': 'Synthetic TrackMyRMC automation smoke test.'}},
+              }
+              result = await n8n.send(event)
+              assert result.provider == 'n8n' and result.status == 'accepted'
+          asyncio.run(main())
+          '''
+
+          full_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from database import order_status_history
+          from order_automation import (
+              order_automation_events, order_automation_actions, order_automation_attempts,
+              STATE_PENDING, STATE_RETRY, STATE_PROCESSING, STATE_COMPLETED,
+              materialize_history_event, claim_order_status_events, deliver_claimed_event,
+              complete_order_status_event,
+          )
+          async def main():
+              now = datetime.now(timezone.utc)
+              q = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              if await order_automation_events.find_one(q, {'_id': 1}):
+                  raise SystemExit(20)
+              hid = ObjectId(); sid = str(hid); worker = 'tmrmc-full-n8n-smoke'
+              history = {'_id': hid, 'order_id': 'TMRMC-SYNTHETIC-FULL-N8N', 'from_status': None,
+                         'to_status': 'DRAFT', 'created_at': now, 'smoke_test': True}
+              inserted = False
+              try:
+                  await order_status_history.insert_one(history); inserted = True
+                  event = await materialize_history_event(history)
+                  assert event.get('_id') == hid and event.get('state') == STATE_PENDING
+                  claimed = await claim_order_status_events(worker, 1, 120)
+                  assert len(claimed) == 1 and claimed[0].get('_id') == hid
+                  lease = claimed[0].get('lease_token'); assert lease
+                  result = await deliver_claimed_event(hid, worker, lease, ['n8n'])
+                  ds = result.get('deliveries') or []
+                  assert any(d.get('provider') == 'n8n' and d.get('status') == 'accepted' for d in ds)
+                  assert await complete_order_status_event(hid, worker, result, lease)
+                  stored = await order_automation_events.find_one({'_id': hid}, {'state': 1})
+                  assert stored and stored.get('state') == STATE_COMPLETED
+              finally:
+                  await order_automation_actions.delete_many({'source_history_id': sid})
+                  await order_automation_attempts.delete_many({'event_id': sid})
+                  await order_automation_events.delete_one({'_id': hid})
+                  if inserted: await order_status_history.delete_one({'_id': hid})
+          asyncio.run(main())
+          '''
+
+          jobs = {
+              'queue': ('automation-smoke-queue', queue_script),
+              'lifecycle': ('automation-smoke-lifecycle', lifecycle_script),
+              'n8n': ('automation-smoke-n8n', n8n_script),
+              'full': ('automation-smoke-full', full_script),
+          }
+          for key, (name, script) in jobs.items():
+              Path(f'/tmp/{key}.json').write_text(json.dumps(manifest(name, script)))
+          PY
+
+      - name: Check queue is empty before touching synthetic data
+        id: queue
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/queue.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-smoke-queue --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-smoke-queue --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Check Mongo queue materialize -> claim -> ACK -> cleanup
+        id: lifecycle
+        if: steps.queue.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/lifecycle.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-smoke-lifecycle --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-smoke-lifecycle --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Check signed n8n webhook with synthetic no-customer event
+        id: n8n
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/n8n.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-smoke-n8n --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-smoke-n8n --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Check full queue -> claim -> n8n -> ACK -> cleanup
+        id: full
+        if: steps.queue.outputs.rc == '0' && steps.lifecycle.outputs.rc == '0' && steps.n8n.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/full.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-smoke-full --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-smoke-full --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report layered verdict
+        shell: bash
+        env:
+          QUEUE_RC: ${{ steps.queue.outputs.rc }}
+          LIFECYCLE_RC: ${{ steps.lifecycle.outputs.rc }}
+          N8N_RC: ${{ steps.n8n.outputs.rc }}
+          FULL_RC: ${{ steps.full.outputs.rc }}
+        run: |
+          set -euo pipefail
+          echo "QUEUE_RC=${QUEUE_RC:-skipped}"
+          echo "LIFECYCLE_RC=${LIFECYCLE_RC:-skipped}"
+          echo "N8N_RC=${N8N_RC:-skipped}"
+          echo "FULL_RC=${FULL_RC:-skipped}"
+          test "${QUEUE_RC:-}" = "0" || { echo 'FAIL_LAYER=PREEXISTING_QUEUE_OR_QUEUE_ACCESS'; exit 1; }
+          test "${LIFECYCLE_RC:-}" = "0" || { echo 'FAIL_LAYER=MONGO_QUEUE_LIFECYCLE'; exit 1; }
+          test "${N8N_RC:-}" = "0" || { echo 'FAIL_LAYER=N8N_WEBHOOK_AUTH_OR_DELIVERY'; exit 1; }
+          test "${FULL_RC:-}" = "0" || { echo 'FAIL_LAYER=FULL_DELIVER_CLAIMED_EVENT_PATH'; exit 1; }
+          echo 'AUTOMATION_E2E_LAYERED_PASS=YES'
