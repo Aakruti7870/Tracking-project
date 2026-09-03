@@ -609,11 +609,7 @@ export default function LoginScreen() {
           <AppText variant="caption" center color={colors.onSurfaceTertiary}>Grievance Officer: Bade Krushna Sudamrav</AppText>
           <Pressable onPress={() => void openExternal(GRIEVANCE_EMAIL_URL)}><AppText variant="caption" center color={colors.onSurface}>krushnabade54@gmail.com</AppText></Pressable>
           <View style={styles.footerLinks}>
-            <Pressable onPress={() => void openExternal(TERMS_URL)}><AppText variant="caption" style={[styles.footerLink, { color: colors.onSurface }]}>Terms & Conditions</AppText></Pressable>
-            <AppText variant="caption" color={colors.onSurfaceTertiary}>·</AppText>
-            <Pressable onPress={() => void openExternal(PRIVACY_URL)}><AppText variant="caption" style={[styles.footerLink, { color: colors.onSurface }]}>Privacy Policy</AppText></Pressable>
-            <AppText variant="caption" color={colors.onSurfaceTertiary}>·</AppText>
-            <Pressable onPress={() => void openExternal(ACCOUNT_DELETION_URL)}><AppText variant="caption" style={[styles.footerLink, { color: colors.onSurface }]}>Account Deletion</AppText></Pressable>
+            <Pressable onPress={() => void openExternal(ACCOUNT_DELETION_URL)}><AppText variant="caption" style={[styles.footerLink, { color: colors.onSurface }]}>Delete Account</AppText></Pressable>
           </View>
         </View>
 
