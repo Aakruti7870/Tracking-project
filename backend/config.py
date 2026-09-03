@@ -35,6 +35,13 @@ def _positive_int(name: str, default: int, *, minimum: int = 1) -> int:
     return value
 
 
+def _boolean(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name, str(default)).strip().lower()
+    if value not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+        raise RuntimeError(f"{name} must be a boolean")
+    return value in {"true", "1", "yes", "on"}
+
+
 def _valid_production_origin(origin: str) -> bool:
     """Production CORS entries must be explicit HTTPS origins, not URLs/paths."""
     if "*" in origin:
@@ -99,6 +106,15 @@ class Settings:
     OTP_RESEND_SECONDS: int = _positive_int("OTP_RESEND_SECONDS", 30)
     SESSION_TTL_SECONDS: int = _positive_int("SESSION_TTL_SECONDS", 604800)
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
+
+    # Order automation can be deployed dark and channels enabled independently.
+    AUTOMATION_ENABLED: bool = _boolean("AUTOMATION_ENABLED", False)
+    AUTOMATION_VOICE_ENABLED: bool = _boolean("AUTOMATION_VOICE_ENABLED", False)
+    AUTOMATION_WHATSAPP_ENABLED: bool = _boolean("AUTOMATION_WHATSAPP_ENABLED", False)
+    AUTOMATION_SMS_ENABLED: bool = _boolean("AUTOMATION_SMS_ENABLED", False)
+    AUTOMATION_EMAIL_ENABLED: bool = _boolean("AUTOMATION_EMAIL_ENABLED", False)
+    AUTOMATION_PUSH_ENABLED: bool = _boolean("AUTOMATION_PUSH_ENABLED", False)
+    AUTOMATION_N8N_ENABLED: bool = _boolean("AUTOMATION_N8N_ENABLED", False)
 
     # Plant Staff Authenticator MFA. Optional at process start so production can
     # roll out the code before the Cloud Run secret is attached. MFA endpoints
