@@ -1,0 +1,67 @@
+name: Automation Flag Inventory
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-flag-inventory.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  flags:
+    name: Inspect normalized automation flag states
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Normalize flags using backend boolean semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          items = containers[0].get('env', []) if containers else []
+          env = {x.get('name'): x for x in items if x.get('name')}
+          flags = [
+              'AUTOMATION_ENABLED', 'AUTOMATION_N8N_ENABLED', 'AUTOMATION_VOICE_ENABLED',
+              'AUTOMATION_WHATSAPP_ENABLED', 'AUTOMATION_SMS_ENABLED',
+              'AUTOMATION_EMAIL_ENABLED', 'AUTOMATION_PUSH_ENABLED'
+          ]
+          true_values = {'true','1','yes','on'}
+          false_values = {'false','0','no','off'}
+          for name in flags:
+              item = env.get(name)
+              if not item:
+                  print(f'{name}|MISSING|NORMALIZED=FALSE(default)')
+                  continue
+              if 'valueFrom' in item:
+                  print(f'{name}|SECRET_REF|NORMALIZED=UNKNOWN')
+                  continue
+              raw = str(item.get('value','')).strip().lower()
+              if raw in true_values:
+                  normalized = 'TRUE'
+              elif raw in false_values:
+                  normalized = 'FALSE'
+              else:
+                  normalized = 'INVALID'
+              print(f'{name}|RAW={raw}|NORMALIZED={normalized}')
+          PY
