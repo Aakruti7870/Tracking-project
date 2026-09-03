@@ -158,7 +158,7 @@ jobs:
   android-native:
     name: Android standalone preview APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       EXPO_PUBLIC_BACKEND_URL: ${{ vars.PREVIEW_BACKEND_URL || 'https://api.example.invalid' }}
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
@@ -209,9 +209,21 @@ jobs:
           }
       - name: Compile standalone release APK
         working-directory: frontend/android
+        shell: bash
         run: |
+          set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          if grep -q '^org.gradle.jvmargs=' gradle.properties; then
+            sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8/' gradle.properties
+          else
+            printf '\norg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8\n' >> gradle.properties
+          fi
+          if grep -q '^org.gradle.workers.max=' gradle.properties; then
+            sed -i 's/^org.gradle.workers.max=.*/org.gradle.workers.max=2/' gradle.properties
+          else
+            printf 'org.gradle.workers.max=2\n' >> gradle.properties
+          fi
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace --max-workers=2
       - name: Verify standalone APK contains JavaScript bundle and signature
         working-directory: frontend/android
         shell: bash
