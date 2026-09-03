@@ -69,6 +69,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/config.py backend/server.py backend/tests/test_automation_startup_backfill_guard.py .github/workflows/automation-backfill-guard-patch.yml
+          git add -A
           git commit -m "fix: make automation history backfill opt-in"
           git push origin HEAD:fix/automation-startup-backfill-guard
