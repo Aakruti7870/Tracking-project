@@ -1,0 +1,201 @@
+name: Automation n8n E2E Smoke
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-n8n-e2e-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  smoke:
+    name: Synthetic queue -> claim -> n8n -> ack -> cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+      JOB_NAME: automation-n8n-e2e-smoke
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build isolated Cloud Run Job from live service config
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('Live service container not found')
+          container = containers[0]
+          image = container.get('image')
+          service_account = spec.get('serviceAccountName') or service.get('template', {}).get('serviceAccount')
+          if not image or not service_account:
+              raise SystemExit('Live image or runtime service account missing')
+
+          env_items = container.get('env', [])
+          names = {item.get('name') for item in env_items}
+          required = {
+              'MONGO_URL', 'AUTOMATION_ENABLED', 'AUTOMATION_N8N_ENABLED',
+              'N8N_WEBHOOK_URL', 'N8N_WEBHOOK_AUTH_TOKEN', 'N8N_WEBHOOK_SIGNING_SECRET'
+          }
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit('Required live runtime config missing: ' + ', '.join(missing))
+
+          script = r'''
+          import asyncio
+          import json
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from database import order_status_history
+          from order_automation import (
+              STATE_COMPLETED,
+              STATE_PENDING,
+              STATE_PROCESSING,
+              STATE_RETRY,
+              claim_order_status_events,
+              complete_order_status_event,
+              deliver_claimed_event,
+              materialize_history_event,
+              order_automation_actions,
+              order_automation_attempts,
+              order_automation_events,
+          )
+
+          async def main():
+              now = datetime.now(timezone.utc)
+              claimable = {
+                  '$or': [
+                      {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                      {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+                  ]
+              }
+              existing = await order_automation_events.find_one(claimable, {'_id': 1, 'state': 1})
+              if existing:
+                  print('SMOKE_ABORT|PREEXISTING_CLAIMABLE_EVENT')
+                  raise SystemExit(20)
+
+              history_id = ObjectId()
+              source_history_id = str(history_id)
+              worker_id = 'tmrmc-n8n-smoke'
+              history = {
+                  '_id': history_id,
+                  'order_id': 'TMRMC-SYNTHETIC-N8N-SMOKE',
+                  'from_status': None,
+                  'to_status': 'DRAFT',
+                  'created_at': now,
+                  'smoke_test': True,
+              }
+              inserted_history = False
+              try:
+                  await order_status_history.insert_one(history)
+                  inserted_history = True
+                  event = await materialize_history_event(history)
+                  if event.get('_id') != history_id or event.get('state') != STATE_PENDING:
+                      raise RuntimeError('Synthetic event materialization failed')
+
+                  claimed = await claim_order_status_events(worker_id, limit=1, lease_seconds=120)
+                  if len(claimed) != 1 or claimed[0].get('_id') != history_id:
+                      raise RuntimeError('Synthetic event was not the claimed event')
+                  lease_token = claimed[0].get('lease_token')
+                  if not lease_token:
+                      raise RuntimeError('Claimed event omitted lease token')
+
+                  result = await deliver_claimed_event(history_id, worker_id, lease_token, ['n8n'])
+                  deliveries = result.get('deliveries') or []
+                  accepted = [d for d in deliveries if d.get('provider') == 'n8n' and d.get('status') == 'accepted']
+                  if not accepted:
+                      raise RuntimeError('n8n did not return accepted delivery')
+
+                  acked = await complete_order_status_event(history_id, worker_id, result, lease_token)
+                  if not acked:
+                      raise RuntimeError('Synthetic event ACK failed')
+                  stored = await order_automation_events.find_one({'_id': history_id}, {'state': 1})
+                  if not stored or stored.get('state') != STATE_COMPLETED:
+                      raise RuntimeError('Synthetic event did not reach COMPLETED')
+
+                  print('SMOKE_PASS|MATERIALIZED=YES|CLAIMED=YES|N8N=ACCEPTED|ACKED=YES|STATE=COMPLETED')
+              finally:
+                  await order_automation_actions.delete_many({'source_history_id': source_history_id})
+                  await order_automation_attempts.delete_many({'event_id': source_history_id})
+                  await order_automation_events.delete_one({'_id': history_id})
+                  if inserted_history:
+                      await order_status_history.delete_one({'_id': history_id})
+                  print('SMOKE_CLEANUP|DONE')
+
+          asyncio.run(main())
+          '''
+
+          job = {
+              'apiVersion': 'run.googleapis.com/v1',
+              'kind': 'Job',
+              'metadata': {'name': os.environ['JOB_NAME']},
+              'spec': {
+                  'template': {
+                      'spec': {
+                          'taskCount': 1,
+                          'template': {
+                              'spec': {
+                                  'containers': [{
+                                      'image': image,
+                                      'command': ['python'],
+                                      'args': ['-c', script],
+                                      'env': env_items,
+                                  }],
+                                  'maxRetries': 0,
+                                  'timeoutSeconds': '300',
+                                  'serviceAccountName': service_account,
+                              }
+                          },
+                      }
+                  }
+              }
+          }
+          Path('/tmp/job.json').write_text(json.dumps(job))
+          print('Prepared isolated smoke job from the live image/runtime identity; secret values were not read.')
+          PY
+
+      - name: Execute synthetic n8n smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            gcloud run jobs delete "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          gcloud run jobs replace /tmp/job.json --project "$PROJECT_ID" --region "$REGION" --quiet
+          gcloud run jobs execute "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+
+          sleep 2
+          LOGS="$(gcloud logging read \
+            "resource.type=cloud_run_job AND resource.labels.job_name=${JOB_NAME} AND timestamp>=\"$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)\"" \
+            --project "$PROJECT_ID" --limit 100 --order=asc --format='value(textPayload)' || true)"
+          printf '%s\n' "$LOGS"
+          printf '%s\n' "$LOGS" | grep -F 'SMOKE_PASS|MATERIALIZED=YES|CLAIMED=YES|N8N=ACCEPTED|ACKED=YES|STATE=COMPLETED' >/dev/null
+          printf '%s\n' "$LOGS" | grep -F 'SMOKE_CLEANUP|DONE' >/dev/null
+          echo 'PASS: isolated synthetic event completed queue -> claim -> n8n -> ACK and cleanup.'
