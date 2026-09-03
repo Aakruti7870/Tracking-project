@@ -158,12 +158,12 @@ jobs:
           Path('/tmp/blockers').write_text('\n'.join(blockers) + '\n')
           PY
 
-          cat /tmp/summary >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/summary | tee -a "$GITHUB_STEP_SUMMARY"
           URL="$(cat /tmp/service_url)"
           test -n "$URL"
           echo "SERVICE_URL=$URL" >> "$GITHUB_ENV"
 
-      - name: Verify live health and automation routes
+      - name: Verify live health and automation routes safely
         shell: bash
         run: |
           set -euo pipefail
@@ -172,29 +172,40 @@ jobs:
           test "$code" = "200"
           grep -F 'healthy' /tmp/health >/dev/null
 
-          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "${SERVICE_URL}/openapi.json" -o /tmp/openapi.json
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          data = json.loads(Path('/tmp/openapi.json').read_text())
-          paths = set(data.get('paths', {}))
-          required = {
-              '/api/automation/events/claim',
-              '/api/automation/events/{event_id}/ack',
-              '/api/automation/events/{event_id}/fail',
-              '/api/automation/events/{event_id}/deliver',
-              '/api/automation/provider-callback',
+          probe() {
+            local route="$1"
+            local body="$2"
+            local code
+            code="$(curl --retry 2 --retry-all-errors --retry-delay 1 -sS -o /tmp/probe -w '%{http_code}' \
+              -X POST -H 'Content-Type: application/json' --data "$body" "${SERVICE_URL}${route}")"
+            echo "$route -> HTTP $code (expected 401 without automation credential)"
+            test "$code" = "401" || { cat /tmp/probe; return 1; }
           }
-          missing = sorted(required - paths)
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write('\n### Live route exposure\n\n')
-              for route in sorted(required):
-                  f.write(f'- {"✅" if route in paths else "❌"} `{route}`\n')
-          if missing:
-              raise SystemExit('Missing live automation routes: ' + ', '.join(missing))
-          PY
+
+          probe '/api/automation/events/claim' \
+            '{"worker_id":"readiness-probe","limit":1,"lease_seconds":30}'
+          probe '/api/automation/events/readiness-probe/ack' \
+            '{"worker_id":"readiness-probe","lease_token":"0000000000000000","result":{}}'
+          probe '/api/automation/events/readiness-probe/fail' \
+            '{"worker_id":"readiness-probe","lease_token":"0000000000000000","error":"readiness-probe","retry_after_seconds":60}'
+          probe '/api/automation/events/readiness-probe/deliver' \
+            '{"worker_id":"readiness-probe","lease_token":"0000000000000000","channels":[]}'
+          probe '/api/automation/provider-callback' \
+            '{"provider":"probe","provider_id":"probe","status":"probe"}'
+
+          {
+            echo
+            echo '### Live route exposure'
+            echo
+            echo '- ✅ `/api/automation/events/claim` rejects unauthenticated probe with 401'
+            echo '- ✅ `/api/automation/events/{event_id}/ack` rejects unauthenticated probe with 401'
+            echo '- ✅ `/api/automation/events/{event_id}/fail` rejects unauthenticated probe with 401'
+            echo '- ✅ `/api/automation/events/{event_id}/deliver` rejects unauthenticated probe with 401'
+            echo '- ✅ `/api/automation/provider-callback` rejects unauthenticated probe with 401'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report readiness result
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
