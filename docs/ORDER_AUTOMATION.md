@@ -9,7 +9,7 @@ acknowledge, or fail these records and have no status-mutation capability.
 Set `AUTOMATION_WORKER_TOKEN` and `AUTOMATION_CALLBACK_TOKEN` (at least 32 characters)
 in the secret store. Provider
 workers may separately use provider-specific environment variables such as
-`VAPI_API_KEY`, `VAPI_ASSISTANT_ID`, `N8N_WEBHOOK_URL`, and
+`VAPI_API_KEY`, `VAPI_ASSISTANT_ID`, `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_AUTH_TOKEN`, and
 `N8N_WEBHOOK_SIGNING_SECRET`; values must never be stored in the repository or
 forwarded in event payloads. Providers are optional and disabled when unconfigured.
 
@@ -20,10 +20,11 @@ Additional channel configuration names are `TWILIO_ACCOUNT_SID`,
 in-app tracking/document links. These are names only; no example secret values belong
 in source, test fixtures, logs, events, action rows, or provider results.
 
-The n8n adapter signs the canonical JSON body with HMAC-SHA256 and sends a timestamp
-and history-derived idempotency key. Vapi uses bearer authentication and the same
-idempotency key. SMS and WhatsApp use Twilio HTTP Basic authentication, while push
-uses the existing Firebase OAuth adapter. Provider callbacks use the distinct
+The n8n adapter authenticates the webhook with `X-TrackMyRMC-Token`, signs the
+canonical JSON body with HMAC-SHA256, and sends a timestamp and history-derived
+idempotency key. Vapi uses bearer authentication and the same idempotency key. SMS
+and WhatsApp use Twilio HTTP Basic authentication, while push uses the existing
+Firebase OAuth adapter. Provider callbacks use the distinct
 `AUTOMATION_CALLBACK_TOKEN` and accept only normalized IDs/status/failure metadata.
 
 Deployments also set `AUTOMATION_ENABLED` and independently control
@@ -72,10 +73,11 @@ lease rejection, safe ACK metadata, final dead-letter, and audit records. Assist
 HTTP acceptance tests cover authentication, server-side KYC, summary/confirmation,
 customer-scoped idempotency, unauthorized failure, and all eight support categories.
 
-Provider contract tests prove n8n HMAC delivery and idempotency, Vapi's restricted
-variables and COD-only dispatch policy, Twilio SMS/WhatsApp construction, transient
-failure normalization, and fail-closed missing configuration. Email and push reuse
-the existing backend adapters and are protected by independent dark-launch flags.
+Provider contract tests prove n8n header authentication, HMAC delivery and
+idempotency, Vapi's restricted variables and COD-only dispatch policy, Twilio
+SMS/WhatsApp construction, transient failure normalization, and fail-closed missing
+configuration. Email and push reuse the existing backend adapters and are protected
+by independent dark-launch flags.
 
 ### Live/sandbox evidence and blockers
 
