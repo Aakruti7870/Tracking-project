@@ -1,0 +1,177 @@
+name: Automation Queue Isolation
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-queue-isolation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare read-only queue diagnostic jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/service.json').read_text())
+          spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or svc.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('live container missing')
+          c = containers[0]
+          image = c.get('image')
+          env = c.get('env', [])
+          sa = spec.get('serviceAccountName') or svc.get('template', {}).get('serviceAccount')
+          if not image or not sa:
+              raise SystemExit('live image/runtime service account missing')
+
+          def job(name, script):
+              return {
+                  'apiVersion': 'run.googleapis.com/v1',
+                  'kind': 'Job',
+                  'metadata': {'name': name},
+                  'spec': {'template': {'spec': {'taskCount': 1, 'template': {'spec': {
+                      'containers': [{'image': image, 'command': ['python'], 'args': ['-c', script], 'env': env}],
+                      'maxRetries': 0,
+                      'timeoutSeconds': '180',
+                      'serviceAccountName': sa,
+                  }}}}},
+              }
+
+          mongo_script = r'''
+          import asyncio
+          from order_automation import order_automation_events
+          async def main():
+              await order_automation_events.find_one({}, {'_id': 1})
+          asyncio.run(main())
+          '''
+
+          empty_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from order_automation import order_automation_events, STATE_PENDING, STATE_RETRY, STATE_PROCESSING
+          async def main():
+              now = datetime.now(timezone.utc)
+              q = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              row = await order_automation_events.find_one(q, {'_id': 1})
+              if row is not None:
+                  raise SystemExit(20)
+          asyncio.run(main())
+          '''
+
+          synthetic_script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from order_automation import order_automation_events, STATE_PENDING, STATE_RETRY, STATE_PROCESSING
+          async def main():
+              now = datetime.now(timezone.utc)
+              q = {'$or': [
+                  {'state': {'$in': [STATE_PENDING, STATE_RETRY]}, 'next_attempt_at': {'$lte': now}},
+                  {'state': STATE_PROCESSING, 'lease_expires_at': {'$lte': now}},
+              ]}
+              row = await order_automation_events.find_one(q, {'aggregate_id': 1, 'source_history_id': 1})
+              if row is None:
+                  return
+              aggregate = str(row.get('aggregate_id') or '')
+              source = str(row.get('source_history_id') or '')
+              is_test = aggregate.startswith('TMRMC-SYNTHETIC-') or aggregate.startswith('TEST') or source.startswith('synthetic')
+              if not is_test:
+                  raise SystemExit(21)
+          asyncio.run(main())
+          '''
+
+          for key, name, script in [
+              ('mongo', 'automation-queue-mongo-check', mongo_script),
+              ('empty', 'automation-queue-empty-check', empty_script),
+              ('synthetic', 'automation-queue-synthetic-check', synthetic_script),
+          ]:
+              Path(f'/tmp/{key}.json').write_text(json.dumps(job(name, script)))
+          PY
+
+      - name: Mongo connectivity check
+        id: mongo
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/mongo.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-queue-mongo-check --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-queue-mongo-check --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Claimable queue empty check
+        id: empty
+        if: steps.mongo.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/empty.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-queue-empty-check --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-queue-empty-check --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Existing claimable item synthetic-only check
+        id: synthetic
+        if: steps.mongo.outputs.rc == '0' && steps.empty.outputs.rc != '0'
+        shell: bash
+        run: |
+          set +e
+          gcloud run jobs replace /tmp/synthetic.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute automation-queue-synthetic-check --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          rc=$?
+          gcloud run jobs delete automation-queue-synthetic-check --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report queue isolation verdict
+        shell: bash
+        env:
+          MONGO_RC: ${{ steps.mongo.outputs.rc }}
+          EMPTY_RC: ${{ steps.empty.outputs.rc }}
+          SYNTHETIC_RC: ${{ steps.synthetic.outputs.rc }}
+        run: |
+          set -euo pipefail
+          echo "MONGO_RC=${MONGO_RC:-skipped}"
+          echo "EMPTY_RC=${EMPTY_RC:-skipped}"
+          echo "SYNTHETIC_RC=${SYNTHETIC_RC:-skipped}"
+          test "${MONGO_RC:-}" = "0" || { echo 'QUEUE_DIAG=MONGO_ACCESS_FAILURE'; exit 1; }
+          if test "${EMPTY_RC:-}" = "0"; then
+            echo 'QUEUE_DIAG=EMPTY'
+            exit 0
+          fi
+          if test "${SYNTHETIC_RC:-}" = "0"; then
+            echo 'QUEUE_DIAG=NONEMPTY_BUT_OLDEST_CLAIMABLE_LOOKS_SYNTHETIC_OR_TEST'
+            exit 0
+          fi
+          echo 'QUEUE_DIAG=NONEMPTY_AND_OLDEST_CLAIMABLE_IS_NOT_SYNTHETIC'
+          exit 1
