@@ -1,0 +1,81 @@
+name: Automation Worker Auth Probe
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-auth-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  probe:
+    name: Authenticated non-mutating worker probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Probe worker auth with nonexistent event
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+
+          python - <<'PY' > /tmp/secret_name
+          import json
+          from pathlib import Path
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          items = containers[0].get('env', []) if containers else []
+          for item in items:
+              if item.get('name') == 'AUTOMATION_WORKER_TOKEN':
+                  ref = item.get('valueFrom', {}).get('secretKeyRef', {})
+                  name = ref.get('name', '')
+                  if name:
+                      print(name)
+                      raise SystemExit(0)
+          raise SystemExit('AUTOMATION_WORKER_TOKEN secret reference not found')
+          PY
+
+          SECRET_NAME="$(cat /tmp/secret_name)"
+          TOKEN="$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="$PROJECT_ID")"
+          test -n "$TOKEN"
+          echo "::add-mask::$TOKEN"
+
+          SERVICE_URL="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          service = json.loads(Path('/tmp/service.json').read_text())
+          print(service.get('status', {}).get('url', ''))
+          PY
+          )"
+          test -n "$SERVICE_URL"
+
+          CODE="$(curl -sS -o /tmp/response -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"worker_id":"readiness-probe","lease_token":"0000000000000000","result":{}}' \
+            "$SERVICE_URL/api/automation/events/000000000000000000000000/ack")"
+
+          echo "Authenticated fake-event ACK probe -> HTTP $CODE"
+          if [ "$CODE" != "409" ]; then
+            echo "Unexpected status. Response body follows (contains no submitted secret):"
+            cat /tmp/response
+            exit 1
+          fi
+          grep -F 'stale or not owned' /tmp/response >/dev/null
+          echo 'PASS: worker secret authenticated successfully; nonexistent event was rejected with 409 and no queue event was claimed or delivered.'
