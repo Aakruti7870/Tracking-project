@@ -1,0 +1,154 @@
+name: Automation Final Synthetic E2E
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-final-synthetic-e2e.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+      JOB_NAME: automation-final-synthetic-e2e
+
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare isolated synthetic E2E job from live runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format=json > /tmp/service.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/service.json').read_text())
+          spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or svc.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('live container missing')
+          c = containers[0]
+          image = c.get('image')
+          env = c.get('env', [])
+          sa = spec.get('serviceAccountName') or svc.get('template', {}).get('serviceAccount')
+          if not image or not sa:
+              raise SystemExit('live image/runtime service account missing')
+
+          script = r'''
+          import asyncio
+          from datetime import datetime, timezone
+          from bson import ObjectId
+          from database import order_status_history
+          from order_automation import (
+              STATE_COMPLETED,
+              STATE_PENDING,
+              claim_order_status_events,
+              complete_order_status_event,
+              deliver_claimed_event,
+              materialize_history_event,
+              order_automation_actions,
+              order_automation_attempts,
+              order_automation_events,
+          )
+
+          async def main():
+              hid = ObjectId()
+              sid = str(hid)
+              worker = 'tmrmc-final-synthetic-e2e'
+              now = datetime.now(timezone.utc)
+              priority_time = datetime(1970, 1, 1, tzinfo=timezone.utc)
+              history = {
+                  '_id': hid,
+                  'order_id': 'TMRMC-SYNTHETIC-FINAL-E2E',
+                  'from_status': None,
+                  'to_status': 'DRAFT',
+                  'created_at': now,
+                  'smoke_test': True,
+              }
+              inserted_history = False
+              try:
+                  await order_status_history.insert_one(history)
+                  inserted_history = True
+                  event = await materialize_history_event(history)
+                  if event.get('_id') != hid or event.get('state') != STATE_PENDING:
+                      raise RuntimeError('synthetic materialization failed')
+
+                  # Prioritize ONLY this synthetic queue record so normal FIFO claim()
+                  # cannot take any pre-existing production/test queue item.
+                  result = await order_automation_events.update_one(
+                      {'_id': hid, 'state': STATE_PENDING},
+                      {'$set': {'created_at': priority_time, 'next_attempt_at': priority_time, 'updated_at': now}},
+                  )
+                  if result.modified_count != 1:
+                      raise RuntimeError('failed to prioritize synthetic event')
+
+                  claimed = await claim_order_status_events(worker, limit=1, lease_seconds=120)
+                  if len(claimed) != 1 or claimed[0].get('_id') != hid:
+                      raise RuntimeError('claim selected a non-synthetic event; aborting')
+                  lease = claimed[0].get('lease_token')
+                  if not lease:
+                      raise RuntimeError('synthetic claim omitted lease token')
+
+                  delivery = await deliver_claimed_event(hid, worker, lease, ['n8n'])
+                  deliveries = delivery.get('deliveries') or []
+                  if not any(d.get('provider') == 'n8n' and d.get('status') == 'accepted' for d in deliveries):
+                      raise RuntimeError('n8n did not accept synthetic claimed event')
+
+                  if not await complete_order_status_event(hid, worker, delivery, lease):
+                      raise RuntimeError('synthetic ACK failed')
+                  stored = await order_automation_events.find_one({'_id': hid}, {'state': 1})
+                  if not stored or stored.get('state') != STATE_COMPLETED:
+                      raise RuntimeError('synthetic event did not reach COMPLETED')
+              finally:
+                  # Remove only records keyed to this synthetic history id.
+                  await order_automation_actions.delete_many({'source_history_id': sid})
+                  await order_automation_attempts.delete_many({'event_id': sid})
+                  await order_automation_events.delete_one({'_id': hid})
+                  if inserted_history:
+                      await order_status_history.delete_one({'_id': hid})
+
+          asyncio.run(main())
+          '''
+
+          job = {
+              'apiVersion': 'run.googleapis.com/v1',
+              'kind': 'Job',
+              'metadata': {'name': os.environ['JOB_NAME']},
+              'spec': {'template': {'spec': {'taskCount': 1, 'template': {'spec': {
+                  'containers': [{'image': image, 'command': ['python'], 'args': ['-c', script], 'env': env}],
+                  'maxRetries': 0,
+                  'timeoutSeconds': '300',
+                  'serviceAccountName': sa,
+              }}}}},
+          }
+          Path('/tmp/job.json').write_text(json.dumps(job))
+          PY
+
+      - name: Run synthetic queue -> claim -> n8n -> ACK -> cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            gcloud run jobs delete "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          gcloud run jobs replace /tmp/job.json --project "$PROJECT_ID" --region "$REGION" --quiet >/dev/null
+          gcloud run jobs execute "$JOB_NAME" --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+          echo 'AUTOMATION_FINAL_SYNTHETIC_E2E=PASS'
