@@ -12,6 +12,7 @@ history and prepares safe automation work items.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 from secrets import token_urlsafe
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 
 from database import db, order_status_history, orders, users
+from config import settings
 
 ORDER_STATUS_CHANGED = "ORDER_STATUS_CHANGED"
 SCHEMA_VERSION = 1
@@ -62,9 +64,9 @@ AUTOMATION_POLICIES = {
     status: {
         "routing_key": f"order.status.{status.lower()}",
         "template": {"en": _MESSAGES[status]},
-        "channels": (["n8n", "push", "sms", "whatsapp", "vapi"]
-                     if status in {"REJECTED", "CANCELLED", "DELIVERED"}
-                     else ["n8n", "push", "sms", "whatsapp"]),
+        "channels": (["n8n", "push", "sms", "whatsapp", "email", "vapi"]
+                     if status in {"PENDING", "REJECTED", "CANCELLED", "DELIVERED"}
+                     else ["n8n", "push", "sms", "whatsapp", "email"]),
         "quiet_hours": status not in {"REJECTED", "CANCELLED"},
         "respect_opt_out": True,
         "max_attempts": 5,
@@ -75,6 +77,7 @@ AUTOMATION_POLICIES = {
 
 order_automation_events = db.order_automation_events
 order_automation_attempts = db.order_automation_attempts
+order_automation_actions = db.order_automation_actions
 
 _SAFE_ORDER_FIELDS = (
     "order_number",
@@ -93,6 +96,14 @@ _SAFE_ORDER_FIELDS = (
     "driver_id",
     "delivered_quantity",
     "payment_status",
+    "payment_type",
+    "payment_mode",
+    "expected_dispatch_at",
+    "eta",
+    "dispatched_quantity",
+    "remaining_quantity",
+    "challan_number",
+    "pod_path",
 )
 
 
@@ -114,6 +125,13 @@ def _order_payload(order: Optional[dict]) -> dict:
     for field in _SAFE_ORDER_FIELDS:
         if field in order and order[field] is not None:
             payload[field] = _as_external(order[field])
+    base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+    order_id = str(order.get("_id") or "")
+    status = str(order.get("status") or "")
+    if base and order_id and status in {"DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING", "POD_PENDING"}:
+        payload["tracking_url"] = f"{base}/track/{order_id}"
+    if base and order_id and status == "DELIVERED":
+        payload["delivery_documents_url"] = f"{base}/order/{order_id}"
     return payload
 
 
@@ -133,7 +151,7 @@ def build_order_status_event(history: dict, order: Optional[dict]) -> dict:
 
     now = _utcnow()
     occurred_at = history.get("created_at") or now
-    return {
+    event = {
         "_id": history_id,
         "schema_version": SCHEMA_VERSION,
         "event_type": ORDER_STATUS_CHANGED,
@@ -155,6 +173,9 @@ def build_order_status_event(history: dict, order: Optional[dict]) -> dict:
         "created_at": now,
         "updated_at": now,
     }
+    if target in {"REJECTED", "CANCELLED"} and history.get("note"):
+        event["payload"]["reason"] = str(history["note"])[:1000]
+    return event
 
 
 async def ensure_indexes() -> None:
@@ -174,6 +195,11 @@ async def ensure_indexes() -> None:
     await order_automation_attempts.create_index(
         [("event_id", 1), ("created_at", 1)], name="automation_attempt_audit"
     )
+    await order_automation_actions.create_index(
+        [("source_history_id", 1), ("channel", 1)], unique=True,
+        name="unique_history_automation_action",
+    )
+    await order_automation_actions.create_index([("state", 1), ("next_attempt_at", 1)])
 
 
 async def _order_for_history(history: dict) -> Optional[dict]:
@@ -197,6 +223,15 @@ async def materialize_history_event(history: dict) -> dict:
         {"$setOnInsert": event},
         upsert=True,
     )
+    for channel in event.get("delivery", {}).get("channels", []):
+        await order_automation_actions.update_one(
+            {"source_history_id": event["source_history_id"], "channel": channel},
+            {"$setOnInsert": {"event_id": str(event["_id"]), "order_id": event["aggregate_id"],
+             "status": event["to_status"], "channel": channel, "provider": channel,
+             "state": STATE_PENDING, "attempts": 0, "next_attempt_at": event["next_attempt_at"],
+             "created_at": event["created_at"], "updated_at": event["updated_at"]}},
+            upsert=True,
+        )
     stored = await order_automation_events.find_one({"_id": event["_id"]})
     return stored or event
 
@@ -404,28 +439,104 @@ async def deliver_claimed_event(event_id: Any, worker_id: str, lease_token: str,
     if customer.get("automation_opt_out"):
         opted_out.update({"sms", "whatsapp", "vapi"})
 
-    from automation_providers import n8n, twilio_messages, vapi
+    from automation_providers import cod_confirmation, n8n, twilio_messages, vapi
     from notifications import record_notification
     results: list[dict] = []
     message = event.get("delivery", {}).get("template", {}).get("en", "Order status updated.")
     for channel in channels:
+        action = await order_automation_actions.find_one({
+            "source_history_id": event["source_history_id"], "channel": channel,
+        })
+        if action and action.get("state") in {STATE_COMPLETED, "DISABLED", "PERMANENT_FAILURE"}:
+            results.append({"provider": channel, "provider_id": str(action.get("provider_reference") or ""),
+                            "status": action["state"].lower()})
+            continue
+        if not _channel_enabled(channel):
+            await _finish_action(event, channel, "DISABLED")
+            results.append({"provider": channel, "provider_id": "", "status": "disabled"})
+            continue
+        await order_automation_actions.update_one(
+            {"source_history_id": event["source_history_id"], "channel": channel},
+            {"$inc": {"attempts": 1}, "$set": {"state": STATE_PROCESSING, "updated_at": now}},
+        )
         if channel in opted_out:
+            await _finish_action(event, channel, STATE_COMPLETED, "opt-out")
             results.append({"provider": channel, "provider_id": "opt-out", "status": "skipped"})
             continue
-        if channel == "n8n":
-            results.append((await n8n.send(event)).as_dict())
-        elif channel == "vapi":
-            results.append((await vapi.send(event, str(customer.get("phone") or ""))).as_dict())
-        elif channel in {"sms", "whatsapp"}:
-            results.append((await twilio_messages.send(channel, str(customer.get("phone") or ""), message)).as_dict())
-        elif channel == "push":
-            customer_id = str((order or {}).get("customer_id") or "")
-            if not customer_id:
-                raise RuntimeError("Order customer is unavailable")
-            await record_notification(customer_id, event["routing_key"], "Order update", message,
-                                      {"order_id": event["aggregate_id"], "status": event["to_status"]})
-            results.append({"provider": "firebase_fcm_v1", "provider_id": event["source_history_id"], "status": "sent"})
-        else:
-            raise ValueError("Unsupported automation channel")
+        try:
+            if channel == "n8n":
+                result = (await n8n.send(event)).as_dict()
+            elif channel == "vapi":
+                payment = str((order or {}).get("payment_type") or (order or {}).get("payment_mode") or "").upper()
+                if event["to_status"] == "PENDING" and payment != "COD":
+                    await _finish_action(event, channel, STATE_COMPLETED, "not-cod")
+                    results.append({"provider": "vapi", "provider_id": "not-cod", "status": "skipped"})
+                    continue
+                adapter = cod_confirmation if event["to_status"] == "PENDING" else vapi
+                method = adapter.trigger if event["to_status"] == "PENDING" else adapter.send
+                result = (await method(event, str(customer.get("phone") or ""))).as_dict()
+            elif channel in {"sms", "whatsapp"}:
+                result = (await twilio_messages.send(channel, str(customer.get("phone") or ""), message)).as_dict()
+            elif channel == "email":
+                from notifications import delivery
+                if not await delivery.send("email", str(customer.get("email") or ""), message):
+                    raise RuntimeError("Email delivery failed")
+                result = {"provider": "sendgrid_email", "provider_id": event["source_history_id"], "status": "sent"}
+            elif channel == "push":
+                customer_id = str((order or {}).get("customer_id") or "")
+                if not customer_id:
+                    raise RuntimeError("Order customer is unavailable")
+                await record_notification(customer_id, event["routing_key"], "Order update", message,
+                                          {"order_id": event["aggregate_id"], "status": event["to_status"]})
+                result = {"provider": "firebase_fcm_v1", "provider_id": event["source_history_id"], "status": "sent"}
+            else:
+                raise ValueError("Unsupported automation channel")
+            await _finish_action(event, channel, STATE_COMPLETED, result.get("provider_id"))
+            results.append(result)
+        except Exception as exc:
+            from automation_providers import ProviderConfigurationError
+            if isinstance(exc, ProviderConfigurationError):
+                await _finish_action(event, channel, "PERMANENT_FAILURE", error=type(exc).__name__)
+                results.append({"provider": channel, "provider_id": "", "status": "permanent_failure"})
+                continue
+            await order_automation_actions.update_one(
+                {"source_history_id": event["source_history_id"], "channel": channel},
+                {"$set": {"state": STATE_RETRY, "error": type(exc).__name__, "updated_at": _utcnow()}},
+            )
+            raise
     return {"provider": "multi", "provider_id": event["source_history_id"],
             "status": "completed", "deliveries": results}
+
+
+def _channel_enabled(channel: str) -> bool:
+    if not settings.AUTOMATION_ENABLED:
+        return False
+    flag = {"n8n": settings.AUTOMATION_N8N_ENABLED, "vapi": settings.AUTOMATION_VOICE_ENABLED,
+            "whatsapp": settings.AUTOMATION_WHATSAPP_ENABLED, "sms": settings.AUTOMATION_SMS_ENABLED,
+            "email": settings.AUTOMATION_EMAIL_ENABLED, "push": settings.AUTOMATION_PUSH_ENABLED}
+    return bool(flag.get(channel, False))
+
+
+async def _finish_action(event: dict, channel: str, state: str,
+                         provider_reference: Optional[str] = None, error: Optional[str] = None) -> None:
+    now = _utcnow()
+    await order_automation_actions.update_one(
+        {"source_history_id": event["source_history_id"], "channel": channel},
+        {"$set": {"state": state, "provider_reference": provider_reference,
+                  "error": error, "sent_at": now if state == STATE_COMPLETED else None,
+                  "failed_at": now if "FAILURE" in state else None, "updated_at": now}},
+    )
+
+
+class OrderAutomationService:
+    """Single facade used by authoritative order flows and automation workers."""
+
+    async def status_changed(self, history: dict) -> dict:
+        return await materialize_history_event(history)
+
+    async def deliver(self, event_id: Any, worker_id: str, lease_token: str,
+                      channels: Optional[list[str]] = None) -> dict:
+        return await deliver_claimed_event(event_id, worker_id, lease_token, channels)
+
+
+automation_service = OrderAutomationService()

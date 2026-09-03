@@ -817,8 +817,11 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
                "note": "Order created", "created_at": now}
     history_result = await order_status_history.insert_one(history)
     history["_id"] = history_result.inserted_id
-    from order_automation import materialize_history_event
-    await materialize_history_event(history)
+    from order_automation import automation_service
+    try:
+        await automation_service.status_changed(history)
+    except Exception as exc:  # order creation remains authoritative; startup backfill recovers
+        logger.warning("Order automation materialization deferred (%s)", type(exc).__name__)
     await write_audit(uid, "order.create", "order", oid, {"status": status, "delivery_mode": body.delivery_mode, "quotation_id": body.quotation_id})
     if status == PENDING and plant.get("owner_id"):
         await record_notification(

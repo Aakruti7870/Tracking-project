@@ -6,6 +6,7 @@ entry, and emits notifications. The frontend can never set status arbitrarily.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import logging
 
 import os
 
@@ -16,6 +17,8 @@ from pymongo import ReturnDocument
 from audit import write_audit
 from database import order_status_history, orders, plants, production_batches, users
 from notifications import delivery, record_notification
+
+logger = logging.getLogger(__name__)
 
 # --- States ---
 DRAFT = "DRAFT"
@@ -145,8 +148,11 @@ async def transition_order(
     history["_id"] = history_result.inserted_id
     # Materialization is deliberately after the authoritative transition. A
     # transient queue failure can be recovered by startup backfill.
-    from order_automation import materialize_history_event
-    await materialize_history_event(history)
+    from order_automation import automation_service
+    try:
+        await automation_service.status_changed(history)
+    except Exception as exc:  # recovered by idempotent startup backfill
+        logger.warning("Order automation materialization deferred (%s)", type(exc).__name__)
     await write_audit(
         actor_id,
         f"order.{target.lower()}",

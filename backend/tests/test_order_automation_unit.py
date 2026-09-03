@@ -8,13 +8,14 @@ from order_automation import (
     ORDER_STATUS_CHANGED,
     _safe_provider_result,
     build_order_status_event,
+    _channel_enabled,
 )
 
 
 def test_all_canonical_statuses_have_localized_non_spam_policy():
     assert set(AUTOMATION_POLICIES) == set(CANONICAL_STATUSES)
     voice = {status for status, policy in AUTOMATION_POLICIES.items() if "vapi" in policy["channels"]}
-    assert voice == {"REJECTED", "CANCELLED", "DELIVERED"}
+    assert voice == {"PENDING", "REJECTED", "CANCELLED", "DELIVERED"}
     for status, policy in AUTOMATION_POLICIES.items():
         assert policy["routing_key"] == f"order.status.{status.lower()}"
         assert policy["template"]["en"]
@@ -30,6 +31,18 @@ def test_provider_result_and_event_never_persist_secrets_or_actor_notes():
                                       "actor_id": "private", "note": "internal"}, {})
     assert "actor_id" not in event
     assert "note" not in event
+    assert event["payload"]["reason"] == "internal"
+
+
+def test_global_and_individual_channel_feature_flags(monkeypatch):
+    from order_automation import settings
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTOMATION_SMS_ENABLED", True)
+    assert not _channel_enabled("sms")
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    assert _channel_enabled("sms")
+    monkeypatch.setattr(settings, "AUTOMATION_SMS_ENABLED", False)
+    assert not _channel_enabled("sms")
 
 
 def test_build_order_status_event_has_deterministic_route_and_safe_payload():

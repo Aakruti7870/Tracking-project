@@ -14,6 +14,7 @@ from order_automation import (
     fail_order_status_event,
     materialize_history_event,
     order_automation_attempts,
+    order_automation_actions,
     order_automation_events,
 )
 
@@ -37,6 +38,8 @@ async def _exercise_queue_lifecycle():
     second = await materialize_history_event(history)
     assert first["_id"] == second["_id"]
     assert await order_automation_events.count_documents({"_id": first["_id"]}) == 1
+    expected_actions = len(first["delivery"]["channels"])
+    assert await order_automation_actions.count_documents({"source_history_id": first["source_history_id"]}) == expected_actions
 
     claimed = (await claim_order_status_events("worker-a", 1, 30))[0]
     assert claimed["state"] == STATE_PROCESSING

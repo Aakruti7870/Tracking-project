@@ -113,6 +113,14 @@ class VapiCallAdapter:
                 await client.aclose()
 
 
+class CodConfirmationService:
+    """Part A entry point; Part B delegates COD confirmation here."""
+
+    async def trigger(self, event: dict, phone: str,
+                      client: httpx.AsyncClient | None = None) -> DeliveryResult:
+        return await vapi.send(event, phone, client)
+
+
 class TwilioMessageAdapter:
     """SMS/WhatsApp boundary using Twilio's authenticated REST API."""
     name = "twilio"
@@ -145,4 +153,5 @@ class TwilioMessageAdapter:
 
 n8n = N8nWebhookAdapter()
 vapi = VapiCallAdapter()
+cod_confirmation = CodConfirmationService()
 twilio_messages = TwilioMessageAdapter()

@@ -19,6 +19,13 @@ idempotency key. SMS and WhatsApp use Twilio HTTP Basic authentication, while pu
 uses the existing Firebase OAuth adapter. Provider callbacks use the distinct
 `AUTOMATION_CALLBACK_TOKEN` and accept only normalized IDs/status/failure metadata.
 
+Deployments also set `AUTOMATION_ENABLED` and independently control
+`AUTOMATION_N8N_ENABLED`, `AUTOMATION_VOICE_ENABLED`, `AUTOMATION_WHATSAPP_ENABLED`,
+`AUTOMATION_SMS_ENABLED`, `AUTOMATION_EMAIL_ENABLED`, and `AUTOMATION_PUSH_ENABLED`.
+All flags default off. A durable action row is unique per history event and channel,
+so a retry skips channels already completed. Configuration errors become permanent
+action failures; transient delivery errors use the bounded event retry schedule.
+
 Workers claim events with a bounded lease. Every acknowledgement/failure must carry
 the opaque lease token, preventing a stale worker from completing a reclaimed event.
 Failures retry with bounded delay and move to `DEAD_LETTER` after five attempts.
