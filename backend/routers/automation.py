@@ -34,6 +34,17 @@ def _event_id(value: str) -> Any:
         return value
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert Mongo-specific values to JSON-safe equivalents for worker responses."""
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 class ClaimBody(StrictModel):
     worker_id: str = Field(min_length=3, max_length=128)
     limit: int = Field(default=25, ge=1, le=100)
@@ -70,7 +81,7 @@ class ProviderCallbackBody(StrictModel):
 async def claim(body: ClaimBody, authorization: Optional[str] = Header(default=None)):
     _authorize(authorization)
     events = await claim_order_status_events(body.worker_id, body.limit, body.lease_seconds)
-    return {"events": events}
+    return {"events": _json_safe(events)}
 
 
 @router.post("/events/{event_id}/ack")
