@@ -1,0 +1,215 @@
+name: Automation Runtime Readiness
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-runtime-readiness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  readiness:
+    name: Verify live automation runtime without delivery
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_ID: tracking-project-preview
+      SERVICE: tracking-preview-api
+      REGION: asia-south1
+
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Inspect runtime configuration safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROJECT_ID" >/dev/null
+          gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > /tmp/service.json
+
+          git fetch origin main --no-tags --prune
+          MAIN_SHA="$(git rev-parse origin/main)"
+          echo "MAIN_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
+
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          service = json.loads(Path('/tmp/service.json').read_text())
+          spec = service.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or service.get('template', {}).get('containers') or []
+          env_items = (containers[0].get('env', []) if containers else [])
+          env = {item.get('name'): item for item in env_items if item.get('name')}
+
+          def source(name):
+              item = env.get(name)
+              if not item:
+                  return 'missing'
+              if 'valueFrom' in item:
+                  return 'secret-ref'
+              return 'literal'
+
+          def literal(name):
+              item = env.get(name) or {}
+              return str(item.get('value', '')).strip()
+
+          flags = [
+              'AUTOMATION_ENABLED',
+              'AUTOMATION_N8N_ENABLED',
+              'AUTOMATION_VOICE_ENABLED',
+              'AUTOMATION_WHATSAPP_ENABLED',
+              'AUTOMATION_SMS_ENABLED',
+              'AUTOMATION_EMAIL_ENABLED',
+              'AUTOMATION_PUSH_ENABLED',
+          ]
+          required_core = ['AUTOMATION_WORKER_TOKEN', 'AUTOMATION_CALLBACK_TOKEN']
+          provider_requirements = {
+              'AUTOMATION_N8N_ENABLED': ['N8N_WEBHOOK_URL', 'N8N_WEBHOOK_AUTH_TOKEN', 'N8N_WEBHOOK_SIGNING_SECRET'],
+              'AUTOMATION_VOICE_ENABLED': ['VAPI_API_KEY', 'VAPI_ASSISTANT_ID'],
+              'AUTOMATION_WHATSAPP_ENABLED': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM'],
+              'AUTOMATION_SMS_ENABLED': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER'],
+              'AUTOMATION_EMAIL_ENABLED': ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL'],
+              'AUTOMATION_PUSH_ENABLED': ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'],
+          }
+
+          summary = []
+          blockers = []
+          summary.append('## Automation runtime readiness')
+          summary.append('')
+          summary.append('| Setting | State | Source |')
+          summary.append('|---|---|---|')
+
+          enabled_channels = []
+          for name in flags:
+              src = source(name)
+              val = literal(name).lower() if src == 'literal' else ''
+              if src == 'literal':
+                  state = val if val in {'true','false'} else 'invalid/non-boolean'
+              elif src == 'secret-ref':
+                  state = 'configured, value hidden'
+              else:
+                  state = 'missing (defaults false)'
+              summary.append(f'| `{name}` | {state} | {src} |')
+              if name != 'AUTOMATION_ENABLED' and src == 'literal' and val == 'true':
+                  enabled_channels.append(name)
+
+          automation_src = source('AUTOMATION_ENABLED')
+          automation_val = literal('AUTOMATION_ENABLED').lower() if automation_src == 'literal' else ''
+          if automation_src != 'literal' or automation_val != 'true':
+              blockers.append('AUTOMATION_ENABLED is not explicitly true in the Cloud Run runtime.')
+
+          for name in required_core:
+              src = source(name)
+              summary.append(f'| `{name}` | {"present" if src != "missing" else "missing"} | {src} |')
+              if src == 'missing':
+                  blockers.append(f'{name} is missing from the Cloud Run runtime.')
+
+          if not enabled_channels:
+              blockers.append('No provider channel flag is explicitly enabled.')
+
+          for flag in enabled_channels:
+              missing = [name for name in provider_requirements[flag] if source(name) == 'missing']
+              for name in provider_requirements[flag]:
+                  src = source(name)
+                  summary.append(f'| `{name}` | {"present" if src != "missing" else "missing"} | {src} |')
+              if missing:
+                  blockers.append(f'{flag} is enabled but required configuration is missing: {", ".join(missing)}')
+
+          labels = service.get('metadata', {}).get('labels', {})
+          source_sha = labels.get('source-sha', '')
+          main_sha = os.environ.get('MAIN_SHA', '')
+          expected = main_sha[:12]
+          summary.append('')
+          summary.append(f'- Production source label: `{source_sha or "missing"}`')
+          summary.append(f'- Expected main SHA prefix: `{expected}`')
+          if not source_sha or source_sha != expected:
+              blockers.append('Deployed Cloud Run source-sha label does not match current main.')
+
+          status = service.get('status', {})
+          url = status.get('url', '')
+          revision = status.get('latestReadyRevisionName', '')
+          if not url:
+              blockers.append('Cloud Run service URL is missing.')
+          if not revision:
+              blockers.append('Cloud Run latest ready revision is missing.')
+          Path('/tmp/service_url').write_text(url)
+          Path('/tmp/summary').write_text('\n'.join(summary) + '\n')
+          Path('/tmp/blockers').write_text('\n'.join(blockers) + '\n')
+          PY
+
+          cat /tmp/summary >> "$GITHUB_STEP_SUMMARY"
+          URL="$(cat /tmp/service_url)"
+          test -n "$URL"
+          echo "SERVICE_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Verify live health and automation routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 5 --retry-all-errors --retry-delay 2 -sS -o /tmp/health -w '%{http_code}' "${SERVICE_URL}/api/health")"
+          echo "Live /api/health -> HTTP $code"
+          test "$code" = "200"
+          grep -F 'healthy' /tmp/health >/dev/null
+
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "${SERVICE_URL}/openapi.json" -o /tmp/openapi.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/openapi.json').read_text())
+          paths = set(data.get('paths', {}))
+          required = {
+              '/api/automation/events/claim',
+              '/api/automation/events/{event_id}/ack',
+              '/api/automation/events/{event_id}/fail',
+              '/api/automation/events/{event_id}/deliver',
+              '/api/automation/provider-callback',
+          }
+          missing = sorted(required - paths)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n### Live route exposure\n\n')
+              for route in sorted(required):
+                  f.write(f'- {"✅" if route in paths else "❌"} `{route}`\n')
+          if missing:
+              raise SystemExit('Missing live automation routes: ' + ', '.join(missing))
+          PY
+
+      - name: Report readiness result
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -s /tmp/blockers; then
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '### Blockers' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            while IFS= read -r line; do
+              test -n "$line" && echo "- ❌ $line" >> "$GITHUB_STEP_SUMMARY"
+            done < /tmp/blockers
+            echo 'Automation runtime is NOT ready for a destructive live delivery test.'
+            cat /tmp/blockers
+            exit 1
+          fi
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo '### Result' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo '✅ Runtime configuration and live automation route exposure are ready for the next controlled end-to-end test.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Automation runtime readiness PASS.'
