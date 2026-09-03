@@ -18,9 +18,9 @@ export default function CustomerLayout() {
   if (user.role !== "customer") return <Redirect href="/role-home" />;
 
   return (
-    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <GlassTabBar {...props} tabs={TABS} />}>
-      {TABS.map((t) => (
-        <Tabs.Screen key={t.name} name={t.name} />
+    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <GlassTabBar {...props} tabs={TABS} centerLabel="New" />}>
+      {TABS.map((tab) => (
+        <Tabs.Screen key={tab.name} name={tab.name} />
       ))}
     </Tabs>
   );
