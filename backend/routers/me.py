@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from config import settings
-from database import kyc_profiles
+from database import kyc_profiles, users
 from roles import ROLE_LABELS
 from security import current_user
 
@@ -12,6 +12,25 @@ router = APIRouter(prefix="/api", tags=["me"])
 async def me(ctx: dict = Depends(current_user)):
     user = ctx["user"]
     kyc = await kyc_profiles.find_one({"user_id": ctx["user_id"], "purpose": "CUSTOMER"})
+
+    # A few production KYC completions were finalized by the permanent-access
+    # compatibility route before the verified DigiLocker name was copied into
+    # users.name. Reconcile that safely whenever the profile is loaded so an
+    # approved customer immediately sees their verified name after login.
+    if (
+        kyc
+        and kyc.get("status") == "VERIFIED"
+        and kyc.get("provider_session_id")
+        and (kyc.get("name_sync_pending") or not kyc.get("kyc_name"))
+    ):
+        from routers.customer import _sync_customer_verified_name
+
+        synced = await _sync_customer_verified_name(ctx["user_id"], kyc)
+        if synced:
+            refreshed = await users.find_one({"_id": user["_id"]})
+            if refreshed:
+                user = refreshed
+
     mfa = user.get("mfa") if isinstance(user.get("mfa"), dict) else {}
     passkeys = mfa.get("passkeys") if isinstance(mfa.get("passkeys"), list) else []
     active_passkeys = [
