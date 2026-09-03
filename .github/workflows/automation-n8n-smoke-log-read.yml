@@ -1,0 +1,37 @@
+name: Automation n8n Smoke Log Read
+
+on:
+  push:
+    branches:
+      - test/automation-runtime-readiness-114
+    paths:
+      - .github/workflows/automation-n8n-smoke-log-read.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: tracking-project-preview
+      REGION: asia-south1
+      JOB_NAME: automation-n8n-e2e-smoke
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Read recent smoke logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud logging read \
+            "resource.type=cloud_run_job AND resource.labels.job_name=${JOB_NAME} AND timestamp>=\"$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)\"" \
+            --project "$PROJECT_ID" \
+            --limit 200 \
+            --order=asc \
+            --format='value(timestamp,severity,textPayload,jsonPayload.message)'
