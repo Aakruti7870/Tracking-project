@@ -180,18 +180,6 @@ jobs:
             --region "$REGION" \
             --quiet >/dev/null
 
-      - name: Authorize scheduler identity for worker invocation
-        shell: bash
-        run: |
-          set -euo pipefail
-          RUNTIME_SA="$(cat /tmp/runtime-sa)"
-          gcloud run jobs add-iam-policy-binding "$WORKER_JOB" \
-            --project "$PROJECT_ID" \
-            --region "$REGION" \
-            --member="serviceAccount:${RUNTIME_SA}" \
-            --role="roles/run.invoker" \
-            --quiet >/dev/null
-
       - name: Create or update one-minute scheduler
         shell: bash
         run: |
@@ -206,6 +194,7 @@ jobs:
             --uri "$URI"
             --http-method POST
             --oauth-service-account-email "$RUNTIME_SA"
+            --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
             --attempt-deadline 180s
           )
           if gcloud scheduler jobs describe "$SCHEDULER_JOB" \
@@ -224,6 +213,41 @@ jobs:
             --region "$REGION" \
             --wait \
             --quiet
+
+      - name: Verify scheduler invokes worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE="$(gcloud run jobs executions list \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --job "$WORKER_JOB" \
+            --sort-by='~metadata.creationTimestamp' \
+            --limit=1 \
+            --format='value(metadata.name)')"
+
+          gcloud scheduler jobs run "$SCHEDULER_JOB" \
+            --project "$PROJECT_ID" \
+            --location "$REGION" \
+            --quiet
+
+          for _ in {1..30}; do
+            AFTER="$(gcloud run jobs executions list \
+              --project "$PROJECT_ID" \
+              --region "$REGION" \
+              --job "$WORKER_JOB" \
+              --sort-by='~metadata.creationTimestamp' \
+              --limit=1 \
+              --format='value(metadata.name)')"
+            if [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+              echo 'AUTOMATION_WORKER_SCHEDULER_INVOCATION=PASS'
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Scheduler did not create a new Cloud Run worker execution. The scheduler identity likely lacks run.jobs.run."
+          exit 1
 
       - name: Verify worker and scheduler ready
         shell: bash
