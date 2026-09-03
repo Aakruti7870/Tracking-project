@@ -1,0 +1,242 @@
+name: Deploy Automation Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/automation_worker.py
+      - backend/order_automation.py
+      - backend/automation_providers.py
+      - backend/config.py
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/deploy-automation-worker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-automation-worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy and verify scheduled automation worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PROJECT_ID: tracking-project-preview
+      API_SERVICE: tracking-preview-api
+      REGION: asia-south1
+      WORKER_JOB: tracking-automation-worker
+      SCHEDULER_JOB: tracking-automation-worker-every-minute
+
+    steps:
+      - name: Checkout main worker candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
+          fetch-depth: 0
+
+      - name: Enforce production main target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PROJECT_ID" = "tracking-project-preview"
+          test "$API_SERVICE" = "tracking-preview-api"
+          test "$REGION" = "asia-south1"
+          test -f backend/automation_worker.py
+          git fetch origin main --no-tags --prune
+          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main || {
+            echo "::error::Automation worker deployment is allowed only for commits already on main."
+            exit 1
+          }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Capture live production runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROJECT_ID"
+          gcloud run services describe "$API_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > /tmp/api-service.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/api-service.json').read_text())
+          spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          containers = spec.get('containers') or svc.get('template', {}).get('containers') or []
+          if not containers:
+              raise SystemExit('production API container missing')
+          sa = spec.get('serviceAccountName') or svc.get('template', {}).get('serviceAccount')
+          if not sa:
+              raise SystemExit('production runtime service account missing')
+          Path('/tmp/runtime-sa').write_text(sa)
+          PY
+
+      - name: Build worker image from current main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy "$WORKER_JOB" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --source . \
+            --command python \
+            --args automation_worker.py \
+            --tasks 1 \
+            --max-retries 0 \
+            --task-timeout 10m \
+            --quiet
+          gcloud run jobs describe "$WORKER_JOB" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > /tmp/source-worker.json
+
+      - name: Apply production env, secrets, identity and worker limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          svc = json.loads(Path('/tmp/api-service.json').read_text())
+          built = json.loads(Path('/tmp/source-worker.json').read_text())
+
+          svc_spec = svc.get('spec', {}).get('template', {}).get('spec', {})
+          svc_containers = svc_spec.get('containers') or svc.get('template', {}).get('containers') or []
+          source_spec = built.get('spec', {}).get('template', {}).get('spec', {})
+          source_task = source_spec.get('template', {}).get('spec', {})
+          source_containers = source_task.get('containers') or []
+          if not source_containers:
+              raise SystemExit('built worker image missing')
+          image = source_containers[0].get('image')
+          if not image:
+              raise SystemExit('built worker image reference missing')
+
+          runtime_sa = Path('/tmp/runtime-sa').read_text().strip()
+          env = list((svc_containers[0].get('env') if svc_containers else []) or [])
+          worker_names = {
+              'AUTOMATION_WORKER_BATCH_SIZE',
+              'AUTOMATION_WORKER_MAX_EVENTS',
+              'AUTOMATION_WORKER_LEASE_SECONDS',
+              'AUTOMATION_WORKER_RETRY_SECONDS',
+          }
+          env = [row for row in env if row.get('name') not in worker_names]
+          env.extend([
+              {'name': 'AUTOMATION_WORKER_BATCH_SIZE', 'value': '10'},
+              {'name': 'AUTOMATION_WORKER_MAX_EVENTS', 'value': '200'},
+              {'name': 'AUTOMATION_WORKER_LEASE_SECONDS', 'value': '300'},
+              {'name': 'AUTOMATION_WORKER_RETRY_SECONDS', 'value': '60'},
+          ])
+
+          manifest = {
+              'apiVersion': 'run.googleapis.com/v1',
+              'kind': 'Job',
+              'metadata': {
+                  'name': os.environ['WORKER_JOB'],
+                  'labels': {
+                      'component': 'automation-worker',
+                      'managed-by': 'github-actions',
+                      'deployment-tier': 'production',
+                  },
+              },
+              'spec': {'template': {'spec': {
+                  'taskCount': 1,
+                  'template': {'spec': {
+                      'containers': [{
+                          'image': image,
+                          'command': ['python'],
+                          'args': ['automation_worker.py'],
+                          'env': env,
+                      }],
+                      'maxRetries': 0,
+                      'timeoutSeconds': '600',
+                      'serviceAccountName': runtime_sa,
+                  }},
+              }}},
+          }
+          Path('/tmp/worker-job.json').write_text(json.dumps(manifest))
+          PY
+
+          gcloud run jobs replace /tmp/worker-job.json \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --quiet >/dev/null
+
+      - name: Authorize scheduler identity for worker invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_SA="$(cat /tmp/runtime-sa)"
+          gcloud run jobs add-iam-policy-binding "$WORKER_JOB" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --member="serviceAccount:${RUNTIME_SA}" \
+            --role="roles/run.invoker" \
+            --quiet >/dev/null
+
+      - name: Create or update one-minute scheduler
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_SA="$(cat /tmp/runtime-sa)"
+          URI="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${WORKER_JOB}:run"
+          COMMON_ARGS=(
+            --project "$PROJECT_ID"
+            --location "$REGION"
+            --schedule "* * * * *"
+            --time-zone "UTC"
+            --uri "$URI"
+            --http-method POST
+            --oauth-service-account-email "$RUNTIME_SA"
+            --attempt-deadline 180s
+          )
+          if gcloud scheduler jobs describe "$SCHEDULER_JOB" \
+              --project "$PROJECT_ID" --location "$REGION" >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$SCHEDULER_JOB" "${COMMON_ARGS[@]}" --quiet
+          else
+            gcloud scheduler jobs create http "$SCHEDULER_JOB" "${COMMON_ARGS[@]}" --quiet
+          fi
+
+      - name: Execute worker smoke run
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs execute "$WORKER_JOB" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --wait \
+            --quiet
+
+      - name: Verify worker and scheduler ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs describe "$WORKER_JOB" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='yaml(metadata.name,metadata.labels,spec.template.spec.template.spec.serviceAccountName)'
+          STATE="$(gcloud scheduler jobs describe "$SCHEDULER_JOB" \
+            --project "$PROJECT_ID" \
+            --location "$REGION" \
+            --format='value(state)')"
+          test "$STATE" = "ENABLED"
+          echo 'AUTOMATION_WORKER_DEPLOYED=YES'
+          echo 'AUTOMATION_WORKER_SCHEDULE=* * * * *'
