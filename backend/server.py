@@ -200,8 +200,14 @@ async def on_startup():
     await order_intents.create_index([("customer_id", 1), ("idempotency_key", 1)], unique=True)
     await order_intents.create_index("token", unique=True)
     await support_cases.create_index([("customer_id", 1), ("created_at", -1)])
-    backfilled = await backfill_order_status_events(limit=500)
-    logger.info("order automation initialized (backfilled=%s)", backfilled)
+    backfilled = 0
+    if settings.AUTOMATION_BACKFILL_ON_STARTUP:
+        backfilled = await backfill_order_status_events(limit=500)
+    logger.info(
+        "order automation initialized (backfill_on_startup=%s, backfilled=%s)",
+        settings.AUTOMATION_BACKFILL_ON_STARTUP,
+        backfilled,
+    )
     await hr_master.ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_roster.ensure_indexes()

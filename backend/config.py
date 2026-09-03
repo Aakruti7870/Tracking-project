@@ -115,6 +115,8 @@ class Settings:
     AUTOMATION_EMAIL_ENABLED: bool = _boolean("AUTOMATION_EMAIL_ENABLED", False)
     AUTOMATION_PUSH_ENABLED: bool = _boolean("AUTOMATION_PUSH_ENABLED", False)
     AUTOMATION_N8N_ENABLED: bool = _boolean("AUTOMATION_N8N_ENABLED", False)
+    # Historical replay is opt-in. Routine restarts must not enqueue stale order history.
+    AUTOMATION_BACKFILL_ON_STARTUP: bool = _boolean("AUTOMATION_BACKFILL_ON_STARTUP", False)
 
     # Plant Staff Authenticator MFA. Optional at process start so production can
     # roll out the code before the Cloud Run secret is attached. MFA endpoints
