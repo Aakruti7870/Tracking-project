@@ -57,6 +57,7 @@ class N8nWebhookAdapter:
     async def send(self, event: dict, client: httpx.AsyncClient | None = None) -> DeliveryResult:
         url = _https_url("N8N_WEBHOOK_URL")
         secret = _secret("N8N_WEBHOOK_SIGNING_SECRET", 32)
+        auth_token = _secret("N8N_WEBHOOK_AUTH_TOKEN", 32)
         body = json.dumps(jsonable_encoder(event), sort_keys=True, separators=(",", ":")).encode()
         timestamp = str(int(time.time()))
         signature = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
@@ -65,6 +66,7 @@ class N8nWebhookAdapter:
         try:
             response = await client.post(url, content=body, headers={
                 "Content-Type": "application/json",
+                "X-TrackMyRMC-Token": auth_token,
                 "X-TrackMyRMC-Timestamp": timestamp,
                 "X-TrackMyRMC-Signature": f"sha256={signature}",
                 "Idempotency-Key": str(event["source_history_id"]),
