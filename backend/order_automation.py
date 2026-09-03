@@ -81,10 +81,6 @@ order_automation_actions = db.order_automation_actions
 
 _SAFE_ORDER_FIELDS = (
     "order_number",
-    "customer_id",
-    "plant_id",
-    "site_id",
-    "site_name",
     "grade",
     "quantity",
     "delivery_mode",
@@ -93,7 +89,6 @@ _SAFE_ORDER_FIELDS = (
     "delivery_time",
     "tm_id",
     "tm_number",
-    "driver_id",
     "delivered_quantity",
     "payment_status",
     "payment_type",
@@ -173,9 +168,51 @@ def build_order_status_event(history: dict, order: Optional[dict]) -> dict:
         "created_at": now,
         "updated_at": now,
     }
-    if target in {"REJECTED", "CANCELLED"} and history.get("note"):
-        event["payload"]["reason"] = str(history["note"])[:1000]
+    # History notes are operator-authored and may contain names, phone numbers or
+    # other internal context.  They are never copied to an external event.  A
+    # separately reviewed ``customer_status_reason`` may be supplied on the order.
+    if target in {"REJECTED", "CANCELLED"} and (order or {}).get("customer_status_reason"):
+        event["payload"]["reason"] = str(order["customer_status_reason"])[:240]
     return event
+
+
+def provider_event(event: dict) -> dict:
+    """Project a queue record onto the versioned provider wire contract.
+
+    Claimed queue records contain worker ownership and lease fencing fields.  Passing
+    the queue document directly to a provider would disclose those credentials and
+    internal scheduling metadata, so all adapters receive this explicit projection.
+    """
+    return {
+        "schema_version": event.get("schema_version", SCHEMA_VERSION),
+        "event_type": event.get("event_type", ORDER_STATUS_CHANGED),
+        "routing_key": event.get("routing_key", ""),
+        "aggregate_type": "order",
+        "aggregate_id": str(event.get("aggregate_id") or ""),
+        "source_history_id": str(event.get("source_history_id") or ""),
+        "from_status": event.get("from_status"),
+        "to_status": event.get("to_status"),
+        "occurred_at": event.get("occurred_at"),
+        "payload": dict(event.get("payload") or {}),
+        "delivery": {
+            "template": dict(event.get("delivery", {}).get("template") or {}),
+        },
+    }
+
+
+def in_customer_quiet_hours(customer: dict, now: Optional[datetime] = None) -> bool:
+    """Evaluate an optional local-hour window without persisting location data."""
+    start = customer.get("notification_quiet_hours_start")
+    end = customer.get("notification_quiet_hours_end")
+    if not isinstance(start, int) or not isinstance(end, int):
+        return False
+    if not 0 <= start <= 23 or not 0 <= end <= 23 or start == end:
+        return False
+    offset = customer.get("timezone_offset_minutes", 0)
+    if not isinstance(offset, int) or not -720 <= offset <= 840:
+        offset = 0
+    local_hour = ((now or _utcnow()) + timedelta(minutes=offset)).hour
+    return start <= local_hour < end if start < end else local_hour >= start or local_hour < end
 
 
 async def ensure_indexes() -> None:
@@ -442,6 +479,7 @@ async def deliver_claimed_event(event_id: Any, worker_id: str, lease_token: str,
     from automation_providers import cod_confirmation, n8n, twilio_messages, vapi
     from notifications import record_notification
     results: list[dict] = []
+    outbound_event = provider_event(event)
     message = event.get("delivery", {}).get("template", {}).get("en", "Order status updated.")
     for channel in channels:
         action = await order_automation_actions.find_one({
@@ -463,9 +501,18 @@ async def deliver_claimed_event(event_id: Any, worker_id: str, lease_token: str,
             await _finish_action(event, channel, STATE_COMPLETED, "opt-out")
             results.append({"provider": channel, "provider_id": "opt-out", "status": "skipped"})
             continue
+        if (channel != "n8n" and event.get("delivery", {}).get("quiet_hours")
+                and in_customer_quiet_hours(customer, now)):
+            await order_automation_actions.update_one(
+                {"source_history_id": event["source_history_id"], "channel": channel},
+                {"$set": {"state": STATE_RETRY, "error": "QUIET_HOURS",
+                          "next_attempt_at": now + timedelta(hours=1), "updated_at": now}},
+            )
+            from automation_providers import ProviderDeliveryError
+            raise ProviderDeliveryError("Delivery deferred by quiet-hours policy")
         try:
             if channel == "n8n":
-                result = (await n8n.send(event)).as_dict()
+                result = (await n8n.send(outbound_event)).as_dict()
             elif channel == "vapi":
                 payment = str((order or {}).get("payment_type") or (order or {}).get("payment_mode") or "").upper()
                 if event["to_status"] == "PENDING" and payment != "COD":
@@ -474,7 +521,7 @@ async def deliver_claimed_event(event_id: Any, worker_id: str, lease_token: str,
                     continue
                 adapter = cod_confirmation if event["to_status"] == "PENDING" else vapi
                 method = adapter.trigger if event["to_status"] == "PENDING" else adapter.send
-                result = (await method(event, str(customer.get("phone") or ""))).as_dict()
+                result = (await method(outbound_event, str(customer.get("phone") or ""))).as_dict()
             elif channel in {"sms", "whatsapp"}:
                 result = (await twilio_messages.send(channel, str(customer.get("phone") or ""), message)).as_dict()
             elif channel == "email":

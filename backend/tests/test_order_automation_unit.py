@@ -9,6 +9,8 @@ from order_automation import (
     _safe_provider_result,
     build_order_status_event,
     _channel_enabled,
+    provider_event,
+    in_customer_quiet_hours,
 )
 
 
@@ -31,7 +33,33 @@ def test_provider_result_and_event_never_persist_secrets_or_actor_notes():
                                       "actor_id": "private", "note": "internal"}, {})
     assert "actor_id" not in event
     assert "note" not in event
-    assert event["payload"]["reason"] == "internal"
+    assert "reason" not in event["payload"]
+
+
+def test_provider_projection_excludes_queue_lease_and_customer_identifiers():
+    event = build_order_status_event(
+        {"_id": ObjectId(), "order_id": "o1", "to_status": "ACCEPTED"},
+        {"order_number": "RMC-1", "customer_id": "private-customer", "site_name": "Private home"},
+    )
+    event.update({"worker_id": "worker-1", "lease_token": "secret-lease", "attempts": 2,
+                  "last_error": "internal failure"})
+    outbound = provider_event(event)
+    assert set(outbound) == {"schema_version", "event_type", "routing_key", "aggregate_type",
+                             "aggregate_id", "source_history_id", "from_status", "to_status",
+                             "occurred_at", "payload", "delivery"}
+    assert outbound["payload"] == {"order_number": "RMC-1"}
+    serialized = str(outbound)
+    assert "secret-lease" not in serialized
+    assert "private-customer" not in serialized
+    assert "Private home" not in serialized
+
+
+def test_quiet_hours_support_overnight_local_windows_and_fail_open_on_bad_preferences():
+    overnight = {"notification_quiet_hours_start": 22, "notification_quiet_hours_end": 7,
+                 "timezone_offset_minutes": 330}
+    assert in_customer_quiet_hours(overnight, datetime(2026, 9, 3, 18, 0, tzinfo=timezone.utc))
+    assert not in_customer_quiet_hours(overnight, datetime(2026, 9, 3, 6, 0, tzinfo=timezone.utc))
+    assert not in_customer_quiet_hours({"notification_quiet_hours_start": "secret"})
 
 
 def test_global_and_individual_channel_feature_flags(monkeypatch):
@@ -62,8 +90,6 @@ def test_build_order_status_event_has_deterministic_route_and_safe_payload():
         "_id": order_id,
         "order_number": "TMRMC-1001",
         "customer_id": "customer-1",
-        "plant_id": "plant-1",
-        "site_id": "site-1",
         "site_name": "Panvel Site",
         "grade": "M30",
         "quantity": 25,

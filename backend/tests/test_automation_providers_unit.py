@@ -6,7 +6,13 @@ import json
 import httpx
 import pytest
 
-from automation_providers import N8nWebhookAdapter, TwilioMessageAdapter, VapiCallAdapter
+from automation_providers import (
+    N8nWebhookAdapter,
+    ProviderConfigurationError,
+    ProviderDeliveryError,
+    TwilioMessageAdapter,
+    VapiCallAdapter,
+)
 from routers.assistant import SUPPORT_ROUTES
 
 
@@ -83,3 +89,33 @@ def test_every_support_category_has_a_distinct_safe_route():
     assert len({route["action"] for route in SUPPORT_ROUTES.values()}) == 8
     combined = " ".join(route["guidance"] for route in SUPPORT_ROUTES.values()).lower()
     assert "never share" in combined
+
+
+@pytest.mark.parametrize("adapter_call", [
+    lambda: N8nWebhookAdapter().send(_event()),
+    lambda: VapiCallAdapter().send(_event(), "+919876543210"),
+    lambda: TwilioMessageAdapter().send("sms", "+919876543210", "Safe update"),
+])
+def test_unconfigured_adapters_fail_closed_without_network(monkeypatch, adapter_call):
+    for name in ("N8N_WEBHOOK_URL", "N8N_WEBHOOK_SIGNING_SECRET", "VAPI_API_KEY",
+                 "VAPI_ASSISTANT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+                 "TWILIO_FROM_NUMBER"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(ProviderConfigurationError):
+        asyncio.run(adapter_call())
+
+
+def test_transient_provider_response_is_normalized_without_body_leakage(monkeypatch):
+    monkeypatch.setenv("N8N_WEBHOOK_URL", "https://n8n.example.test/webhook/order")
+    monkeypatch.setenv("N8N_WEBHOOK_SIGNING_SECRET", "s" * 32)
+
+    def handler(_request):
+        return httpx.Response(503, text="upstream secret diagnostic must not propagate")
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await N8nWebhookAdapter().send(_event(), client)
+
+    with pytest.raises(ProviderDeliveryError, match="n8n returned HTTP 503") as caught:
+        asyncio.run(run())
+    assert "diagnostic" not in str(caught.value)
