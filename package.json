@@ -1,0 +1,15 @@
+{
+  "name": "trackmyrmc-agent-tools",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "agents:route": "node tools/agents/router.ts",
+    "agents:kimi": "node tools/agents/router.ts --role kimi",
+    "agents:deepseek": "node tools/agents/router.ts --role deepseek",
+    "agents:laguna": "node tools/agents/router.ts --role laguna",
+    "agents:gemma": "node tools/agents/router.ts --role gemma",
+    "agents:validate": "node tools/agents/router.ts --validate",
+    "agents:test": "node --test tools/agents/*.test.ts"
+  }
+}
