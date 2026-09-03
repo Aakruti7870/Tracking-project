@@ -49,10 +49,11 @@ jobs:
 
           git fetch origin main --no-tags --prune
           MAIN_SHA="$(git rev-parse origin/main)"
+          export MAIN_SHA
           echo "MAIN_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
 
           python - <<'PY'
-          import json, os, sys
+          import json, os
           from pathlib import Path
 
           service = json.loads(Path('/tmp/service.json').read_text())
@@ -173,7 +174,7 @@ jobs:
 
           curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "${SERVICE_URL}/openapi.json" -o /tmp/openapi.json
           python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
           data = json.loads(Path('/tmp/openapi.json').read_text())
           paths = set(data.get('paths', {}))
