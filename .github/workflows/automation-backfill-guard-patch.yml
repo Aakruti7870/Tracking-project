@@ -1,0 +1,74 @@
+name: Apply Automation Backfill Guard
+
+on:
+  push:
+    branches:
+      - fix/automation-startup-backfill-guard
+    paths:
+      - .github/workflows/automation-backfill-guard-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/automation-startup-backfill-guard
+          fetch-depth: 0
+
+      - name: Patch startup backfill behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          config = Path('backend/config.py')
+          text = config.read_text()
+          old = '''    AUTOMATION_PUSH_ENABLED: bool = _boolean("AUTOMATION_PUSH_ENABLED", False)\n    AUTOMATION_N8N_ENABLED: bool = _boolean("AUTOMATION_N8N_ENABLED", False)\n'''
+          new = '''    AUTOMATION_PUSH_ENABLED: bool = _boolean("AUTOMATION_PUSH_ENABLED", False)\n    AUTOMATION_N8N_ENABLED: bool = _boolean("AUTOMATION_N8N_ENABLED", False)\n    # Historical replay is opt-in. Routine restarts must not enqueue stale order history.\n    AUTOMATION_BACKFILL_ON_STARTUP: bool = _boolean("AUTOMATION_BACKFILL_ON_STARTUP", False)\n'''
+          if old not in text:
+              raise SystemExit('config automation block not found')
+          config.write_text(text.replace(old, new, 1))
+
+          server = Path('backend/server.py')
+          text = server.read_text()
+          old = '''    backfilled = await backfill_order_status_events(limit=500)\n    logger.info("order automation initialized (backfilled=%s)", backfilled)\n'''
+          new = '''    backfilled = 0\n    if settings.AUTOMATION_BACKFILL_ON_STARTUP:\n        backfilled = await backfill_order_status_events(limit=500)\n    logger.info(\n        "order automation initialized (backfill_on_startup=%s, backfilled=%s)",\n        settings.AUTOMATION_BACKFILL_ON_STARTUP,\n        backfilled,\n    )\n'''
+          if old not in text:
+              raise SystemExit('startup backfill block not found')
+          server.write_text(text.replace(old, new, 1))
+          PY
+
+          cat > backend/tests/test_automation_startup_backfill_guard.py <<'PY'
+          from pathlib import Path
+
+
+          def test_automation_history_backfill_is_opt_in():
+              config = (Path(__file__).parents[1] / "config.py").read_text()
+              server = (Path(__file__).parents[1] / "server.py").read_text()
+
+              assert 'AUTOMATION_BACKFILL_ON_STARTUP: bool = _boolean("AUTOMATION_BACKFILL_ON_STARTUP", False)' in config
+              assert 'if settings.AUTOMATION_BACKFILL_ON_STARTUP:' in server
+              assert 'backfilled = await backfill_order_status_events(limit=500)' in server
+
+              guard = server.index('if settings.AUTOMATION_BACKFILL_ON_STARTUP:')
+              replay = server.index('backfilled = await backfill_order_status_events(limit=500)')
+              assert replay > guard
+          PY
+
+          git rm .github/workflows/automation-backfill-guard-patch.yml
+          git diff --check
+
+      - name: Commit guarded startup behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/config.py backend/server.py backend/tests/test_automation_startup_backfill_guard.py .github/workflows/automation-backfill-guard-patch.yml
+          git commit -m "fix: make automation history backfill opt-in"
+          git push origin HEAD:fix/automation-startup-backfill-guard
