@@ -747,6 +747,12 @@ async def _oid(value: str):
 @router.post("/orders")
 async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)):
     uid = ctx["user_id"]
+    if body.idempotency_key:
+        existing = await orders.find_one({
+            "customer_id": uid, "idempotency_key": body.idempotency_key,
+        })
+        if existing:
+            return {"id": str(existing["_id"]), "order": _serialize_order(existing), "idempotent_replay": True}
     if not body.save_draft:
         kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
         if (kyc or {}).get("status") != "VERIFIED":
@@ -791,10 +797,15 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
         "quotation_id": body.quotation_id, "quotation_number": quote.get("quotation_number") if quote else None,
         "quoted_total": quote.get("total") if quote else None,
         "status": status, "payment_status": "UNPAID", "created_at": now, "updated_at": now,
+        "idempotency_key": body.idempotency_key,
     }
     try:
         res = await orders.insert_one(doc)
     except DuplicateKeyError:
+        if body.idempotency_key:
+            existing = await orders.find_one({"customer_id": uid, "idempotency_key": body.idempotency_key})
+            if existing:
+                return {"id": str(existing["_id"]), "order": _serialize_order(existing), "idempotent_replay": True}
         raise HTTPException(409, "An order already exists for this quotation")
     oid = str(res.inserted_id)
     if quote:
@@ -802,10 +813,12 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
             {"_id": quote["_id"], "status": "ACCEPTED", "order_id": {"$exists": False}},
             {"$set": {"status": "ORDER_CREATED", "order_id": oid, "order_number": order_number, "updated_at": now}},
         )
-    await order_status_history.insert_one(
-        {"order_id": oid, "from_status": None, "to_status": status, "actor_id": uid,
-         "note": "Order created", "created_at": now}
-    )
+    history = {"order_id": oid, "from_status": None, "to_status": status, "actor_id": uid,
+               "note": "Order created", "created_at": now}
+    history_result = await order_status_history.insert_one(history)
+    history["_id"] = history_result.inserted_id
+    from order_automation import materialize_history_event
+    await materialize_history_event(history)
     await write_audit(uid, "order.create", "order", oid, {"status": status, "delivery_mode": body.delivery_mode, "quotation_id": body.quotation_id})
     if status == PENDING and plant.get("owner_id"):
         await record_notification(

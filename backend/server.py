@@ -19,6 +19,8 @@ from security import require_role
 from request_security import RateLimitMiddleware, unhandled_error_handler, validation_error_handler
 from routers import (
     account_deletion,
+    automation,
+    assistant,
     admin_auth,
     auth,
     business_ui,
@@ -136,6 +138,8 @@ app.include_router(staff_passkeys.router)
 app.include_router(play_review.router)
 app.include_router(me.router)
 app.include_router(account_deletion.router)
+app.include_router(automation.router)
+app.include_router(assistant.router)
 app.include_router(admin_auth.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
@@ -190,6 +194,14 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    from order_automation import backfill_order_status_events, ensure_indexes as ensure_automation_indexes
+    await ensure_automation_indexes()
+    from routers.assistant import order_intents, support_cases
+    await order_intents.create_index([("customer_id", 1), ("idempotency_key", 1)], unique=True)
+    await order_intents.create_index("token", unique=True)
+    await support_cases.create_index([("customer_id", 1), ("created_at", -1)])
+    backfilled = await backfill_order_status_events(limit=500)
+    logger.info("order automation initialized (backfilled=%s)", backfilled)
     await hr_master.ensure_indexes()
     await workforce.ensure_indexes()
     await workforce_roster.ensure_indexes()

@@ -133,8 +133,7 @@ async def transition_order(
             f"Order status changed concurrently from {current} to {latest_status}; retry from latest state",
         )
 
-    await order_status_history.insert_one(
-        {
+    history = {
             "order_id": str(order["_id"]),
             "from_status": current,
             "to_status": target,
@@ -142,7 +141,12 @@ async def transition_order(
             "note": note,
             "created_at": now,
         }
-    )
+    history_result = await order_status_history.insert_one(history)
+    history["_id"] = history_result.inserted_id
+    # Materialization is deliberately after the authoritative transition. A
+    # transient queue failure can be recovered by startup backfill.
+    from order_automation import materialize_history_event
+    await materialize_history_event(history)
     await write_audit(
         actor_id,
         f"order.{target.lower()}",

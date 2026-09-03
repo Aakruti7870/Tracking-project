@@ -12,6 +12,7 @@ history and prepares safe automation work items.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from secrets import token_urlsafe
 from typing import Any, Optional
 
 from bson import ObjectId
@@ -26,8 +27,54 @@ STATE_PENDING = "PENDING"
 STATE_PROCESSING = "PROCESSING"
 STATE_RETRY = "RETRY"
 STATE_COMPLETED = "COMPLETED"
+STATE_DEAD_LETTER = "DEAD_LETTER"
+
+CANONICAL_STATUSES = (
+    "DRAFT", "PENDING", "ACCEPTED", "REJECTED", "SCHEDULED",
+    "IN_PRODUCTION", "PRODUCTION_COMPLETE", "TM_ASSIGNED", "DRIVER_ASSIGNED",
+    "READY_TO_DISPATCH", "DISPATCHED", "EN_ROUTE", "AT_SITE", "UNLOADING",
+    "POD_PENDING", "DELIVERED", "CANCELLED",
+)
+
+# Copy and delivery policy live outside the state machine so operators can evolve
+# customer communications without granting an integration permission to mutate orders.
+_MESSAGES = {
+    "DRAFT": "Your order draft is saved.",
+    "PENDING": "We received your order and it is awaiting plant review.",
+    "ACCEPTED": "Your order has been accepted by the plant.",
+    "REJECTED": "The plant could not accept this order. Contact support for help.",
+    "SCHEDULED": "Your concrete delivery has been scheduled.",
+    "IN_PRODUCTION": "Production has started for your order.",
+    "PRODUCTION_COMPLETE": "Production is complete for your order.",
+    "TM_ASSIGNED": "A transit mixer has been assigned to your order.",
+    "DRIVER_ASSIGNED": "A driver has been assigned to your order.",
+    "READY_TO_DISPATCH": "Your order is ready to dispatch.",
+    "DISPATCHED": "Your order has left the plant. Tracking and ETA are available in the app.",
+    "EN_ROUTE": "Your delivery is en route. View the latest ETA in the app.",
+    "AT_SITE": "Your delivery has arrived at the site.",
+    "UNLOADING": "Unloading is in progress.",
+    "POD_PENDING": "Delivery is complete and proof of delivery is being finalized.",
+    "DELIVERED": "Your order was delivered. View the authorized challan and POD in the app.",
+    "CANCELLED": "Your order was cancelled. Contact support if you need assistance.",
+}
+
+AUTOMATION_POLICIES = {
+    status: {
+        "routing_key": f"order.status.{status.lower()}",
+        "template": {"en": _MESSAGES[status]},
+        "channels": (["push", "sms", "whatsapp", "vapi"]
+                     if status in {"REJECTED", "CANCELLED", "DELIVERED"}
+                     else ["push", "sms", "whatsapp"]),
+        "quiet_hours": status not in {"REJECTED", "CANCELLED"},
+        "respect_opt_out": True,
+        "max_attempts": 5,
+        "escalate": status in {"REJECTED", "CANCELLED"},
+    }
+    for status in CANONICAL_STATUSES
+}
 
 order_automation_events = db.order_automation_events
+order_automation_attempts = db.order_automation_attempts
 
 _SAFE_ORDER_FIELDS = (
     "order_number",
@@ -90,18 +137,20 @@ def build_order_status_event(history: dict, order: Optional[dict]) -> dict:
         "_id": history_id,
         "schema_version": SCHEMA_VERSION,
         "event_type": ORDER_STATUS_CHANGED,
-        "routing_key": f"order.status.{target.lower()}",
+        "routing_key": AUTOMATION_POLICIES.get(target, {}).get(
+            "routing_key", f"order.status.{target.lower()}"
+        ),
         "aggregate_type": "order",
         "aggregate_id": order_id,
         "source_history_id": str(history_id),
         "from_status": history.get("from_status"),
         "to_status": target,
-        "actor_id": _as_external(history.get("actor_id")),
-        "note": history.get("note"),
         "occurred_at": occurred_at,
         "payload": _order_payload(order),
+        "delivery": AUTOMATION_POLICIES.get(target, {}),
         "state": STATE_PENDING,
         "attempts": 0,
+        "max_attempts": AUTOMATION_POLICIES.get(target, {}).get("max_attempts", 5),
         "next_attempt_at": now,
         "created_at": now,
         "updated_at": now,
@@ -121,6 +170,9 @@ async def ensure_indexes() -> None:
     await order_automation_events.create_index(
         [("routing_key", 1), ("state", 1)],
         name="automation_route_state",
+    )
+    await order_automation_attempts.create_index(
+        [("event_id", 1), ("created_at", 1)], name="automation_attempt_audit"
     )
 
 
@@ -189,6 +241,7 @@ async def claim_order_status_events(
     for _ in range(limit):
         now = _utcnow()
         lease_expires_at = now + timedelta(seconds=lease_seconds)
+        lease_token = token_urlsafe(24)
         event = await order_automation_events.find_one_and_update(
             {
                 "$or": [
@@ -208,6 +261,7 @@ async def claim_order_status_events(
                     "worker_id": worker_id,
                     "claimed_at": now,
                     "lease_expires_at": lease_expires_at,
+                    "lease_token": lease_token,
                     "updated_at": now,
                 },
                 "$inc": {"attempts": 1},
@@ -217,6 +271,10 @@ async def claim_order_status_events(
         )
         if not event:
             break
+        await order_automation_attempts.insert_one({
+            "event_id": str(event["_id"]), "worker_id": worker_id,
+            "attempt": event["attempts"], "action": "CLAIMED", "created_at": now,
+        })
         claimed.append(event)
 
     return claimed
@@ -226,6 +284,7 @@ async def complete_order_status_event(
     event_id: Any,
     worker_id: str,
     result: Optional[dict] = None,
+    lease_token: Optional[str] = None,
 ) -> bool:
     """Acknowledge a claimed event. Wrong/stale workers cannot acknowledge it."""
     now = _utcnow()
@@ -234,17 +293,24 @@ async def complete_order_status_event(
             "state": STATE_COMPLETED,
             "completed_at": now,
             "updated_at": now,
-            "result": result or {},
+            "provider_result": _safe_provider_result(result),
         },
         "$unset": {
             "lease_expires_at": "",
+            "lease_token": "",
             "last_error": "",
         },
     }
     res = await order_automation_events.update_one(
-        {"_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id},
+        {"_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id,
+         "lease_token": lease_token, "lease_expires_at": {"$gt": now}},
         update,
     )
+    if res.modified_count == 1:
+        await order_automation_attempts.insert_one({
+            "event_id": str(event_id), "worker_id": worker_id, "action": "COMPLETED",
+            "provider_result": _safe_provider_result(result), "created_at": now,
+        })
     return res.modified_count == 1
 
 
@@ -253,20 +319,45 @@ async def fail_order_status_event(
     worker_id: str,
     error: str,
     retry_after_seconds: int = 60,
+    lease_token: Optional[str] = None,
 ) -> bool:
     """Release a failed event back to the queue with bounded retry delay."""
     now = _utcnow()
     retry_after_seconds = max(15, min(int(retry_after_seconds), 3600))
+    event = await order_automation_events.find_one({
+        "_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id,
+        "lease_token": lease_token, "lease_expires_at": {"$gt": now},
+    })
+    if not event:
+        return False
+    dead = int(event.get("attempts", 0)) >= int(event.get("max_attempts", 5))
+    retry_after_seconds = min(3600, retry_after_seconds * (2 ** max(0, int(event.get("attempts", 1)) - 1)))
     res = await order_automation_events.update_one(
-        {"_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id},
+        {"_id": event_id, "state": STATE_PROCESSING, "worker_id": worker_id,
+         "lease_token": lease_token, "lease_expires_at": {"$gt": now}},
         {
             "$set": {
-                "state": STATE_RETRY,
+                "state": STATE_DEAD_LETTER if dead else STATE_RETRY,
                 "last_error": str(error)[:1000],
                 "next_attempt_at": now + timedelta(seconds=retry_after_seconds),
+                "dead_lettered_at": now if dead else None,
                 "updated_at": now,
             },
-            "$unset": {"lease_expires_at": ""},
+            "$unset": {"lease_expires_at": "", "lease_token": ""},
         },
     )
+    if res.modified_count == 1:
+        await order_automation_attempts.insert_one({
+            "event_id": str(event_id), "worker_id": worker_id,
+            "attempt": event.get("attempts"), "action": "DEAD_LETTERED" if dead else "RETRY_SCHEDULED",
+            "failure_reason": str(error)[:1000], "retry_after_seconds": retry_after_seconds,
+            "created_at": now,
+        })
     return res.modified_count == 1
+
+
+def _safe_provider_result(result: Optional[dict]) -> dict:
+    """Persist only non-sensitive delivery metadata returned by a provider."""
+    result = result or {}
+    allowed = ("provider", "provider_id", "status", "failure_reason", "sent_at", "completed_at")
+    return {key: _as_external(result[key]) for key in allowed if result.get(key) is not None}

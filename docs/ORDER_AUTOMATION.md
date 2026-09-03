@@ -1,0 +1,34 @@
+# Order automation operations
+
+`order_status_history` remains the authoritative event ledger. The API materializes
+each history row into a deduplicated queue record; integrations can only claim,
+acknowledge, or fail these records and have no status-mutation capability.
+
+## Configuration
+
+Set `AUTOMATION_WORKER_TOKEN` (at least 32 characters) in the secret store. Provider
+workers may separately use provider-specific environment variables such as
+`VAPI_API_KEY`, `VAPI_ASSISTANT_ID`, `N8N_WEBHOOK_URL`, and
+`N8N_WEBHOOK_SIGNING_SECRET`; values must never be stored in the repository or
+forwarded in event payloads. Providers are optional and disabled when unconfigured.
+
+Workers claim events with a bounded lease. Every acknowledgement/failure must carry
+the opaque lease token, preventing a stale worker from completing a reclaimed event.
+Failures retry with bounded delay and move to `DEAD_LETTER` after five attempts.
+Provider persistence is restricted to identifiers, status, timestamps, and a bounded
+failure reason. Customer channel workers must enforce the event's opt-out and quiet-
+hours policy before delivery.
+
+Conversational ordering is authenticated and two phase: preparation verifies KYC and
+returns a safe summary, while a distinct explicit-confirmation request delegates to
+the existing order endpoint. Customer-scoped idempotency prevents duplicate orders.
+Voice users must approve the authenticated in-app action; they must never speak an
+OTP, password, passkey, or recovery code to an assistant.
+
+## Rollout and rollback
+
+Roll out with provider workers disabled, inspect backfill/queue counts, then enable
+channels incrementally. To roll back, stop workers and deploy the prior API; the
+history ledger and queued records remain intact for replay. Rotate the worker token
+immediately on suspected disclosure. Dead letters require an operator review before
+replay; never edit order status as part of replay.

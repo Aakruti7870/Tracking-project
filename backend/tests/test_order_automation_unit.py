@@ -2,7 +2,34 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 
-from order_automation import ORDER_STATUS_CHANGED, build_order_status_event
+from order_automation import (
+    AUTOMATION_POLICIES,
+    CANONICAL_STATUSES,
+    ORDER_STATUS_CHANGED,
+    _safe_provider_result,
+    build_order_status_event,
+)
+
+
+def test_all_canonical_statuses_have_localized_non_spam_policy():
+    assert set(AUTOMATION_POLICIES) == set(CANONICAL_STATUSES)
+    voice = {status for status, policy in AUTOMATION_POLICIES.items() if "vapi" in policy["channels"]}
+    assert voice == {"REJECTED", "CANCELLED", "DELIVERED"}
+    for status, policy in AUTOMATION_POLICIES.items():
+        assert policy["routing_key"] == f"order.status.{status.lower()}"
+        assert policy["template"]["en"]
+        assert policy["respect_opt_out"] is True
+        assert policy["max_attempts"] == 5
+
+
+def test_provider_result_and_event_never_persist_secrets_or_actor_notes():
+    result = _safe_provider_result({"provider": "vapi", "provider_id": "call-1", "status": "sent",
+                                    "token": "secret", "raw_response": {"phone": "+910000000000"}})
+    assert result == {"provider": "vapi", "provider_id": "call-1", "status": "sent"}
+    event = build_order_status_event({"_id": ObjectId(), "order_id": "o1", "to_status": "REJECTED",
+                                      "actor_id": "private", "note": "internal"}, {})
+    assert "actor_id" not in event
+    assert "note" not in event
 
 
 def test_build_order_status_event_has_deterministic_route_and_safe_payload():

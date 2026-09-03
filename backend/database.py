@@ -157,6 +157,11 @@ async def ensure_indexes() -> None:
     await orders.create_index([("plant_id", 1), ("status", 1), ("created_at", -1)])
     await orders.create_index("order_number", unique=True)
     await orders.create_index(
+        [("customer_id", 1), ("idempotency_key", 1)], unique=True,
+        partialFilterExpression={"idempotency_key": {"$type": "string"}},
+        name="unique_customer_order_idempotency",
+    )
+    await orders.create_index(
         "quotation_id", unique=True,
         partialFilterExpression={"quotation_id": {"$type": "string"}},
         name="unique_order_per_quotation",

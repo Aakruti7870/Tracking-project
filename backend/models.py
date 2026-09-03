@@ -111,6 +111,7 @@ class VerifyOtpBody(StrictModel):
 
 
 class CreateOrderBody(StrictModel):
+    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=128)
     plant_id: str = Field(min_length=1, max_length=128)
     quotation_id: Optional[str] = Field(default=None, max_length=128)
     site_id: Optional[str] = Field(default=None, max_length=128)
