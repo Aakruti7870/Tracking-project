@@ -22,14 +22,16 @@ def _event(status="DELIVERED"):
             "delivery": {"template": {"en": "Order delivered."}}}
 
 
-def test_n8n_request_is_signed_safe_and_idempotent(monkeypatch):
+def test_n8n_request_is_authenticated_signed_safe_and_idempotent(monkeypatch):
     monkeypatch.setenv("N8N_WEBHOOK_URL", "https://n8n.example.test/webhook/order")
     monkeypatch.setenv("N8N_WEBHOOK_SIGNING_SECRET", "s" * 32)
+    monkeypatch.setenv("N8N_WEBHOOK_AUTH_TOKEN", "a" * 32)
 
     def handler(request):
         timestamp = request.headers["X-TrackMyRMC-Timestamp"]
         expected = hmac.new(("s" * 32).encode(), timestamp.encode() + b"." + request.content,
                             hashlib.sha256).hexdigest()
+        assert request.headers["X-TrackMyRMC-Token"] == "a" * 32
         assert request.headers["X-TrackMyRMC-Signature"] == f"sha256={expected}"
         assert request.headers["Idempotency-Key"] == "history-1"
         assert "secret" not in json.loads(request.content)
@@ -97,9 +99,9 @@ def test_every_support_category_has_a_distinct_safe_route():
     lambda: TwilioMessageAdapter().send("sms", "+919876543210", "Safe update"),
 ])
 def test_unconfigured_adapters_fail_closed_without_network(monkeypatch, adapter_call):
-    for name in ("N8N_WEBHOOK_URL", "N8N_WEBHOOK_SIGNING_SECRET", "VAPI_API_KEY",
-                 "VAPI_ASSISTANT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
-                 "TWILIO_FROM_NUMBER"):
+    for name in ("N8N_WEBHOOK_URL", "N8N_WEBHOOK_SIGNING_SECRET", "N8N_WEBHOOK_AUTH_TOKEN",
+                 "VAPI_API_KEY", "VAPI_ASSISTANT_ID", "TWILIO_ACCOUNT_SID",
+                 "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(ProviderConfigurationError):
         asyncio.run(adapter_call())
@@ -108,6 +110,7 @@ def test_unconfigured_adapters_fail_closed_without_network(monkeypatch, adapter_
 def test_transient_provider_response_is_normalized_without_body_leakage(monkeypatch):
     monkeypatch.setenv("N8N_WEBHOOK_URL", "https://n8n.example.test/webhook/order")
     monkeypatch.setenv("N8N_WEBHOOK_SIGNING_SECRET", "s" * 32)
+    monkeypatch.setenv("N8N_WEBHOOK_AUTH_TOKEN", "a" * 32)
 
     def handler(_request):
         return httpx.Response(503, text="upstream secret diagnostic must not propagate")
