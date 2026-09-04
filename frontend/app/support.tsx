@@ -27,6 +27,8 @@ const ISSUES: { category: Category; label: string; icon: React.ComponentProps<ty
   { category: "PLANT_ONBOARDING", label: "Plant Onboarding", icon: "business-outline" }, { category: "GENERAL", label: "Other Issue", icon: "help-circle-outline" },
 ];
 
+const newEscalationId = () => `support-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export default function Support() {
   const { colors } = useTheme(); const insets = useSafeAreaInsets(); const router = useRouter(); const { token } = useAuth();
   const [category, setCategory] = useState<Category | null>(null); const [message, setMessage] = useState("");
@@ -34,11 +36,12 @@ export default function Support() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null); const [caseReply, setCaseReply] = useState("");
   const [replying, setReplying] = useState(false); const [caseError, setCaseError] = useState<string | null>(null);
-  const escalationId = useRef(`support-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const escalationId = useRef(newEscalationId());
   const orders = useGet<{ orders: OrderData[] }>(token && (category === "ORDER" || category === "TRACKING") ? "/customer/orders" : null);
   const cases = useGet<{ cases: SupportCase[] }>(token ? "/assistant/support/cases" : null);
   const caseDetail = useGet<{ case: SupportCase }>(token && selectedCaseId ? `/assistant/support/cases/${selectedCaseId}` : null);
   const selectedOrder = useMemo(() => orders.data?.orders.find((o) => o.id === orderId), [orders.data, orderId]);
+  const actionRoute = reply ? supportActionRoute(reply.action, orderId) : null;
 
   async function send(escalate = false) {
     if (!token || !category || !message.trim() || busy) return;
@@ -46,11 +49,17 @@ export default function Support() {
     try {
       const result = await apiPost<Reply>("/assistant/support", token, { category, message: message.trim(), order_id: orderId, escalate,
         request_id: escalate ? escalationId.current : undefined });
-      setReply(result); if (escalate) await cases.refetch();
+      setReply(result);
+      if (escalate) {
+        // Keep the same key across retries, but rotate it immediately after a
+        // successful case creation so the next distinct issue creates a new case.
+        escalationId.current = newEscalationId();
+        await cases.refetch();
+      }
     } catch (e) { setError(apiErrorDetail(e, "Unable to reach support. Check your connection and retry.")); }
     finally { setBusy(false); }
   }
-  function openAction() { if (!reply) return; const route = supportActionRoute(reply.action, orderId); if (route) router.push(route as never); }
+  function openAction() { if (actionRoute) router.push(actionRoute as never); }
   async function sendCaseReply() {
     if (!token || !selectedCaseId || !caseReply.trim() || replying) return;
     setReplying(true); setCaseError(null);
@@ -89,7 +98,7 @@ export default function Support() {
 
       {reply && <View style={[styles.agentBubble, { backgroundColor: colors.brandSoft }]}><AppText variant="eyebrow">SUPPORT AGENT</AppText>
         <AppText>{reply.guidance}</AppText>{selectedOrder && <AppText variant="caption">Authorized order: {selectedOrder.order_number} · {selectedOrder.status}</AppText>}
-        {reply.action !== "OPEN_HELP" && <Button label="Open secure screen" variant="outline" onPress={openAction} />}
+        {actionRoute ? <Button testID="support-open-secure-screen" label="Open secure screen" variant="outline" onPress={openAction} /> : null}
         {!reply.case_id ? <Button testID="support-escalate" label="Create Support Case" loading={busy} onPress={() => send(true)} /> :
           <Card testID="support-case-confirmation"><AppText variant="heading">Support case created</AppText><AppText>{reply.case_number || reply.case_id}</AppText><AppText variant="caption">{reply.category} · {reply.case_status || "OPEN"}</AppText></Card>}
       </View>}
