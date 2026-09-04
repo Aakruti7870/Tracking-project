@@ -62,6 +62,15 @@ test("login help widget is public guidance only and never calls customer APIs", 
   assert.ok(!widget.includes('"/assistant/') && !widget.includes('"/customer/orders'));
 });
 
+test("mascot widget remains compact and non-blocking when collapsed", () => {
+  assert.ok(widget.includes("support-agent-mascot.png"));
+  assert.ok(widget.includes("Need help logging in?"));
+  assert.ok(widget.includes("width: 56"));
+  assert.ok(widget.includes("height: 56"));
+  assert.ok(widget.includes('pointerEvents="box-none"'));
+  assert.ok(widget.includes("insets.bottom + 76"));
+});
+
 test("floating full support widget is restricted to authenticated customers", () => {
   assert.ok(widget.includes('Boolean(token) && user?.role === "customer"'));
   assert.ok(widget.includes('pathname !== "/support"'));
