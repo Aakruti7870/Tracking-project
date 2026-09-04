@@ -367,3 +367,52 @@
 ## agent_communication:
 ##   - agent: "main"
 ##     message: "Hero artwork added. New reusable src/components/BrandHero.tsx renders the single approved TrackMyRMC scene (assets/images/brand-hero.jpg, optimized from the provided 1536x1024 PNG). Used on Login (app/login.tsx, replacing the old light/dark hero pair) and post-login Home (app/customer/index.tsx, replacing old hero+copy). Theme-responsive tint (white 30% in light, dark 30% in dark), fills full card width via aspectRatio 1.5 (crisp, no stretch/crop of logo or mixer), capped+centered on large viewports, and fades on bottom + both sides into the page background (colors.surface) with NO hard border/rectangle. Verified via screenshots: login dark, home light, home dark — logo/wordmark/tagline/mixer all sharp and un-faded, seamless background blend. tsc + eslint clean. Removed now-unused login-hero/home-hero image imports and dead styles."
+
+#====================================================================================================
+# Automation worker heartbeat + Cloud Scheduler production safety (added 2026-09-04)
+#====================================================================================================
+
+## backend:
+##   - task: "Automation worker heartbeat + health monitor + read-only worker-health endpoint"
+##     implemented: true
+##     working: true
+##     file: "backend/automation_heartbeat.py, backend/automation_health.py, backend/automation_scheduler_check.py, backend/automation_worker.py, backend/routers/automation.py, backend/config.py, backend/database.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Added durable heartbeat: run_worker records last_started_at before each cycle and last_success_at after a clean cycle (SUCCESS / SUCCESS_IDLE incl. AUTOMATION_ENABLED=false), and records FAILED + re-raises on exception; a heartbeat write failure is NOT swallowed. Stored in Mongo collection automation_worker_heartbeats keyed by _id=worker_name (no secrets). Health thresholds centralized in config (AUTOMATION_HEARTBEAT_HEALTHY_SECONDS=180, AUTOMATION_HEARTBEAT_WARNING_SECONDS=300) -> HEALTHY/WARNING/FAILED/UNKNOWN. New authenticated (AUTOMATION_WORKER_TOKEN, never public) read-only endpoint GET /api/automation/worker-health returns liveness JSON. New CLI monitor backend/automation_health.py (exit 0 HEALTHY/WARNING, exit 1 FAILED/UNKNOWN). Verified locally: /api/automation/worker-health -> 401 without token, 200 with token (UNKNOWN before any run); after running python automation_worker.py once -> HEALTHY with last_status=SUCCESS_IDLE. 34 targeted unit tests + 8 config unit tests pass. NOTE: /app/backend/.env was MISSING in this checkout (gitignored) so I created a local dev .env (APP_ENV=development, local Mongo, dev AUTOMATION_WORKER_TOKEN) and installed backend/requirements-runtime.txt to boot the app."
+##       - working: true
+##         agent: "testing"
+##         comment: "AUTOMATION WORKER HEARTBEAT + HEALTH SURFACE VERIFICATION COMPLETE - ALL TESTS PASSED (5/5 scenarios). Tested on local dev backend at http://localhost:8001 with AUTOMATION_WORKER_TOKEN='local-dev-automation-worker-token-000000000000'. RESULTS: (1) ✅ GET /api/automation/worker-health WITHOUT Authorization -> HTTP 401 with {detail:'Invalid automation worker credentials'}. (2) ✅ GET /api/automation/worker-health WITH bearer token -> HTTP 200 with correct JSON: worker_name='automation-worker', status='HEALTHY', healthy_threshold_seconds=180, warning_threshold_seconds=300, last_status='SUCCESS_IDLE', last_success_at present (recent timestamp). (3) ✅ Ran python automation_worker.py from /app/backend -> exit code 0, logged 'automation worker disabled by AUTOMATION_ENABLED'. Subsequent health check confirmed status='HEALTHY', last_status='SUCCESS_IDLE', age_seconds=4s (fresh heartbeat). (4) ✅ GET /api/health -> HTTP 200 with {status:'healthy', notifications.configured:false}. App boots cleanly with new router. (5) ✅ Pytest suite PASSED: 34/34 tests passed in 0.69s (test_automation_heartbeat_unit.py: 8 tests, test_automation_health_unit.py: 2 tests, test_automation_worker_heartbeat_unit.py: 5 tests, test_automation_scheduler_check_unit.py: 8 tests, test_deploy_workflow_scheduler_guard.py: 4 tests, test_automation_worker.py: 7 tests). No external Cloud Scheduler API calls made. No code or .env modifications made during testing. All authentication, health evaluation, heartbeat recording, and worker execution paths working correctly."
+##
+##   - task: "Deploy workflow holds zero Cloud Scheduler permissions + operator scripts + regression guard"
+##     implemented: true
+##     working: true
+##     file: ".github/workflows/deploy-automation-worker.yml, scripts/setup_automation_scheduler.sh, scripts/verify_automation_scheduler.sh, backend/tests/test_deploy_workflow_scheduler_guard.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: true
+##         agent: "main"
+##         comment: "Deploy workflow makes NO gcloud scheduler jobs create/update/run/describe calls (verified). It prints AUTOMATION_WORKER_DEPLOYED=YES, AUTOMATION_WORKER_SMOKE_RUN=PASS, AUTOMATION_WORKER_HEARTBEAT=PASS, and AUTOMATION_SCHEDULER_VERIFIED=NO (never YES). Added worker-config + runtime-SA assertion in 'Verify worker ready'. Operator-only scripts setup_automation_scheduler.sh (idempotent create/update, --apply guard) and verify_automation_scheduler.sh (read-only describe + automation_scheduler_check.py parsing + recent execution check). Regression guard test asserts the workflow never regains direct scheduler calls and always prints the required markers. bash -n OK; scheduler-check CLI validated for good/bad configs."
+
+## test_plan:
+##   current_focus:
+##     - "Automation worker heartbeat + health monitor + read-only worker-health endpoint"
+##   stuck_tasks: []
+##   test_all: false
+##   test_priority: "high_first"
+
+## agent_communication:
+##   - agent: "main"
+##     message: "Please backend-test the NEW automation heartbeat + health surface ONLY (do not retest unrelated modules). Local dev backend is running at http://localhost:8001 (also reachable via the preview /api ingress). Auth for the new endpoint uses header 'Authorization: Bearer local-dev-automation-worker-token-000000000000' (this exact dev AUTOMATION_WORKER_TOKEN is set in the local backend/.env I created; it is NOT a real secret). Scenarios: (1) GET /api/automation/worker-health WITHOUT Authorization -> 401. (2) GET /api/automation/worker-health WITH the bearer token -> 200 JSON containing worker_name, status in {HEALTHY,WARNING,FAILED,UNKNOWN}, healthy_threshold_seconds=180, warning_threshold_seconds=300. (3) Run the worker once: from /app/backend run `python automation_worker.py` (AUTOMATION_ENABLED=false so it takes the idle path) then GET the endpoint again -> status HEALTHY and last_status=SUCCESS_IDLE with a recent last_success_at. (4) Confirm GET /api/health still 200 and the app booted cleanly. (5) Run the targeted pytest set (no live external services needed): from /app/backend with env APP_ENV=test MONGO_URL=mongodb://localhost:27017 DB_NAME=heartbeat_ci JWT_SECRET=x OTP_PEPPER=y, run pytest tests/test_automation_heartbeat_unit.py tests/test_automation_health_unit.py tests/test_automation_worker_heartbeat_unit.py tests/test_automation_scheduler_check_unit.py tests/test_deploy_workflow_scheduler_guard.py tests/test_automation_worker.py -> expect all pass. Do NOT call Cloud Scheduler or any external cloud API. Do NOT modify code or .env."
+##   - agent: "testing"
+##     message: "AUTOMATION WORKER HEARTBEAT + HEALTH SURFACE TESTING COMPLETE - ALL 5 SCENARIOS PASSED. Verified the new automation worker heartbeat and health monitoring surface on local dev backend (http://localhost:8001). Authentication working correctly (401 without token, 200 with valid bearer token). Health endpoint returns correct JSON structure with worker_name, status (HEALTHY/WARNING/FAILED/UNKNOWN), threshold values (180s healthy, 300s warning), and heartbeat timestamps. Worker execution successful (python automation_worker.py exits 0, records SUCCESS_IDLE heartbeat when AUTOMATION_ENABLED=false). App boots cleanly (/api/health returns 200 healthy). All 34 unit tests passed (test_automation_heartbeat_unit.py, test_automation_health_unit.py, test_automation_worker_heartbeat_unit.py, test_automation_scheduler_check_unit.py, test_deploy_workflow_scheduler_guard.py, test_automation_worker.py). No external Cloud Scheduler API calls made. No code or .env modifications made during testing. Implementation is production-ready."
+
+## agent_communication:
+##   - agent: "testing"
+##     message: "AUTOMATION HEARTBEAT + HEALTH VERIFICATION COMPLETE - ALL 5/5 SCENARIOS PASSED. (1) GET /api/automation/worker-health without auth -> 401 {detail:Invalid automation worker credentials}. (2) With bearer token -> 200 JSON worker_name=automation-worker, status in enum, healthy_threshold_seconds=180, warning_threshold_seconds=300. (3) Ran python automation_worker.py (exit 0, AUTOMATION_ENABLED=false idle path) -> health status HEALTHY, last_status=SUCCESS_IDLE, fresh last_success_at (age ~4s). (4) GET /api/health -> 200 healthy; app boots cleanly with new router. (5) Targeted pytest set 34/34 passed in 0.69s. No code/.env modifications; no external Cloud Scheduler calls."

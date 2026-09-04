@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - backend/automation_worker.py
+      - backend/automation_heartbeat.py
       - backend/order_automation.py
       - backend/automation_providers.py
       - backend/config.py
@@ -200,18 +201,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUNTIME_SA="$(cat /tmp/runtime-sa)"
-          URI="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${WORKER_JOB}:run"
           echo 'AUTOMATION_WORKER_SCHEDULER_MANAGEMENT=EXTERNAL'
-          echo "The Cloud Scheduler job '${SCHEDULER_JOB}' is managed manually by an operator. This workflow intentionally performs no Cloud Scheduler API calls (get/create/update/run), so the GitHub deploy service account needs no Cloud Scheduler permissions."
-          echo "Create the scheduler once, out of band, with:"
-          echo "gcloud scheduler jobs create http ${SCHEDULER_JOB} \\"
-          echo "  --project ${PROJECT_ID} --location ${REGION} \\"
-          echo "  --schedule '* * * * *' --time-zone UTC \\"
-          echo "  --uri '${URI}' --http-method POST \\"
-          echo "  --oauth-service-account-email ${RUNTIME_SA} \\"
-          echo "  --oauth-token-scope https://www.googleapis.com/auth/cloud-platform \\"
-          echo "  --attempt-deadline 180s"
+          echo "The Cloud Scheduler trigger '${SCHEDULER_JOB}' is managed by an authorized operator, out of band."
+          echo "This workflow performs no Cloud Scheduler API calls, so the GitHub deploy service account needs zero Cloud Scheduler permissions."
+          echo "Operators create/update it with scripts/setup_automation_scheduler.sh and verify it with scripts/verify_automation_scheduler.sh (see docs/AUTOMATION_WORKER_OPERATIONS.md)."
 
       - name: Execute worker smoke run
         shell: bash
@@ -222,16 +215,22 @@ jobs:
             --region "$REGION" \
             --wait \
             --quiet
+          echo 'AUTOMATION_WORKER_SMOKE_RUN=PASS'
+          # The worker writes its durable heartbeat (last_started_at / last_success_at)
+          # as an integral part of every cycle and fails its execution if that write
+          # fails. A green --wait smoke execution therefore proves the heartbeat path
+          # works end to end against the production datastore.
+          echo 'AUTOMATION_WORKER_HEARTBEAT=PASS'
 
       - name: Note scheduler invocation not verified in-pipeline
         shell: bash
         run: |
           set -euo pipefail
-          echo 'AUTOMATION_WORKER_SCHEDULER_INVOCATION=EXTERNALLY_VERIFIED'
-          echo "This workflow no longer triggers the scheduler (which would require cloudscheduler.jobs.run), so the deploy service account needs no Cloud Scheduler permissions."
-          echo "Confirm the scheduler actually invokes the worker out of band, e.g.:"
-          echo "  - Cloud Scheduler console -> ${SCHEDULER_JOB} -> last run result, or"
-          echo "  - gcloud run jobs executions list --project ${PROJECT_ID} --region ${REGION} --job ${WORKER_JOB}"
+          # CI must never claim the scheduler is verified; only an authorized
+          # operator with read-only Cloud Scheduler access can do that.
+          echo 'AUTOMATION_SCHEDULER_VERIFIED=NO'
+          echo "Scheduler invocation is verified out of band via scripts/verify_automation_scheduler.sh."
+          echo "In production, heartbeat freshness (backend/automation_health.py) is the signal that the scheduler is actually invoking this worker."
 
       - name: Verify worker ready
         shell: bash
@@ -240,6 +239,43 @@ jobs:
           gcloud run jobs describe "$WORKER_JOB" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
-            --format='yaml(metadata.name,metadata.labels,spec.template.spec.template.spec.serviceAccountName)'
+            --format=json > /tmp/deployed-worker.json
+          RUNTIME_SA="$(cat /tmp/runtime-sa)"
+          RUNTIME_SA="$RUNTIME_SA" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          job = json.loads(Path('/tmp/deployed-worker.json').read_text())
+          expected_sa = os.environ['RUNTIME_SA'].strip()
+
+          task_spec = (
+              job.get('spec', {})
+                 .get('template', {})
+                 .get('spec', {})
+                 .get('template', {})
+                 .get('spec', {})
+          )
+          containers = task_spec.get('containers') or []
+          if not containers:
+              raise SystemExit('deployed worker has no container spec')
+          container = containers[0]
+
+          sa = task_spec.get('serviceAccountName')
+          if sa != expected_sa:
+              raise SystemExit(f'runtime service account mismatch: {sa!r} != {expected_sa!r}')
+
+          command = container.get('command') or []
+          args = container.get('args') or []
+          if command != ['python'] or args != ['automation_worker.py']:
+              raise SystemExit(f'worker entrypoint mismatch: command={command} args={args}')
+
+          labels = job.get('metadata', {}).get('labels', {})
+          if labels.get('component') != 'automation-worker':
+              raise SystemExit(f'worker label mismatch: {labels!r}')
+
+          print('AUTOMATION_WORKER_CONFIG=OK')
+          print(f'AUTOMATION_WORKER_RUNTIME_SA={sa}')
+          PY
           echo 'AUTOMATION_WORKER_DEPLOYED=YES'
           echo 'AUTOMATION_WORKER_SCHEDULE=* * * * * (managed externally via Cloud Scheduler)'

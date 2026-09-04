@@ -8,6 +8,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import Field
 
+from automation_heartbeat import WORKER_NAME, worker_health
 from order_automation import (
     claim_order_status_events,
     complete_order_status_event,
@@ -82,6 +83,19 @@ async def claim(body: ClaimBody, authorization: Optional[str] = Header(default=N
     _authorize(authorization)
     events = await claim_order_status_events(body.worker_id, body.limit, body.lease_seconds)
     return {"events": _json_safe(events)}
+
+
+@router.get("/worker-health")
+async def worker_health_endpoint(authorization: Optional[str] = Header(default=None)):
+    """Read-only worker liveness for operators/monitoring.
+
+    Authenticated with the same least-privilege automation worker token (never
+    public) and returns only non-sensitive liveness metadata (status, ages,
+    thresholds). It performs no Cloud Scheduler calls.
+    """
+    _authorize(authorization)
+    report = await worker_health(WORKER_NAME)
+    return report.to_dict()
 
 
 @router.post("/events/{event_id}/ack")
