@@ -15,6 +15,7 @@ import { AuthProvider } from "@/src/auth/AuthContext";
 import { ToastProvider } from "@/src/components/ui/Toast";
 import { PushNotificationBridge } from "@/src/notifications/PushNotificationBridge";
 import { BackgroundLocationConsentProvider } from "@/src/location/BackgroundLocationConsent";
+import { SupportWidgetBridge } from "@/src/support/SupportWidgetBridge";
 
 // Keep the native splash visible from cold start until fonts and the persisted
 // theme preference are ready. Do not suppress LogBox globally: development
@@ -55,6 +56,7 @@ export default function RootLayout() {
                 <PushNotificationBridge />
                 <BackgroundLocationConsentProvider />
                 <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
+                <SupportWidgetBridge />
               </ToastProvider>
             </AuthProvider>
           </ThemeProvider>
