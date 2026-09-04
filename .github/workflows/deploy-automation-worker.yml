@@ -64,27 +64,21 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Ensure Cloud Scheduler API enabled
+      - name: Verify Cloud Scheduler API enabled
         shell: bash
         run: |
           set -euo pipefail
-          gcloud services enable cloudscheduler.googleapis.com \
+          ENABLED="$(gcloud services list \
             --project "$PROJECT_ID" \
-            --quiet
-          for _ in {1..30}; do
-            ENABLED="$(gcloud services list \
-              --project "$PROJECT_ID" \
-              --enabled \
-              --filter='config.name:cloudscheduler.googleapis.com' \
-              --format='value(config.name)')"
-            if [ "$ENABLED" = "cloudscheduler.googleapis.com" ]; then
-              echo 'CLOUD_SCHEDULER_API_ENABLED=YES'
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::Cloud Scheduler API did not become enabled."
-          exit 1
+            --enabled \
+            --filter='config.name:cloudscheduler.googleapis.com' \
+            --format='value(config.name)')"
+          if [ "$ENABLED" = "cloudscheduler.googleapis.com" ]; then
+            echo 'CLOUD_SCHEDULER_API_ENABLED=YES'
+          else
+            echo "::error::Cloud Scheduler API (cloudscheduler.googleapis.com) is not enabled for project ${PROJECT_ID}. The GitHub deploy service account intentionally lacks serviceusage.services.enable, so this workflow will not enable it automatically. An operator must enable it manually once by running: gcloud services enable cloudscheduler.googleapis.com --project ${PROJECT_ID}"
+            exit 1
+          fi
 
       - name: Capture live production runtime contract
         shell: bash
