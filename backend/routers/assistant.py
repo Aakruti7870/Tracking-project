@@ -46,7 +46,7 @@ SECRET_PATTERNS = (
     re.compile(
         r"\b(?:password|passkey)\b"
         r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
-        r"(?!(?:reset|screen|page|field|issue|problem|help|verification|login|prompt|manager|policy|requirement|required|incorrect|invalid|forgot|change|expired)\b)"
+        r"(?!(?:and|reset|screen|page|field|issue|problem|help|verification|login|prompt|manager|policy|requirement|required|incorrect|invalid|forgot|change|expired)\b)"
         r"\S{3,}",
         re.I,
     ),
@@ -75,6 +75,8 @@ SECRET_PATTERNS = (
 
 def _safe_support_message(value: str) -> str:
     stripped = value.strip()
+    if not stripped:
+        raise ValueError("Support message is required")
     if any(pattern.search(stripped) for pattern in SECRET_PATTERNS):
         raise ValueError(SAFE_SECRET_MESSAGE)
     return stripped
@@ -96,7 +98,7 @@ class SupportBody(StrictModel):
     escalate: bool = False
     request_id: Optional[str] = Field(default=None, min_length=12, max_length=128)
 
-    @field_validator("message")
+    @field_validator("message", mode="before")
     @classmethod
     def reject_credentials(cls, value: str) -> str:
         return _safe_support_message(value)
@@ -106,7 +108,7 @@ class CaseReplyBody(StrictModel):
     message: str = Field(min_length=1, max_length=1000)
     internal: bool = False
 
-    _reject_credentials = field_validator("message")(SupportBody.reject_credentials.__func__)
+    _reject_credentials = field_validator("message", mode="before")(SupportBody.reject_credentials.__func__)
 
 
 class CaseStatusBody(StrictModel):

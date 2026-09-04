@@ -119,6 +119,14 @@ def test_support_messages_reject_embedded_credentials_and_separator_bypasses():
         assert safe.message == message
 
 
+@pytest.mark.parametrize("message", [" ", "   ", "\n\t"])
+def test_support_messages_reject_whitespace_only_after_trimming(message):
+    with pytest.raises(ValueError, match="Support message is required"):
+        assistant.SupportBody(category="GENERAL", message=message)
+    with pytest.raises(ValueError, match="Support message is required"):
+        assistant.CaseReplyBody(message=message)
+
+
 def test_customer_reply_is_limited_to_owned_open_case(monkeypatch):
     cases = Cases([row()])
     monkeypatch.setattr(assistant, "support_cases", cases)

@@ -56,9 +56,14 @@ test("staff screen supports public replies, internal notes, filters, and status 
   for (const text of ["Send Public Reply", "Add Internal Note", "Change status", "Loading support cases", "Unable to update case status"]) assert.ok(staff.includes(text));
   assert.match(more, /role === "authority" \|\| user\?\.role === "central_admin"/);
   assert.ok(!more.includes('user?.role === "admin"') && !more.includes('user?.role === "plant_owner"'));
+  const supportEntry = more.indexOf('testID="staff-support-cases"');
+  const workforceBlock = more.indexOf("{workforceEnabled ?");
+  assert.ok(supportEntry >= 0 && workforceBlock >= 0 && supportEntry < workforceBlock,
+    "Support Cases must remain independent of the Workforce feature block");
 });
 
 test("login help widget is public guidance only and never calls customer APIs", () => {
+  const publicWidget = widget.slice(widget.indexOf('testID="login-help-panel"'));
   assert.ok(layout.includes("<SupportWidgetBridge />"));
   assert.ok(widget.includes('normalizedPath === "/login"'));
   assert.ok(widget.includes("!token && !user"));
@@ -67,7 +72,7 @@ test("login help widget is public guidance only and never calls customer APIs", 
   assert.ok(widget.includes("/plant-onboarding"));
   assert.ok(widget.includes("/account-deletion-public"));
   assert.ok(!widget.includes("apiPost") && !widget.includes("apiGet"));
-  assert.ok(!widget.includes('"/assistant/') && !widget.includes('"/customer/orders'));
+  assert.ok(!publicWidget.includes('"/assistant/') && !publicWidget.includes('"/customer/orders'));
 });
 
 test("mascot widget remains compact and does not steal surrounding touches", () => {

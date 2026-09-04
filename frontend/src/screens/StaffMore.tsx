@@ -63,11 +63,12 @@ export function StaffMore() {
           </View>
         </View>
 
+        {(user?.role === "authority" || user?.role === "central_admin") ? <Pressable testID="staff-support-cases" onPress={() => router.push("/support-cases")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Ionicons name="chatbubbles-outline" size={22} color={colors.brand} />
+          <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Support Cases</AppText><AppText variant="caption">Respond to customers and manage case status</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable> : null}
+
         {workforceEnabled ? <View style={{ gap: spacing.sm }}>
-          {(user?.role === "authority" || user?.role === "central_admin") ? <Pressable testID="staff-support-cases" onPress={() => router.push("/support-cases")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <Ionicons name="chatbubbles-outline" size={22} color={colors.brand} />
-            <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Support Cases</AppText><AppText variant="caption">Respond to customers and manage case status</AppText></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable> : null}
           <Pressable testID="staff-workforce-hub" onPress={() => router.push("/workforce")} style={[styles.manage, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Ionicons name="people-circle-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}><AppText style={{ fontFamily: fonts.semibold, color: colors.onSurface }}>Workforce &amp; Field Activity</AppText><AppText variant="caption">Attendance, leave, client visits and expense claims</AppText></View>
