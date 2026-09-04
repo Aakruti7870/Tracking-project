@@ -6,10 +6,10 @@ from uuid import uuid4
 
 import pytest
 from bson import ObjectId
+from motor.motor_asyncio import AsyncIOMotorClient
 
 import order_automation
 from automation_providers import DeliveryResult, n8n
-from database import client
 from order_automation import (
     CANONICAL_STATUSES,
     STATE_COMPLETED,
@@ -25,34 +25,46 @@ from order_automation import (
 
 
 @pytest.fixture
-def isolated_automation_collections(monkeypatch):
-    database_name = f"{settings.DB_NAME}_automation_acceptance_{uuid4().hex}"
-    isolated_db = client[database_name]
-    collections = {
-        "orders": isolated_db.orders,
-        "events": isolated_db.order_automation_events,
-        "actions": isolated_db.order_automation_actions,
-        "attempts": isolated_db.order_automation_attempts,
-        "history": isolated_db.order_status_history,
-    }
+def run_isolated_automation(monkeypatch):
+    """Run one automation integration scenario on one Motor client/event loop."""
 
-    monkeypatch.setattr(order_automation, "orders", collections["orders"])
-    monkeypatch.setattr(order_automation, "order_automation_events", collections["events"])
-    monkeypatch.setattr(order_automation, "order_automation_actions", collections["actions"])
-    monkeypatch.setattr(order_automation, "order_automation_attempts", collections["attempts"])
-    monkeypatch.setattr(order_automation, "order_status_history", collections["history"])
+    def _run(scenario):
+        # MongoDB limits database names to 63 characters. Keep this prefix short
+        # and retain enough UUID entropy for concurrent xdist workers.
+        database_name = f"tmrmc_auto_{uuid4().hex[:24]}"
+        isolated_client = AsyncIOMotorClient(settings.MONGO_URL)
+        isolated_db = isolated_client[database_name]
+        collections = {
+            "orders": isolated_db.orders,
+            "events": isolated_db.order_automation_events,
+            "actions": isolated_db.order_automation_actions,
+            "attempts": isolated_db.order_automation_attempts,
+            "history": isolated_db.order_status_history,
+        }
 
-    try:
-        yield collections
-    finally:
-        asyncio.run(client.drop_database(database_name))
+        monkeypatch.setattr(order_automation, "orders", collections["orders"])
+        monkeypatch.setattr(order_automation, "order_automation_events", collections["events"])
+        monkeypatch.setattr(order_automation, "order_automation_actions", collections["actions"])
+        monkeypatch.setattr(order_automation, "order_automation_attempts", collections["attempts"])
+        monkeypatch.setattr(order_automation, "order_status_history", collections["history"])
+
+        async def _run_and_cleanup():
+            try:
+                await scenario(collections)
+            finally:
+                await isolated_client.drop_database(database_name)
+                isolated_client.close()
+
+        return asyncio.run(_run_and_cleanup())
+
+    return _run
 
 
-def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter(isolated_automation_collections):
-    asyncio.run(_exercise_queue_lifecycle(isolated_automation_collections))
+def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter(run_isolated_automation):
+    run_isolated_automation(_exercise_queue_lifecycle)
 
 
-def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch, isolated_automation_collections):
+def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch, run_isolated_automation):
     monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
     monkeypatch.setattr(settings, "AUTOMATION_N8N_ENABLED", True)
     monkeypatch.setattr(settings, "AUTOMATION_VOICE_ENABLED", False)
@@ -66,7 +78,7 @@ def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch, isola
 
     send = AsyncMock(side_effect=_accepted)
     monkeypatch.setattr(n8n, "send", send)
-    asyncio.run(_exercise_all_statuses(isolated_automation_collections))
+    run_isolated_automation(_exercise_all_statuses)
     assert send.await_count == len(CANONICAL_STATUSES)
 
 
