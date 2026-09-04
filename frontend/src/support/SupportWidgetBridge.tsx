@@ -11,14 +11,17 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, radius, spacing } from "@/src/theme/tokens";
 
 const SUPPORT_MASCOT = require("../../assets/images/support-agent-mascot.png");
+const CUSTOMER_WIDGET_PATHS = new Set(["/customer", "/customer/orders", "/customer/plants", "/customer/more"]);
 
 /**
  * Global support entry point with a strict authentication boundary:
  * - before login: static login/account guidance only, no customer APIs;
- * - after login: only authenticated customers can open the full Support Agent.
+ * - after login: authenticated customers get the Support Agent entry only on
+ *   the four tab-shell screens that already reserve bottom-navigation space.
  *
- * The collapsed control is intentionally a standard 56x56 floating button so
- * it does not obscure form fields, login actions, legal links, or bottom nav.
+ * The login control is pinned over the decorative hero instead of the footer,
+ * while the customer control sits above the tab bar. All overlay wrappers use
+ * box-none so only the visible support controls can receive touches.
  */
 export function SupportWidgetBridge() {
   const { hydrating, token, user } = useAuth();
@@ -32,15 +35,20 @@ export function SupportWidgetBridge() {
     setPublicHelpOpen(false);
   }, [pathname, token, user?.role]);
 
-  const showPublicLoginHelp = !hydrating && !token && !user && pathname === "/login";
-  const showCustomerSupport = !hydrating && Boolean(token) && user?.role === "customer" && pathname !== "/support";
+  const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  const showPublicLoginHelp = !hydrating && !token && !user && normalizedPath === "/login";
+  const showCustomerSupport =
+    !hydrating && Boolean(token) && user?.role === "customer" && CUSTOMER_WIDGET_PATHS.has(normalizedPath);
 
   if (!showPublicLoginHelp && !showCustomerSupport) return null;
 
   if (showCustomerSupport) {
     return (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        <View style={[styles.customerAnchor, { bottom: Math.max(insets.bottom + 92, 104) }]}>
+        <View
+          pointerEvents="box-none"
+          style={[styles.customerAnchor, { bottom: Math.max(insets.bottom + 104, 120) }]}
+        >
           <Pressable
             testID="customer-support-widget"
             accessibilityRole="button"
@@ -68,7 +76,10 @@ export function SupportWidgetBridge() {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.publicAnchor, { bottom: Math.max(insets.bottom + 76, 88) }]}>
+      <View
+        pointerEvents="box-none"
+        style={[styles.publicAnchor, { top: Math.max(insets.top + spacing.sm, 16) }]}
+      >
         {publicHelpOpen ? (
           <View
             testID="login-help-panel"
@@ -172,7 +183,13 @@ export function SupportWidgetBridge() {
 
 const styles = StyleSheet.create({
   customerAnchor: { position: "absolute", right: spacing.md, alignItems: "center" },
-  publicAnchor: { position: "absolute", right: spacing.sm, alignItems: "flex-end", gap: spacing.sm },
+  publicAnchor: {
+    position: "absolute",
+    right: spacing.sm,
+    alignItems: "flex-end",
+    gap: spacing.sm,
+    flexDirection: "column-reverse",
+  },
   mascotButton: {
     width: 56,
     height: 56,
