@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -9,10 +10,15 @@ import { AppText } from "@/src/components/ui/AppText";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, radius, spacing } from "@/src/theme/tokens";
 
+const SUPPORT_MASCOT = require("../../assets/images/support-agent-mascot.png");
+
 /**
  * Global support entry point with a strict authentication boundary:
  * - before login: static login/account guidance only, no customer APIs;
  * - after login: only authenticated customers can open the full Support Agent.
+ *
+ * The collapsed control is intentionally a standard 56x56 floating button so
+ * it does not obscure form fields, login actions, legal links, or bottom nav.
  */
 export function SupportWidgetBridge() {
   const { hydrating, token, user } = useAuth();
@@ -42,17 +48,19 @@ export function SupportWidgetBridge() {
             accessibilityHint="Opens authenticated customer support, support cases, tracking help and assisted ordering"
             onPress={() => router.push("/support" as never)}
             style={({ pressed }) => [
-              styles.customerButton,
+              styles.mascotButton,
               {
-                backgroundColor: colors.brand,
+                backgroundColor: colors.surfaceSecondary,
                 borderColor: colors.brand,
                 opacity: pressed ? 0.84 : 1,
               },
             ]}
           >
-            <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.onBrand} />
-            <AppText style={[styles.customerLabel, { color: colors.onBrand }]}>Support</AppText>
+            <Image source={SUPPORT_MASCOT} style={styles.mascotImage} contentFit="contain" transition={0} />
           </Pressable>
+          <View pointerEvents="none" style={[styles.customerBadge, { backgroundColor: colors.brand }]}> 
+            <AppText style={[styles.badgeText, { color: colors.onBrand }]}>Support</AppText>
+          </View>
         </View>
       </View>
     );
@@ -60,7 +68,7 @@ export function SupportWidgetBridge() {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.publicAnchor, { bottom: Math.max(insets.bottom + 24, 32) }]}>
+      <View style={[styles.publicAnchor, { bottom: Math.max(insets.bottom + 76, 88) }]}>
         {publicHelpOpen ? (
           <View
             testID="login-help-panel"
@@ -68,8 +76,9 @@ export function SupportWidgetBridge() {
             style={[styles.publicPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <View style={styles.panelHeader}>
+              <Image source={SUPPORT_MASCOT} style={styles.panelMascot} contentFit="contain" transition={0} />
               <View style={{ flex: 1, gap: 2 }}>
-                <AppText variant="heading">Login help</AppText>
+                <AppText variant="heading">Need help logging in?</AppText>
                 <AppText variant="caption">Safe help before sign-in. No customer, order, tracking or payment data is available here.</AppText>
               </View>
               <Pressable
@@ -142,19 +151,19 @@ export function SupportWidgetBridge() {
           testID="login-help-widget"
           accessibilityRole="button"
           accessibilityLabel="Need help logging in?"
+          accessibilityHint="Opens safe login help without accessing customer, order, tracking or payment data"
           accessibilityState={{ expanded: publicHelpOpen }}
           onPress={() => setPublicHelpOpen((value) => !value)}
           style={({ pressed }) => [
-            styles.publicButton,
+            styles.mascotButton,
             {
               backgroundColor: colors.surfaceSecondary,
-              borderColor: colors.border,
+              borderColor: colors.brand,
               opacity: pressed ? 0.84 : 1,
             },
           ]}
         >
-          <Ionicons name="help-circle-outline" size={21} color={colors.brand} />
-          <AppText style={[styles.publicButtonLabel, { color: colors.onSurface }]}>Need help?</AppText>
+          <Image source={SUPPORT_MASCOT} style={styles.mascotImage} contentFit="contain" transition={0} />
         </Pressable>
       </View>
     </View>
@@ -162,26 +171,36 @@ export function SupportWidgetBridge() {
 }
 
 const styles = StyleSheet.create({
-  customerAnchor: { position: "absolute", right: spacing.lg },
-  customerButton: {
-    minHeight: 52,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: "row",
+  customerAnchor: { position: "absolute", right: spacing.md, alignItems: "center" },
+  publicAnchor: { position: "absolute", right: spacing.sm, alignItems: "flex-end", gap: spacing.sm },
+  mascotButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1.5,
     alignItems: "center",
-    gap: spacing.sm,
+    justifyContent: "center",
+    overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 7,
   },
-  customerLabel: { fontFamily: fonts.semibold, fontSize: 14 },
-  publicAnchor: { position: "absolute", right: spacing.md, alignItems: "flex-end", gap: spacing.sm },
+  mascotImage: { width: 52, height: 52 },
+  customerBadge: {
+    minHeight: 24,
+    minWidth: 54,
+    marginTop: -5,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { fontFamily: fonts.semibold, fontSize: 10 },
   publicPanel: {
-    width: 310,
-    maxWidth: "92%",
+    width: 316,
+    maxWidth: "88%",
     borderWidth: 1,
     borderRadius: radius.xl,
     padding: spacing.md,
@@ -193,6 +212,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   panelHeader: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  panelMascot: { width: 46, height: 46 },
   closeButton: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   guidanceBlock: { gap: spacing.md },
   guidanceRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
@@ -206,19 +226,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  publicButton: {
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  publicButtonLabel: { fontFamily: fonts.semibold, fontSize: 13 },
 });
