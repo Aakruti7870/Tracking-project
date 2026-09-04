@@ -60,7 +60,7 @@ test("staff screen supports public replies, internal notes, filters, and status 
 
 test("login help widget is public guidance only and never calls customer APIs", () => {
   assert.ok(layout.includes("<SupportWidgetBridge />"));
-  assert.ok(widget.includes('pathname === "/login"'));
+  assert.ok(widget.includes('normalizedPath === "/login"'));
   assert.ok(widget.includes("!token && !user"));
   assert.ok(widget.includes("Safe help before sign-in"));
   assert.ok(widget.includes("No customer, order, tracking or payment data is available here"));
@@ -70,18 +70,22 @@ test("login help widget is public guidance only and never calls customer APIs", 
   assert.ok(!widget.includes('"/assistant/') && !widget.includes('"/customer/orders'));
 });
 
-test("mascot widget remains compact and non-blocking when collapsed", () => {
+test("mascot widget remains compact and does not steal surrounding touches", () => {
   assert.ok(widget.includes("support-agent-mascot.png"));
   assert.ok(widget.includes("Need help logging in?"));
   assert.ok(widget.includes("width: 56"));
   assert.ok(widget.includes("height: 56"));
-  assert.ok(widget.includes('pointerEvents="box-none"'));
-  assert.ok(widget.includes("insets.bottom + 76"));
+  assert.ok((widget.match(/pointerEvents=\"box-none\"/g) || []).length >= 4);
+  assert.ok(widget.includes("insets.top + spacing.sm"));
+  assert.ok(widget.includes("flexDirection: \"column-reverse\""));
 });
 
-test("floating full support widget is restricted to authenticated customers", () => {
+test("authenticated mascot is limited to customer tab screens with reserved bottom space", () => {
   assert.ok(widget.includes('Boolean(token) && user?.role === "customer"'));
-  assert.ok(widget.includes('pathname !== "/support"'));
+  assert.ok(widget.includes("CUSTOMER_WIDGET_PATHS.has(normalizedPath)"));
+  for (const path of ["/customer", "/customer/orders", "/customer/plants", "/customer/more"]) assert.ok(widget.includes(`\"${path}\"`));
+  assert.ok(widget.includes("insets.bottom + 104"));
+  assert.ok(widget.includes("Math.max(insets.bottom + 104, 120)"));
   assert.ok(widget.includes('router.push("/support"'));
   assert.ok(!widget.includes('user?.role === "driver"'));
   assert.ok(!widget.includes('user?.role === "admin"'));
