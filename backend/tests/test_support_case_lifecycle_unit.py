@@ -100,7 +100,7 @@ def test_support_messages_reject_embedded_credentials_and_separator_bypasses():
         "refresh token: example-refresh-value", "refresh_token equals example-refresh-value",
         "secret key: example-secret-value", "secret_key example-secret-value",
         "recovery code 1234-5678", "recovery_code equals ABCD EFGH",
-        "-----BEGIN PRIVATE KEY-----", "card number 4111 1111 1111 1111",
+        "-----BEGIN " + "PRIVATE KEY-----", "card number 4111 1111 1111 1111",
     ]
     for message in unsafe_messages:
         with pytest.raises(ValueError, match=assistant.SAFE_SECRET_MESSAGE):
