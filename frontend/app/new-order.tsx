@@ -38,7 +38,7 @@ export default function NewOrder() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
-  const params = useLocalSearchParams<{ plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteId?: string; siteName?: string; siteAddress?: string; deliveryDate?: string; deliveryTime?: string }>();
+  const params = useLocalSearchParams<{ assistant?: string; plantId?: string; quantity?: string; grade?: string; quotationId?: string; siteId?: string; siteName?: string; siteAddress?: string; deliveryDate?: string; deliveryTime?: string }>();
   const { data: plantsData } = useGet<{ plants: PlantData[] }>("/customer/plants");
 
   const days = useMemo(() => nextDays(7), []);
@@ -55,6 +55,9 @@ export default function NewOrder() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState<null | "order" | "draft">(null);
   const [error, setError] = useState<string | null>(null);
+  const assistantMode = params.assistant === "1";
+  const assistantIdempotencyKey = useRef(`assistant-order-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const [prepared, setPrepared] = useState<{ intent_token: string; summary: Record<string, unknown> } | null>(null);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [suggestions, setSuggestions] = useState<{ place_id: string; text: string }[]>([]);
@@ -107,7 +110,7 @@ export default function NewOrder() {
     }
     setSubmitting(draft ? "draft" : "order");
     try {
-      const res: any = await apiPost("/customer/orders", token!, {
+      const order = {
         plant_id: plantId,
         quotation_id: params.quotationId || null,
         site_id: params.siteId || null,
@@ -123,7 +126,14 @@ export default function NewOrder() {
         contact_mobile: mobile.trim() || null,
         notes: notes.trim() || null,
         save_draft: draft,
-      });
+        idempotency_key: assistantMode && !draft ? assistantIdempotencyKey.current : undefined,
+      };
+      if (assistantMode && !draft) {
+        const intent = await apiPost<{ intent_token: string; summary: Record<string, unknown> }>("/assistant/orders/prepare", token!, { order });
+        setPrepared(intent);
+        return;
+      }
+      const res: any = await apiPost("/customer/orders", token!, order);
       toast(draft ? "Draft saved" : "Order placed!", "success");
       router.replace(`/order/${res.id}` as any);
     } catch (e: any) {
@@ -133,6 +143,24 @@ export default function NewOrder() {
       } else {
         setError(e.detail || "Could not place order");
       }
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const confirmAssistantOrder = async () => {
+    if (!prepared || submitting) return;
+    setSubmitting("order");
+    setError(null);
+    try {
+      const res = await apiPost<{ id: string; order_number?: string }>("/assistant/orders/confirm", token!, {
+        intent_token: prepared.intent_token,
+        confirmed: true,
+      });
+      toast(`Order ${res.order_number || "created"}`, "success");
+      router.replace(`/order/${res.id}` as never);
+    } catch (e: any) {
+      setError(e.detail || "Could not confirm order");
     } finally {
       setSubmitting(null);
     }
@@ -153,7 +181,7 @@ export default function NewOrder() {
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <AppText variant="title">New Order</AppText>
+          <AppText variant="title">{assistantMode ? "Place Order with Agent" : "New Order"}</AppText>
           <AppText variant="caption">Plant → mix → schedule → site</AppText>
         </View>
       </View>
@@ -373,14 +401,19 @@ export default function NewOrder() {
           </View>
         ) : null}
 
-        <View style={[styles.submitPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        {prepared ? <View testID="assistant-order-summary" style={[styles.submitPanel, { backgroundColor: colors.brandSoft, borderColor: colors.brand }]}>
+          <AppText variant="heading">Review order summary</AppText>
+          <AppText variant="caption">This order has not yet been placed. Confirm only after reviewing these details.</AppText>
+          {Object.entries(prepared.summary).map(([key, value]) => value == null ? null : <AppText key={key} variant="caption">{key.replace(/_/g, " ")}: {String(value)}</AppText>)}
+          <Button testID="assistant-confirm-order" label="Confirm Order" onPress={confirmAssistantOrder} loading={submitting === "order"} disabled={Boolean(submitting)} />
+        </View> : <View style={[styles.submitPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <View style={{ gap: 3 }}>
             <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.base }}>Ready to continue?</AppText>
             <AppText variant="caption">Review the plant, mix, quantity, delivery window and site before placing the order.</AppText>
           </View>
-          <Button testID="neworder-place" label="Place Order" onPress={() => submit(false)} loading={submitting === "order"} disabled={submitting === "draft"} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} />
-          <Button testID="neworder-draft" label="Save Draft" variant="outline" onPress={() => submit(true)} loading={submitting === "draft"} disabled={submitting === "order"} />
-        </View>
+          <Button testID="neworder-place" label={assistantMode ? "Prepare Order" : "Place Order"} onPress={() => submit(false)} loading={submitting === "order"} disabled={submitting === "draft"} icon={<Ionicons name="checkmark-circle-outline" size={18} color={colors.onBrand} />} />
+          {!assistantMode ? <Button testID="neworder-draft" label="Save Draft" variant="outline" onPress={() => submit(true)} loading={submitting === "draft"} disabled={submitting === "order"} /> : null}
+        </View>}
       </KeyboardAwareScrollView>
     </View>
   );

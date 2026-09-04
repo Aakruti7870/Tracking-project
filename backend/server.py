@@ -200,6 +200,11 @@ async def on_startup():
     await order_intents.create_index([("customer_id", 1), ("idempotency_key", 1)], unique=True)
     await order_intents.create_index("token", unique=True)
     await support_cases.create_index([("customer_id", 1), ("created_at", -1)])
+    await support_cases.create_index(
+        [("customer_id", 1), ("request_id", 1)], unique=True,
+        partialFilterExpression={"request_id": {"$type": "string"}},
+        name="unique_customer_support_request",
+    )
     backfilled = 0
     if settings.AUTOMATION_BACKFILL_ON_STARTUP:
         backfilled = await backfill_order_status_events(limit=500)
