@@ -33,15 +33,43 @@ SUPPORT_ROUTES = {
 
 SAFE_SECRET_MESSAGE = "Remove credentials, security codes, or secret tokens from the support message"
 
-# Require either a credential label or a strong, recognizable secret structure. This
-# avoids rejecting ordinary sentences such as "My password reset screen is blank."
+# Detect both explicit separators and ordinary natural-language/whitespace forms.
+# Context words are excluded for password/token labels so benign reports such as
+# "My password reset screen is blank" remain valid while actual values are blocked.
 SECRET_PATTERNS = (
-    re.compile(r"\b(?:my\s+)?(?:otp|password|passkey|pin|cvv)\s*(?:is|[:=\-])\s*\S+", re.I),
-    re.compile(r"\brecovery\s*code\s*(?:is|[:=\-])?\s*[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+", re.I),
-    re.compile(r"\b(?:api|access|refresh|authorization|secret)\s*(?:key|token)\s*(?:is|[:=\-])\s*\S+", re.I),
+    re.compile(
+        r"\b(?:otp(?:\s*code)?|one[\s_-]*time[\s_-]*(?:password|code)|pin|cvv)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?:\d(?:[\s-]*\d){2,})\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:password|passkey)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?!(?:reset|screen|page|field|issue|problem|help|verification|login|prompt|manager|policy|requirement|required|incorrect|invalid|forgot|change|expired)\b)"
+        r"\S{3,}",
+        re.I,
+    ),
+    re.compile(
+        r"\brecovery[\s_-]*code\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?:[A-Z0-9]{4,}(?:[\s-]+[A-Z0-9]{4,})+|[A-Z0-9]{8,})\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|authorization[\s_-]*token|secret[\s_-]*key)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?!(?:screen|page|field|issue|problem|help|missing|expired|invalid|required|verification)\b)"
+        r"\S{4,}",
+        re.I,
+    ),
     re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
     re.compile(r"-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----", re.I),
-    re.compile(r"\b(?:card|credit|debit)\b[^\n]{0,30}\b(?:\d[ -]?){13,19}\b", re.I),
+    re.compile(
+        r"\b(?:card|credit(?:\s+card)?|debit(?:\s+card)?)(?:\s+(?:number|no\.?))?\b"
+        r"[^\n]{0,20}?(?:\d[ -]?){12,18}\d\b",
+        re.I,
+    ),
 )
 
 
@@ -89,7 +117,15 @@ support_staff = require_role(Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value)
 
 
 def _public_case(case: dict, *, staff: bool = False) -> dict:
-    messages = [m for m in case.get("messages", []) if staff or not m.get("internal")]
+    raw_messages = list(case.get("messages") or [])
+    if not raw_messages and case.get("message"):
+        raw_messages = [{
+            "message": case["message"],
+            "author": "CUSTOMER",
+            "internal": False,
+            "created_at": case.get("created_at"),
+        }]
+    messages = [m for m in raw_messages if staff or not m.get("internal")]
     return {
         "id": str(case["_id"]), "case_number": case["case_number"],
         "category": case["category"], "order_id": case.get("order_id"),
