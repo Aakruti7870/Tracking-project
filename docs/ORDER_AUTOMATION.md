@@ -4,6 +4,12 @@
 each history row into a deduplicated queue record; integrations can only claim,
 acknowledge, or fail these records and have no status-mutation capability.
 
+> Scheduled worker deployment, the operator-managed Cloud Scheduler trigger, the
+> worker heartbeat and health monitoring are documented in
+> [`AUTOMATION_WORKER_OPERATIONS.md`](./AUTOMATION_WORKER_OPERATIONS.md). GitHub CI
+> deploys and smoke-tests the worker and holds **zero** Cloud Scheduler
+> permissions; the scheduler is created/verified out of band by an operator.
+
 ## Configuration
 
 Set `AUTOMATION_WORKER_TOKEN` and `AUTOMATION_CALLBACK_TOKEN` (at least 32 characters)

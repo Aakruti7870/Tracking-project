@@ -6,6 +6,18 @@ import pytest
 import automation_worker as worker
 
 
+@pytest.fixture(autouse=True)
+def _silence_heartbeat(monkeypatch):
+    """These tests exercise claim/deliver/ack logic, not the heartbeat store.
+
+    Patch the heartbeat hooks so run_worker does not attempt a real Mongo write.
+    Dedicated heartbeat behavior is covered in test_automation_worker_heartbeat_unit.py.
+    """
+    monkeypatch.setattr(worker, "record_started", AsyncMock())
+    monkeypatch.setattr(worker, "record_success", AsyncMock())
+    monkeypatch.setattr(worker, "record_failure", AsyncMock())
+
+
 def _config(**overrides):
     values = {
         "batch_size": 10,

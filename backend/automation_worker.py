@@ -18,6 +18,14 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from config import settings
+from automation_heartbeat import (
+    STATUS_SUCCESS,
+    STATUS_SUCCESS_IDLE,
+    WORKER_NAME,
+    record_failure,
+    record_started,
+    record_success,
+)
 from order_automation import (
     claim_order_status_events,
     complete_order_status_event,
@@ -98,41 +106,69 @@ async def _process_event(event: dict, worker_id: str, config: WorkerConfig) -> s
     return "completed"
 
 
-async def run_worker(config: WorkerConfig | None = None) -> dict[str, int]:
-    """Drain currently claimable automation work up to the configured limit."""
+async def run_worker(
+    config: WorkerConfig | None = None,
+    *,
+    record_heartbeat: bool = True,
+) -> dict[str, int]:
+    """Drain currently claimable automation work up to the configured limit.
+
+    Every invocation records a durable heartbeat: ``last_started_at`` before the
+    cycle and ``last_success_at`` after a clean cycle (including an idle cycle
+    when automation is disabled or there is no work). If the cycle raises, a
+    failure heartbeat is recorded and the exception is re-raised so the Cloud Run
+    execution fails visibly. A heartbeat write error is intentionally NOT
+    swallowed, so a broken heartbeat surfaces as a failed execution instead of a
+    silently healthy-looking one.
+    """
     config = config or WorkerConfig.from_env()
-    if not settings.AUTOMATION_ENABLED:
-        logger.info("automation worker disabled by AUTOMATION_ENABLED")
-        return {"disabled": 1, "processed": 0}
-
     worker_id = _worker_id()
-    outcomes: Counter[str] = Counter()
-    processed = 0
+    execution_id = os.environ.get("CLOUD_RUN_EXECUTION") or None
 
-    while processed < config.max_events:
-        limit = min(config.batch_size, config.max_events - processed)
-        claimed = await claim_order_status_events(
-            worker_id,
-            limit=limit,
-            lease_seconds=config.lease_seconds,
-        )
-        if not claimed:
-            break
+    if record_heartbeat:
+        await record_started(WORKER_NAME, execution_id)
 
-        batch_outcomes = await asyncio.gather(
-            *(_process_event(event, worker_id, config) for event in claimed)
-        )
-        outcomes.update(batch_outcomes)
-        processed += len(claimed)
+    try:
+        if not settings.AUTOMATION_ENABLED:
+            logger.info("automation worker disabled by AUTOMATION_ENABLED")
+            summary: dict[str, int] = {"disabled": 1, "processed": 0}
+            cycle_status = STATUS_SUCCESS_IDLE
+        else:
+            outcomes: Counter[str] = Counter()
+            processed = 0
 
-    summary = {"processed": processed, **dict(outcomes)}
-    logger.info(
-        "automation worker completed processed=%s completed=%s retry=%s lease_lost=%s",
-        processed,
-        outcomes.get("completed", 0),
-        outcomes.get("retry", 0),
-        outcomes.get("lease_lost", 0),
-    )
+            while processed < config.max_events:
+                limit = min(config.batch_size, config.max_events - processed)
+                claimed = await claim_order_status_events(
+                    worker_id,
+                    limit=limit,
+                    lease_seconds=config.lease_seconds,
+                )
+                if not claimed:
+                    break
+
+                batch_outcomes = await asyncio.gather(
+                    *(_process_event(event, worker_id, config) for event in claimed)
+                )
+                outcomes.update(batch_outcomes)
+                processed += len(claimed)
+
+            summary = {"processed": processed, **dict(outcomes)}
+            cycle_status = STATUS_SUCCESS if processed else STATUS_SUCCESS_IDLE
+            logger.info(
+                "automation worker completed processed=%s completed=%s retry=%s lease_lost=%s",
+                processed,
+                outcomes.get("completed", 0),
+                outcomes.get("retry", 0),
+                outcomes.get("lease_lost", 0),
+            )
+    except Exception as exc:
+        if record_heartbeat:
+            await record_failure(WORKER_NAME, type(exc).__name__, execution_id)
+        raise
+
+    if record_heartbeat:
+        await record_success(WORKER_NAME, execution_id, summary, status=cycle_status)
     return summary
 
 
