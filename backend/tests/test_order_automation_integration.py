@@ -1,21 +1,26 @@
 """Mongo-backed queue lifecycle evidence (the repository CI supplies Mongo 7)."""
 import asyncio
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 from bson import ObjectId
 
+from automation_providers import DeliveryResult, n8n
 from database import order_status_history, orders
 from order_automation import (
+    CANONICAL_STATUSES,
     STATE_COMPLETED,
     STATE_DEAD_LETTER,
     STATE_PROCESSING,
     claim_order_status_events,
     complete_order_status_event,
+    deliver_claimed_event,
     fail_order_status_event,
     materialize_history_event,
     order_automation_attempts,
     order_automation_actions,
     order_automation_events,
+    settings,
 )
 
 
@@ -23,9 +28,82 @@ def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter
     asyncio.run(_exercise_queue_lifecycle())
 
 
+def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch):
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTOMATION_N8N_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTOMATION_VOICE_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTOMATION_WHATSAPP_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTOMATION_SMS_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTOMATION_EMAIL_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTOMATION_PUSH_ENABLED", False)
+
+    async def _accepted(event):
+        return DeliveryResult("n8n", str(event["source_history_id"]), "accepted")
+
+    send = AsyncMock(side_effect=_accepted)
+    monkeypatch.setattr(n8n, "send", send)
+    asyncio.run(_exercise_all_statuses())
+    assert send.await_count == len(CANONICAL_STATUSES)
+
+
+async def _exercise_all_statuses():
+    await order_automation_events.delete_many({})
+    await order_automation_attempts.delete_many({})
+    await order_automation_actions.delete_many({})
+
+    order_id = ObjectId()
+    await orders.insert_one({
+        "_id": order_id,
+        "order_number": "AUTO-ALL-STATUSES",
+        "grade": "M30",
+        "quantity": 8,
+    })
+
+    for status in CANONICAL_STATUSES:
+        history = {
+            "_id": ObjectId(),
+            "order_id": str(order_id),
+            "from_status": None,
+            "to_status": status,
+            "created_at": datetime.now(timezone.utc),
+        }
+        event = await materialize_history_event(history)
+        claimed = (await claim_order_status_events(f"worker-{status.lower()}", 1, 30))[0]
+        assert claimed["_id"] == event["_id"]
+        assert claimed["state"] == STATE_PROCESSING
+
+        result = await deliver_claimed_event(
+            claimed["_id"],
+            claimed["worker_id"],
+            claimed["lease_token"],
+            ["n8n"],
+        )
+        assert result["status"] == "completed"
+        assert result["deliveries"] == [{
+            "provider": "n8n",
+            "provider_id": str(history["_id"]),
+            "status": "accepted",
+        }]
+        assert await complete_order_status_event(
+            claimed["_id"], claimed["worker_id"], result, claimed["lease_token"]
+        )
+
+        completed = await order_automation_events.find_one({"_id": claimed["_id"]})
+        assert completed["state"] == STATE_COMPLETED
+        action = await order_automation_actions.find_one({
+            "source_history_id": str(history["_id"]), "channel": "n8n"
+        })
+        assert action["state"] == STATE_COMPLETED
+        assert action["provider_reference"] == str(history["_id"])
+
+    assert await order_automation_events.count_documents({"state": STATE_COMPLETED}) == len(CANONICAL_STATUSES)
+    assert await order_automation_attempts.count_documents({"action": "COMPLETED"}) == len(CANONICAL_STATUSES)
+
+
 async def _exercise_queue_lifecycle():
     await order_automation_events.delete_many({})
     await order_automation_attempts.delete_many({})
+    await order_automation_actions.delete_many({})
     order_id = ObjectId()
     await orders.insert_one({"_id": order_id, "order_number": "AUTO-E2E-1", "customer_id": "customer-e2e",
                              "plant_id": "plant-e2e", "grade": "M30", "quantity": 8})
