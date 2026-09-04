@@ -2,11 +2,14 @@
 import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
+import pytest
 from bson import ObjectId
 
+import order_automation
 from automation_providers import DeliveryResult, n8n
-from database import order_status_history, orders
+from database import client, order_status_history, orders
 from order_automation import (
     CANONICAL_STATUSES,
     STATE_COMPLETED,
@@ -24,11 +27,33 @@ from order_automation import (
 )
 
 
+@pytest.fixture
+def isolated_automation_collections(monkeypatch):
+    database_name = f"{settings.DB_NAME}_automation_acceptance_{uuid4().hex}"
+    isolated_db = client[database_name]
+    collections = {
+        "orders": isolated_db.orders,
+        "events": isolated_db.order_automation_events,
+        "actions": isolated_db.order_automation_actions,
+        "attempts": isolated_db.order_automation_attempts,
+    }
+
+    monkeypatch.setattr(order_automation, "orders", collections["orders"])
+    monkeypatch.setattr(order_automation, "order_automation_events", collections["events"])
+    monkeypatch.setattr(order_automation, "order_automation_actions", collections["actions"])
+    monkeypatch.setattr(order_automation, "order_automation_attempts", collections["attempts"])
+
+    try:
+        yield collections
+    finally:
+        asyncio.run(client.drop_database(database_name))
+
+
 def test_history_event_worker_provider_result_retry_dedupe_lease_and_dead_letter():
     asyncio.run(_exercise_queue_lifecycle())
 
 
-def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch):
+def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch, isolated_automation_collections):
     monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
     monkeypatch.setattr(settings, "AUTOMATION_N8N_ENABLED", True)
     monkeypatch.setattr(settings, "AUTOMATION_VOICE_ENABLED", False)
@@ -42,17 +67,18 @@ def test_every_canonical_status_reaches_provider_mock_and_ack(monkeypatch):
 
     send = AsyncMock(side_effect=_accepted)
     monkeypatch.setattr(n8n, "send", send)
-    asyncio.run(_exercise_all_statuses())
+    asyncio.run(_exercise_all_statuses(isolated_automation_collections))
     assert send.await_count == len(CANONICAL_STATUSES)
 
 
-async def _exercise_all_statuses():
-    await order_automation_events.delete_many({})
-    await order_automation_attempts.delete_many({})
-    await order_automation_actions.delete_many({})
+async def _exercise_all_statuses(collections):
+    isolated_orders = collections["orders"]
+    isolated_events = collections["events"]
+    isolated_actions = collections["actions"]
+    isolated_attempts = collections["attempts"]
 
     order_id = ObjectId()
-    await orders.insert_one({
+    await isolated_orders.insert_one({
         "_id": order_id,
         "order_number": "AUTO-ALL-STATUSES",
         "grade": "M30",
@@ -88,16 +114,16 @@ async def _exercise_all_statuses():
             claimed["_id"], claimed["worker_id"], result, claimed["lease_token"]
         )
 
-        completed = await order_automation_events.find_one({"_id": claimed["_id"]})
+        completed = await isolated_events.find_one({"_id": claimed["_id"]})
         assert completed["state"] == STATE_COMPLETED
-        action = await order_automation_actions.find_one({
+        action = await isolated_actions.find_one({
             "source_history_id": str(history["_id"]), "channel": "n8n"
         })
         assert action["state"] == STATE_COMPLETED
         assert action["provider_reference"] == str(history["_id"])
 
-    assert await order_automation_events.count_documents({"state": STATE_COMPLETED}) == len(CANONICAL_STATUSES)
-    assert await order_automation_attempts.count_documents({"action": "COMPLETED"}) == len(CANONICAL_STATUSES)
+    assert await isolated_events.count_documents({"state": STATE_COMPLETED}) == len(CANONICAL_STATUSES)
+    assert await isolated_attempts.count_documents({"action": "COMPLETED"}) == len(CANONICAL_STATUSES)
 
 
 async def _exercise_queue_lifecycle():
