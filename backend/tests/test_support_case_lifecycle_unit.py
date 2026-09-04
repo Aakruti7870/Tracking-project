@@ -47,6 +47,19 @@ def test_customer_lists_only_owned_cases_and_private_notes_are_removed(monkeypat
     assert "Private staff note" not in repr(result)
 
 
+def test_legacy_case_message_is_preserved_in_public_projection():
+    created = datetime.now(timezone.utc)
+    legacy = {"_id": "legacy-1", "case_number": "SUP-LEGACY", "customer_id": "customer-1",
+              "category": "LOGIN", "status": "OPEN", "created_at": created,
+              "message": "Legacy login issue"}
+    public = assistant._public_case(legacy)
+    staff = assistant._public_case(legacy, staff=True)
+    for projected in (public, staff):
+        assert projected["latest_note"] == "Legacy login issue"
+        assert projected["messages"] == [{"message": "Legacy login issue", "author": "CUSTOMER",
+                                            "internal": False, "created_at": created}]
+
+
 def test_customer_cannot_view_another_customers_case(monkeypatch):
     monkeypatch.setattr(assistant, "support_cases", Cases([row("customer-2")]))
     with pytest.raises(assistant.HTTPException) as denied:
@@ -75,13 +88,18 @@ def test_escalation_is_idempotent_and_audited_once(monkeypatch):
     assert len(audits) == 1
 
 
-def test_support_messages_reject_embedded_credentials():
+def test_support_messages_reject_embedded_credentials_and_separator_bypasses():
     unsafe_messages = [
-        "my otp is 123456", "password = example-value", "passkey: example-value",
-        "PIN: 1234", "CVV = 123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature",
-        "authorization token: example-token-value", "api key: example-key-value",
-        "access token = example-access-value", "refresh token: example-refresh-value",
-        "secret key: example-secret-value", "recovery code 1234-5678",
+        "my otp is 123456", "OTP 123456", "otp equals 123456", "OTP code 12 34 56",
+        "password = example-value", "password equals hunter2", "password hunter2",
+        "passkey: example-value", "PIN: 1234", "PIN 1234", "CVV = 123", "CVV 123",
+        "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature",
+        "authorization token: example-token-value", "authorization_token example-token-value",
+        "api key: example-key-value", "api_key example-key-value",
+        "access token = example-access-value", "access_token=example-access-value",
+        "refresh token: example-refresh-value", "refresh_token equals example-refresh-value",
+        "secret key: example-secret-value", "secret_key example-secret-value",
+        "recovery code 1234-5678", "recovery_code equals ABCD EFGH",
         "-----BEGIN PRIVATE KEY-----", "card number 4111 1111 1111 1111",
     ]
     for message in unsafe_messages:
@@ -90,8 +108,15 @@ def test_support_messages_reject_embedded_credentials():
         with pytest.raises(ValueError, match=assistant.SAFE_SECRET_MESSAGE):
             assistant.CaseReplyBody(message=message)
 
-    safe = assistant.SupportBody(category="LOGIN", message="My password reset screen is blank.")
-    assert safe.message == "My password reset screen is blank."
+    safe_messages = [
+        "My password reset screen is blank.",
+        "The OTP verification screen is blank.",
+        "The access token page will not load.",
+        "I forgot my password and need login help.",
+    ]
+    for message in safe_messages:
+        safe = assistant.SupportBody(category="LOGIN", message=message)
+        assert safe.message == message
 
 
 def test_customer_reply_is_limited_to_owned_open_case(monkeypatch):
