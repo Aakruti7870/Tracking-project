@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, Linking, Pressable, StyleSheet, TextInput, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Linking, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,6 +37,91 @@ type GooglePlant = {
 
 type GoogleDiscoveryResponse = { configured: boolean; places: GooglePlant[] };
 
+type NearbyLocationStatus = "ok" | "denied" | "services-disabled" | "timeout" | "unavailable";
+type NearbyLocationResult = { status: NearbyLocationStatus; coords: LatLng | null; fromCache?: boolean; canAskAgain?: boolean };
+
+let nearbyLocationCache: { coords: LatLng; at: number } | null = null;
+const NEARBY_CACHE_TTL_MS = 5 * 60 * 1000;
+const NEARBY_GPS_TIMEOUT_MS = 12000;
+
+function getCachedNearbyLocation(): LatLng | null {
+  if (nearbyLocationCache && Date.now() - nearbyLocationCache.at < NEARBY_CACHE_TTL_MS) return nearbyLocationCache.coords;
+  return null;
+}
+
+function rememberNearbyLocation(coords: LatLng) {
+  nearbyLocationCache = { coords, at: Date.now() };
+}
+
+async function withLocationTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error("LOCATION_TIMEOUT")), ms); });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+async function resolveNearbyLocation(opts?: { forceRefresh?: boolean; allowPrompt?: boolean }): Promise<NearbyLocationResult> {
+  const forceRefresh = opts?.forceRefresh ?? false;
+  const allowPrompt = opts?.allowPrompt ?? true;
+
+  if (!forceRefresh) {
+    const cached = getCachedNearbyLocation();
+    if (cached) return { status: "ok", coords: cached, fromCache: true };
+  }
+
+  let permission: Location.LocationPermissionResponse;
+  try {
+    permission = await Location.getForegroundPermissionsAsync();
+  } catch {
+    return { status: "unavailable", coords: getCachedNearbyLocation() };
+  }
+
+  if (permission.status !== "granted") {
+    const undetermined = permission.status === "undetermined" || permission.canAskAgain;
+    if (allowPrompt && undetermined) {
+      try {
+        permission = await Location.requestForegroundPermissionsAsync();
+      } catch {
+        return { status: "unavailable", coords: getCachedNearbyLocation() };
+      }
+    }
+    if (permission.status !== "granted") {
+      return { status: "denied", coords: getCachedNearbyLocation(), canAskAgain: permission.canAskAgain };
+    }
+  }
+
+  try {
+    const enabled = await Location.hasServicesEnabledAsync();
+    if (!enabled) return { status: "services-disabled", coords: getCachedNearbyLocation() };
+  } catch {
+  }
+
+  try {
+    const current = await withLocationTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      NEARBY_GPS_TIMEOUT_MS,
+    );
+    const coords: LatLng = { lat: current.coords.latitude, lng: current.coords.longitude };
+    rememberNearbyLocation(coords);
+    return { status: "ok", coords };
+  } catch (e: any) {
+    try {
+      const last = await Location.getLastKnownPositionAsync();
+      if (last) {
+        const coords: LatLng = { lat: last.coords.latitude, lng: last.coords.longitude };
+        rememberNearbyLocation(coords);
+        return { status: "ok", coords };
+      }
+    } catch {
+    }
+    const timedOut = e?.message === "LOCATION_TIMEOUT";
+    return { status: timedOut ? "timeout" : "unavailable", coords: getCachedNearbyLocation() };
+  }
+}
+
 export default function CustomerPlants() {
   const { colors } = useTheme();
   const { token } = useAuth();
@@ -46,44 +131,42 @@ export default function CustomerPlants() {
   const [q, setQ] = useState("");
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [locating, setLocating] = useState(false);
-  const [locationMessage, setLocationMessage] = useState<string | null>(null);
+  const [locationStatus, setLocationStatus] = useState<NearbyLocationStatus | null>(null);
   const [googlePlants, setGooglePlants] = useState<GooglePlant[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [requestingPlace, setRequestingPlace] = useState<string | null>(null);
   const { data, loading, error, refetch, reload } = useGet<{ plants: PlantData[] }>("/customer/plants");
+  const didInit = useRef(false);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const permission = await Location.getForegroundPermissionsAsync();
-        if (permission.status !== "granted") return;
-        const last = await Location.getLastKnownPositionAsync();
-        if (mounted && last) setUserLocation({ lat: last.coords.latitude, lng: last.coords.longitude });
-      } catch {
-        // Location is optional for registered-plant discovery.
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  const useMyLocation = async () => {
+  const applyLocation = async (opts: { forceRefresh?: boolean; allowPrompt?: boolean; refetchPlants?: boolean }) => {
     setLocating(true);
-    setLocationMessage(null);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") {
-        setLocationMessage("Location permission is off. Registered plants are still available.");
-        return;
-      }
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setUserLocation({ lat: current.coords.latitude, lng: current.coords.longitude });
-      await refetch();
-    } catch {
-      setLocationMessage("Could not refresh your location. Registered plants are still available.");
+      const result = await resolveNearbyLocation({ forceRefresh: opts.forceRefresh, allowPrompt: opts.allowPrompt });
+      setLocationStatus(result.status);
+      if (result.coords) setUserLocation(result.coords);
+      if (result.status === "ok" && opts.refetchPlants) await refetch();
+      return result;
     } finally {
       setLocating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+    void applyLocation({ forceRefresh: false, allowPrompt: true, refetchPlants: false });
+  }, []);
+
+  const refreshLocation = () => void applyLocation({ forceRefresh: true, allowPrompt: true, refetchPlants: true });
+
+  const enableLocation = async () => {
+    if (Platform.OS === "android") {
+      try { await Location.enableNetworkProviderAsync(); } catch { }
+    }
+    const result = await applyLocation({ forceRefresh: true, allowPrompt: true, refetchPlants: true });
+    if (result.status === "denied" && result.canAskAgain === false) {
+      try { await Linking.openSettings(); } catch { }
     }
   };
 
@@ -225,18 +308,20 @@ export default function CustomerPlants() {
                 <Pressable
                   testID="plants-use-location"
                   accessibilityLabel="Refresh nearby plants and location"
-                  onPress={useMyLocation}
+                  onPress={refreshLocation}
                   disabled={locating}
                   style={({ pressed }) => [styles.refreshButton, { backgroundColor: colors.brandSoft, opacity: pressed || locating ? 0.65 : 1 }]}
                 >
-                  <Ionicons name={locating ? "hourglass-outline" : "refresh"} size={20} color={colors.brand} />
+                  {locating ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="refresh" size={20} color={colors.brand} />}
                 </Pressable>
               </View>
 
               <View style={styles.discoveryRow}>
                 <View style={styles.discoveryMeta}>
                   <Ionicons name="location" size={15} color={colors.brand} />
-                  <AppText style={[styles.discoveryMetaText, { color: colors.onSurfaceSecondary }]}>{ranked.length} nearby</AppText>
+                  <AppText style={[styles.discoveryMetaText, { color: colors.onSurfaceSecondary }]}>
+                    {locating && !userLocation ? "Locating…" : `${ranked.length} nearby`}
+                  </AppText>
                   <View style={[styles.dotDivider, { backgroundColor: colors.border }]} />
                   <Ionicons name="search-circle-outline" size={17} color={colors.brand} />
                   <AppText style={[styles.discoveryMetaText, { color: colors.onSurfaceSecondary }]}>Google discovery</AppText>
@@ -253,7 +338,7 @@ export default function CustomerPlants() {
                 </Pressable>
               </View>
 
-              {locationMessage ? <AppText variant="caption" color={colors.warning}>{locationMessage}</AppText> : null}
+              <LocationBanner status={locationStatus} locating={locating} onEnable={enableLocation} onRetry={refreshLocation} />
               {discoveryError ? <AppText variant="caption" color={colors.warning}>{discoveryError}</AppText> : null}
 
               <View style={styles.registeredHeading}>
@@ -283,6 +368,70 @@ export default function CustomerPlants() {
           )}
         />
       )}
+    </View>
+  );
+}
+
+function LocationBanner({ status, locating, onEnable, onRetry }: {
+  status: NearbyLocationStatus | null;
+  locating: boolean;
+  onEnable: () => void;
+  onRetry: () => void;
+}) {
+  const { colors } = useTheme();
+
+  if (locating) {
+    return (
+      <View style={[styles.locationBanner, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "33" }]}>
+        <ActivityIndicator size="small" color={colors.brand} />
+        <AppText style={[styles.locationBannerText, { color: colors.onSurfaceSecondary }]}>Finding plants near you…</AppText>
+      </View>
+    );
+  }
+
+  if (!status || status === "ok") return null;
+
+  const config: Record<Exclude<NearbyLocationStatus, "ok">, { icon: any; text: string; label: string; onPress: () => void }> = {
+    denied: {
+      icon: "location-outline",
+      text: "Location is off. Showing all registered plants — search by name above, or enable location for nearest-first.",
+      label: "Enable Location",
+      onPress: onEnable,
+    },
+    "services-disabled": {
+      icon: "navigate-circle-outline",
+      text: "Location services are turned off. Turn them on to see the closest plants first.",
+      label: "Enable Location",
+      onPress: onEnable,
+    },
+    timeout: {
+      icon: "time-outline",
+      text: "Couldn’t get your location in time. Showing all plants — tap Retry to try again.",
+      label: "Retry",
+      onPress: onRetry,
+    },
+    unavailable: {
+      icon: "alert-circle-outline",
+      text: "Location unavailable right now. Showing all registered plants.",
+      label: "Retry",
+      onPress: onRetry,
+    },
+  };
+
+  const c = config[status];
+  return (
+    <View style={[styles.locationBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+      <Ionicons name={c.icon} size={16} color={colors.warning} />
+      <AppText style={[styles.locationBannerText, { color: colors.onSurfaceSecondary }]}>{c.text}</AppText>
+      <Pressable
+        testID="location-banner-action"
+        accessibilityRole="button"
+        accessibilityLabel={c.label}
+        onPress={c.onPress}
+        style={({ pressed }) => [styles.locationBannerBtn, { backgroundColor: colors.brand, opacity: pressed ? 0.75 : 1 }]}
+      >
+        <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onBrand }}>{c.label}</AppText>
+      </Pressable>
     </View>
   );
 }
@@ -340,6 +489,9 @@ const styles = StyleSheet.create({
   dotDivider: { width: 1, height: 18, marginHorizontal: 3 },
   findMore: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   registeredHeading: { gap: 2, paddingTop: spacing.xs },
+  locationBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  locationBannerText: { flex: 1, fontFamily: fonts.medium, fontSize: 12, lineHeight: 17 },
+  locationBannerBtn: { minHeight: 34, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   googleIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   googleActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
   googleOutlineButton: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5 },
