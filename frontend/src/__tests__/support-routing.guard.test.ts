@@ -15,6 +15,7 @@ test("support actions route only to existing secure screens", () => {
     assert.ok(routes.includes(`\"${route}\"`));
   }
   assert.match(routes, /OPEN_TRACKING[\s\S]*owned-id|OPEN_TRACKING/);
+  assert.ok(routes.includes('case "OPEN_SECURE_LOGIN_HELP": return null'));
   assert.ok(!routes.includes("http://") && !routes.includes("https://"));
 });
 
@@ -24,6 +25,13 @@ test("support UI includes escalation, owned-order selector, and safe loading sta
   assert.ok(screen.includes("Loading your orders"));
   assert.ok(screen.includes("Unable to reach support"));
   assert.ok(screen.includes("Do not include passwords, OTPs, passkeys, recovery codes or payment credentials"));
+});
+
+test("support escalation rotates idempotency only after a successful case request", () => {
+  assert.ok(screen.includes("const newEscalationId"));
+  const post = screen.indexOf('apiPost<Reply>("/assistant/support"');
+  const rotate = screen.indexOf("escalationId.current = newEscalationId()");
+  assert.ok(post >= 0 && rotate > post);
 });
 
 test("all customer categories and case conversation controls are present", () => {
