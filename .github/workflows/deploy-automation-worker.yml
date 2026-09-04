@@ -196,28 +196,25 @@ jobs:
             --region "$REGION" \
             --quiet >/dev/null
 
-      - name: Create or update one-minute scheduler
+      - name: Verify one-minute scheduler exists
         shell: bash
         run: |
           set -euo pipefail
           RUNTIME_SA="$(cat /tmp/runtime-sa)"
           URI="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${WORKER_JOB}:run"
-          COMMON_ARGS=(
-            --project "$PROJECT_ID"
-            --location "$REGION"
-            --schedule "* * * * *"
-            --time-zone "UTC"
-            --uri "$URI"
-            --http-method POST
-            --oauth-service-account-email "$RUNTIME_SA"
-            --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
-            --attempt-deadline 180s
-          )
           if gcloud scheduler jobs describe "$SCHEDULER_JOB" \
               --project "$PROJECT_ID" --location "$REGION" >/dev/null 2>&1; then
-            gcloud scheduler jobs update http "$SCHEDULER_JOB" "${COMMON_ARGS[@]}" --quiet
+            echo 'AUTOMATION_WORKER_SCHEDULER_PRESENT=YES'
           else
-            gcloud scheduler jobs create http "$SCHEDULER_JOB" "${COMMON_ARGS[@]}" --quiet
+            echo "::error::Cloud Scheduler job '${SCHEDULER_JOB}' was not found (or is not readable) in project ${PROJECT_ID} location ${REGION}. The GitHub deploy service account intentionally lacks cloudscheduler.jobs.create/update, so this workflow no longer creates or modifies the scheduler. An operator must create it once manually with the command below, then re-run this workflow."
+            echo "gcloud scheduler jobs create http ${SCHEDULER_JOB} \\"
+            echo "  --project ${PROJECT_ID} --location ${REGION} \\"
+            echo "  --schedule '* * * * *' --time-zone UTC \\"
+            echo "  --uri '${URI}' --http-method POST \\"
+            echo "  --oauth-service-account-email ${RUNTIME_SA} \\"
+            echo "  --oauth-token-scope https://www.googleapis.com/auth/cloud-platform \\"
+            echo "  --attempt-deadline 180s"
+            exit 1
           fi
 
       - name: Execute worker smoke run
