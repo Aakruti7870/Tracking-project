@@ -15,7 +15,15 @@ SCRIPT = REPO_ROOT / "scripts" / "verify_automation_scheduler.sh"
 NOW_EPOCH = 2_000_000_000
 
 
-def _run_verifier(tmp_path: Path, execution: str) -> subprocess.CompletedProcess[str]:
+def _run_verifier(
+    tmp_path: Path,
+    execution: str,
+    *,
+    runtime_sa: str = "runtime@example.test",
+    scheduler_sa: str = "runtime@example.test",
+    resolved_runtime_sa: str = "runtime@example.test",
+    runtime_lookup_fails: bool = False,
+) -> subprocess.CompletedProcess[str]:
     gcloud = tmp_path / "gcloud"
     scheduler = {
         "state": "ENABLED",
@@ -27,12 +35,15 @@ def _run_verifier(tmp_path: Path, execution: str) -> subprocess.CompletedProcess
                 "test-region/jobs/test-worker:run"
             ),
             "httpMethod": "POST",
-            "oauthToken": {"serviceAccountEmail": "runtime@example.test"},
+            "oauthToken": {"serviceAccountEmail": scheduler_sa},
         },
     }
     gcloud.write_text(
         "#!/usr/bin/env bash\n"
-        'if [[ "$*" == *"scheduler jobs describe"* ]]; then\n'
+        'if [[ "$*" == *"run services describe"* ]]; then\n'
+        "  if [ \"$FAKE_RUNTIME_LOOKUP_FAILS\" = 1 ]; then exit 1; fi\n"
+        "  printf '%s' \"$FAKE_RUNTIME_SA\"\n"
+        'elif [[ "$*" == *"scheduler jobs describe"* ]]; then\n'
         f"  printf '%s\\n' '{json.dumps(scheduler)}'\n"
         'elif [[ "$*" == *"run jobs executions list"* ]]; then\n'
         "  printf '%s' \"$FAKE_EXECUTION\"\n"
@@ -47,7 +58,9 @@ def _run_verifier(tmp_path: Path, execution: str) -> subprocess.CompletedProcess
         "PROJECT_ID": "test-project",
         "REGION": "test-region",
         "WORKER_JOB": "test-worker",
-        "RUNTIME_SA": "runtime@example.test",
+        "RUNTIME_SA": runtime_sa,
+        "FAKE_RUNTIME_SA": resolved_runtime_sa,
+        "FAKE_RUNTIME_LOOKUP_FAILS": "1" if runtime_lookup_fails else "0",
         "AUTOMATION_SCHEDULER_NOW_EPOCH": str(NOW_EPOCH),
         "FAKE_EXECUTION": execution,
     }
@@ -96,4 +109,33 @@ def test_execution_older_than_300_seconds_fails(tmp_path: Path):
 
     assert result.returncode != 0
     assert "more than 300 seconds old" in result.stdout
+    assert result.stdout.rstrip().endswith("AUTOMATION_SCHEDULER_VERIFIED=NO")
+
+
+def test_missing_resolved_runtime_service_account_fails(tmp_path: Path):
+    result = _run_verifier(tmp_path, "", runtime_sa="", resolved_runtime_sa="")
+
+    assert result.returncode != 0
+    assert "runtime service account is empty" in result.stderr
+    assert "AUTOMATION_SCHEDULER_VERIFIED=NO" in result.stdout
+
+
+def test_failed_runtime_service_account_lookup_fails(tmp_path: Path):
+    result = _run_verifier(tmp_path, "", runtime_sa="", runtime_lookup_fails=True)
+
+    assert result.returncode != 0
+    assert "unable to resolve the Cloud Run runtime service account" in result.stderr
+    assert "AUTOMATION_SCHEDULER_VERIFIED=NO" in result.stdout
+
+
+def test_wrong_scheduler_oauth_service_account_fails(tmp_path: Path):
+    timestamp = dt.datetime.fromtimestamp(NOW_EPOCH, tz=dt.timezone.utc).isoformat()
+    result = _run_verifier(
+        tmp_path,
+        f"execution-1\t{timestamp}",
+        scheduler_sa="wrong@example.test",
+    )
+
+    assert result.returncode != 0
+    assert "OAuth service account must be 'runtime@example.test'" in result.stdout
     assert result.stdout.rstrip().endswith("AUTOMATION_SCHEDULER_VERIFIED=NO")

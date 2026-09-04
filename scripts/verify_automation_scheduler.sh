@@ -38,9 +38,18 @@ command -v gcloud >/dev/null 2>&1 || { echo "::error:: gcloud CLI is required" >
 command -v python3 >/dev/null 2>&1 || { echo "::error:: python3 is required" >&2; exit 1; }
 
 if [ -z "$RUNTIME_SA" ]; then
-  RUNTIME_SA="$(gcloud run services describe "$API_SERVICE" \
+  if ! RUNTIME_SA="$(gcloud run services describe "$API_SERVICE" \
     --project "$PROJECT_ID" --region "$REGION" \
-    --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)"
+    --format='value(spec.template.spec.serviceAccountName)')"; then
+    echo "::error:: unable to resolve the Cloud Run runtime service account" >&2
+    echo "AUTOMATION_SCHEDULER_VERIFIED=NO"
+    exit 1
+  fi
+fi
+if [ -z "${RUNTIME_SA//[[:space:]]/}" ]; then
+  echo "::error:: Cloud Run runtime service account is empty" >&2
+  echo "AUTOMATION_SCHEDULER_VERIFIED=NO"
+  exit 1
 fi
 
 echo "== Describing scheduler '${SCHEDULER_JOB}' =="

@@ -123,7 +123,9 @@ async def run_worker(
     """
     config = config or WorkerConfig.from_env()
     worker_id = _worker_id()
-    execution_id = os.environ.get("CLOUD_RUN_EXECUTION") or None
+    # Cloud Run supplies CLOUD_RUN_EXECUTION. The unique worker id is a safe
+    # generation token for local/operator runs where that variable is absent.
+    execution_id = os.environ.get("CLOUD_RUN_EXECUTION") or worker_id
 
     if record_heartbeat:
         await record_started(WORKER_NAME, execution_id)

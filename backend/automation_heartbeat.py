@@ -75,8 +75,9 @@ async def record_started(
         "last_started_at": now,
         "updated_at": now,
     }
-    if execution_id:
-        set_fields["last_execution_id"] = execution_id
+    if not execution_id:
+        raise ValueError("execution_id is required for generation-safe heartbeats")
+    set_fields["last_execution_id"] = execution_id
     await automation_worker_heartbeats.update_one(
         {"_id": worker_name},
         {"$set": set_fields, "$setOnInsert": {"created_at": now}},
@@ -101,14 +102,11 @@ async def record_success(
         "last_failure_reason": None,
         "updated_at": now,
     }
-    if execution_id:
-        set_fields["last_execution_id"] = execution_id
     if summary is not None:
         set_fields["last_summary"] = summary
     await automation_worker_heartbeats.update_one(
-        {"_id": worker_name},
-        {"$set": set_fields, "$setOnInsert": {"created_at": now}},
-        upsert=True,
+        {"_id": worker_name, "last_execution_id": execution_id},
+        {"$set": set_fields},
     )
 
 
@@ -128,12 +126,9 @@ async def record_failure(
         "last_failure_at": now,
         "updated_at": now,
     }
-    if execution_id:
-        set_fields["last_execution_id"] = execution_id
     await automation_worker_heartbeats.update_one(
-        {"_id": worker_name},
-        {"$set": set_fields, "$setOnInsert": {"created_at": now}},
-        upsert=True,
+        {"_id": worker_name, "last_execution_id": execution_id},
+        {"$set": set_fields},
     )
 
 
