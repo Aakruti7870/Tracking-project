@@ -12,6 +12,7 @@ from order_automation import (
     provider_event,
     in_customer_quiet_hours,
 )
+from order_service import TRANSITIONS
 
 
 def test_all_canonical_statuses_have_localized_non_spam_policy():
@@ -23,6 +24,41 @@ def test_all_canonical_statuses_have_localized_non_spam_policy():
         assert policy["template"]["en"]
         assert policy["respect_opt_out"] is True
         assert policy["max_attempts"] == 5
+
+
+def test_authoritative_state_machine_and_automation_contract_cannot_drift():
+    canonical = set(CANONICAL_STATUSES)
+    assert set(TRANSITIONS) == canonical
+    for source, targets in TRANSITIONS.items():
+        assert source in canonical
+        assert set(targets) <= canonical
+
+
+def test_every_canonical_status_builds_a_safe_routable_event():
+    for status in CANONICAL_STATUSES:
+        event = build_order_status_event(
+            {
+                "_id": ObjectId(),
+                "order_id": "order-contract",
+                "from_status": None,
+                "to_status": status,
+                "actor_id": "private-actor",
+                "note": "private-note",
+            },
+            {
+                "_id": "order-contract",
+                "order_number": "AUTO-CONTRACT-1",
+                "customer_id": "private-customer",
+                "contact_mobile": "+919999999999",
+                "otp": "123456",
+            },
+        )
+        assert event["to_status"] == status
+        assert event["routing_key"] == f"order.status.{status.lower()}"
+        assert event["delivery"]["channels"] == AUTOMATION_POLICIES[status]["channels"]
+        assert event["payload"] == {"order_number": "AUTO-CONTRACT-1"}
+        assert "actor_id" not in event
+        assert "note" not in event
 
 
 def test_provider_result_and_event_never_persist_secrets_or_actor_notes():
