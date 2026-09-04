@@ -93,6 +93,12 @@ purchase_receipts = db.purchase_receipts
 order_loads = db.order_loads
 gate_passes = db.gate_passes
 
+# Automation worker liveness. One document per logical worker (keyed by _id =
+# worker name) records last_started_at / last_success_at so operators, the
+# health monitor and CI can confirm the scheduled Cloud Run worker is actually
+# executing. No secrets or provider payloads are ever stored here.
+automation_worker_heartbeats = db.automation_worker_heartbeats
+
 
 async def next_sequence(name: str) -> int:
     from pymongo import ReturnDocument

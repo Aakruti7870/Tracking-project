@@ -118,6 +118,13 @@ class Settings:
     # Historical replay is opt-in. Routine restarts must not enqueue stale order history.
     AUTOMATION_BACKFILL_ON_STARTUP: bool = _boolean("AUTOMATION_BACKFILL_ON_STARTUP", False)
 
+    # Automation worker heartbeat health thresholds (seconds). The worker is
+    # scheduled every minute, so a healthy heartbeat is very recent. These are
+    # centralized here instead of scattering magic numbers across the worker,
+    # the health monitor and tests.
+    AUTOMATION_HEARTBEAT_HEALTHY_SECONDS: int = _positive_int("AUTOMATION_HEARTBEAT_HEALTHY_SECONDS", 180)
+    AUTOMATION_HEARTBEAT_WARNING_SECONDS: int = _positive_int("AUTOMATION_HEARTBEAT_WARNING_SECONDS", 300)
+
     # Plant Staff Authenticator MFA. Optional at process start so production can
     # roll out the code before the Cloud Run secret is attached. MFA endpoints
     # fail closed until a 32+ character key is configured.
@@ -175,6 +182,12 @@ class Settings:
 
         if self.MFA_ENCRYPTION_KEY and len(self.MFA_ENCRYPTION_KEY) < 32:
             raise RuntimeError("MFA_ENCRYPTION_KEY must contain at least 32 characters when configured")
+
+        if self.AUTOMATION_HEARTBEAT_WARNING_SECONDS < self.AUTOMATION_HEARTBEAT_HEALTHY_SECONDS:
+            raise RuntimeError(
+                "AUTOMATION_HEARTBEAT_WARNING_SECONDS must be greater than or equal to "
+                "AUTOMATION_HEARTBEAT_HEALTHY_SECONDS"
+            )
 
         if self.is_dev:
             if not self.JWT_SECRET:
