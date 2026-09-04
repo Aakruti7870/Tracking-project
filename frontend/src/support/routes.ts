@@ -4,7 +4,9 @@ export type SupportAction =
 
 export function supportActionRoute(action: SupportAction, orderId?: string | null): string | null {
   switch (action) {
-    case "OPEN_SECURE_LOGIN_HELP": return "/";
+    // An authenticated customer would be immediately redirected away from the
+    // login screen, so login help remains in the Support Agent conversation.
+    case "OPEN_SECURE_LOGIN_HELP": return null;
     case "OPEN_KYC": return "/kyc";
     case "OPEN_ORDERS": return "/customer/orders";
     case "OPEN_TRACKING": return orderId ? `/track/${encodeURIComponent(orderId)}` : "/customer/orders";
