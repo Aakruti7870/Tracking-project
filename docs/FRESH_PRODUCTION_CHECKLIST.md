@@ -7,6 +7,7 @@ Before merging this release candidate:
 - [ ] Frontend typecheck, lint, Expo Doctor, and web build are green.
 - [ ] Android standalone release compilation/signature validation is green.
 - [ ] Passkey ceremony callback stability regression is resolved.
+- [ ] `support@trackmyrmc.com` resolves to `central_admin` and still requires dedicated portal TOTP authentication.
 
 After merge to `main`:
 
@@ -18,5 +19,5 @@ After merge to `main`:
 - [ ] `/.well-known/assetlinks.json` contains `com.trackmyrmc.concreteking`.
 - [ ] Plant Staff first-login email OTP delivery is verified with the production SendGrid configuration.
 - [ ] Create a release branch from the final green `main` SHA to trigger the signed AAB workflow.
-- [ ] Signed AAB is `2.0.23` / versionCode `81`, bundletool-valid, upload-signed, and pinned to `https://trackmyrmc.com`.
+- [ ] Signed AAB is `2.0.24` / versionCode `82`, bundletool-valid, upload-signed, and pinned to `https://trackmyrmc.com`.
 - [ ] Only that final AAB is used for the next Google Play Console upload.
