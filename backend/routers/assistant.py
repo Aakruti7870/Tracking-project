@@ -1,15 +1,19 @@
 """Server-authorized conversational order and customer-support tools."""
 from datetime import datetime, timezone
+import re
 from secrets import token_urlsafe
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field
+from pydantic import Field, field_validator
+from pymongo.errors import DuplicateKeyError
 
 from audit import write_audit
 from database import db, kyc_profiles, orders
 from models import CreateOrderBody
 from routers.customer import create_order, customer_only, _oid, _serialize_order
+from roles import Role
+from security import require_role
 from validation import StrictModel
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
@@ -27,6 +31,56 @@ SUPPORT_ROUTES = {
     "GENERAL": {"action": "OPEN_HELP", "guidance": "Describe the app issue without including credentials or payment secrets."},
 }
 
+SAFE_SECRET_MESSAGE = "Remove credentials, security codes, or secret tokens from the support message"
+
+# Detect both explicit separators and ordinary natural-language/whitespace forms.
+# Context words are excluded for password/token labels so benign reports such as
+# "My password reset screen is blank" remain valid while actual values are blocked.
+SECRET_PATTERNS = (
+    re.compile(
+        r"\b(?:otp(?:\s*code)?|one[\s_-]*time[\s_-]*(?:password|code)|pin|cvv)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?:\d(?:[\s-]*\d){2,})\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:password|passkey)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?!(?:and|reset|screen|page|field|issue|problem|help|verification|login|prompt|manager|policy|requirement|required|incorrect|invalid|forgot|change|expired)\b)"
+        r"\S{3,}",
+        re.I,
+    ),
+    re.compile(
+        r"\brecovery[\s_-]*code\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?:[A-Z0-9]{4,}(?:[\s-]+[A-Z0-9]{4,})+|[A-Z0-9]{8,})\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|authorization[\s_-]*token|secret[\s_-]*key)\b"
+        r"(?:\s+(?:is|equals)\s+|\s*[:=\-]\s*|\s+)"
+        r"(?!(?:screen|page|field|issue|problem|help|missing|expired|invalid|required|verification)\b)"
+        r"\S{4,}",
+        re.I,
+    ),
+    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
+    re.compile(r"-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----", re.I),
+    re.compile(
+        r"\b(?:card|credit(?:\s+card)?|debit(?:\s+card)?)(?:\s+(?:number|no\.?))?\b"
+        r"[^\n]{0,20}?(?:\d[ -]?){12,18}\d\b",
+        re.I,
+    ),
+)
+
+
+def _safe_support_message(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("Support message is required")
+    if any(pattern.search(stripped) for pattern in SECRET_PATTERNS):
+        raise ValueError(SAFE_SECRET_MESSAGE)
+    return stripped
+
 
 class PrepareOrderBody(StrictModel):
     order: CreateOrderBody
@@ -42,6 +96,46 @@ class SupportBody(StrictModel):
     message: str = Field(min_length=1, max_length=1000)
     order_id: Optional[str] = Field(default=None, max_length=128)
     escalate: bool = False
+    request_id: Optional[str] = Field(default=None, min_length=12, max_length=128)
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def reject_credentials(cls, value: str) -> str:
+        return _safe_support_message(value)
+
+
+class CaseReplyBody(StrictModel):
+    message: str = Field(min_length=1, max_length=1000)
+    internal: bool = False
+
+    _reject_credentials = field_validator("message", mode="before")(SupportBody.reject_credentials.__func__)
+
+
+class CaseStatusBody(StrictModel):
+    status: Literal["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]
+
+
+support_staff = require_role(Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value)
+
+
+def _public_case(case: dict, *, staff: bool = False) -> dict:
+    raw_messages = list(case.get("messages") or [])
+    if not raw_messages and case.get("message"):
+        raw_messages = [{
+            "message": case["message"],
+            "author": "CUSTOMER",
+            "internal": False,
+            "created_at": case.get("created_at"),
+        }]
+    messages = [m for m in raw_messages if staff or not m.get("internal")]
+    return {
+        "id": str(case["_id"]), "case_number": case["case_number"],
+        "category": case["category"], "order_id": case.get("order_id"),
+        "status": case.get("status", "OPEN"), "created_at": case.get("created_at"),
+        "updated_at": case.get("updated_at", case.get("created_at")),
+        "messages": messages,
+        "latest_note": messages[-1].get("message") if messages else None,
+    }
 
 
 @router.post("/orders/prepare")
@@ -93,10 +187,110 @@ async def support(body: SupportBody, ctx: dict = Depends(customer_only)):
     if order:
         response["order"] = _serialize_order(order)
     if body.escalate:
+        existing = None
+        if body.request_id:
+            existing = await support_cases.find_one({"customer_id": ctx["user_id"],
+                                                     "request_id": body.request_id})
+        if existing:
+            response.update({"case_id": str(existing["_id"]),
+                             "case_number": existing["case_number"],
+                             "case_status": existing.get("status", "OPEN")})
+            return response
         case = {"case_number": "SUP-" + token_urlsafe(6), "customer_id": ctx["user_id"],
                 "category": body.category, "message": body.message, "order_id": body.order_id,
-                "status": "OPEN", "created_at": now}
-        inserted = await support_cases.insert_one(case)
-        response["case_id"] = str(inserted.inserted_id)
+                "status": "OPEN", "created_at": now,
+                "updated_at": now, "messages": [{"message": body.message, "author": "CUSTOMER",
+                                                   "internal": False, "created_at": now}]}
+        if body.request_id:
+            case["request_id"] = body.request_id
+        try:
+            inserted = await support_cases.insert_one(case)
+            response["case_id"] = str(inserted.inserted_id)
+        except DuplicateKeyError:
+            existing = await support_cases.find_one({"customer_id": ctx["user_id"],
+                                                     "request_id": body.request_id})
+            if not existing:
+                raise
+            response.update({"case_id": str(existing["_id"]),
+                             "case_number": existing["case_number"],
+                             "case_status": existing.get("status", "OPEN")})
+            return response
+        response["case_number"] = case["case_number"]
+        response["case_status"] = "OPEN"
         await write_audit(ctx["user_id"], "support.case.create", "support_case", response["case_id"], {"category": body.category})
     return response
+
+
+@router.get("/support/cases")
+async def list_my_cases(ctx: dict = Depends(customer_only)):
+    rows = await support_cases.find({"customer_id": ctx["user_id"]}).sort("created_at", -1).to_list(200)
+    return {"cases": [_public_case(row) for row in rows]}
+
+
+@router.get("/support/cases/{case_id}")
+async def get_my_case(case_id: str, ctx: dict = Depends(customer_only)):
+    row = await support_cases.find_one({"_id": await _oid(case_id), "customer_id": ctx["user_id"]})
+    if not row:
+        raise HTTPException(404, "Support case not found")
+    return {"case": _public_case(row)}
+
+
+@router.post("/support/cases/{case_id}/replies")
+async def reply_to_my_case(case_id: str, body: CaseReplyBody, ctx: dict = Depends(customer_only)):
+    if body.internal:
+        raise HTTPException(403, "Customers cannot create internal notes")
+    now = datetime.now(timezone.utc)
+    result = await support_cases.update_one(
+        {"_id": await _oid(case_id), "customer_id": ctx["user_id"],
+         "status": {"$in": ["OPEN", "IN_PROGRESS"]}},
+        {"$push": {"messages": {"message": body.message, "author": "CUSTOMER",
+                                  "internal": False, "created_at": now}},
+         "$set": {"updated_at": now}},
+    )
+    if result.modified_count != 1:
+        raise HTTPException(409, "Support case is unavailable or closed")
+    return {"status": "RECEIVED"}
+
+
+@router.get("/support/staff/cases")
+async def list_support_cases(ctx: dict = Depends(support_staff)):
+    rows = await support_cases.find({}).sort("created_at", -1).to_list(500)
+    return {"cases": [_public_case(row, staff=True) for row in rows]}
+
+
+@router.get("/support/staff/cases/{case_id}")
+async def get_support_case(case_id: str, ctx: dict = Depends(support_staff)):
+    row = await support_cases.find_one({"_id": await _oid(case_id)})
+    if not row:
+        raise HTTPException(404, "Support case not found")
+    return {"case": _public_case(row, staff=True)}
+
+
+@router.patch("/support/staff/cases/{case_id}/status")
+async def set_support_case_status(case_id: str, body: CaseStatusBody,
+                                  ctx: dict = Depends(support_staff)):
+    now = datetime.now(timezone.utc)
+    result = await support_cases.update_one({"_id": await _oid(case_id)},
+                                            {"$set": {"status": body.status, "updated_at": now}})
+    if result.matched_count != 1:
+        raise HTTPException(404, "Support case not found")
+    await write_audit(ctx["user_id"], "support.case.status", "support_case", case_id,
+                      {"status": body.status})
+    return {"status": body.status}
+
+
+@router.post("/support/staff/cases/{case_id}/replies")
+async def reply_to_support_case(case_id: str, body: CaseReplyBody,
+                                ctx: dict = Depends(support_staff)):
+    now = datetime.now(timezone.utc)
+    result = await support_cases.update_one(
+        {"_id": await _oid(case_id)},
+        {"$push": {"messages": {"message": body.message, "author": "SUPPORT",
+                                  "internal": body.internal, "created_at": now}},
+         "$set": {"updated_at": now}},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(404, "Support case not found")
+    await write_audit(ctx["user_id"], "support.case.reply", "support_case", case_id,
+                      {"internal": body.internal})
+    return {"status": "RECEIVED"}
