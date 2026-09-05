@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -45,6 +46,39 @@ def test_admin_totp_login_marks_server_side_session_provenance():
     assert "{PORTAL_SESSION_FLAG: True" in source
     assert "ctx.get(\"session\")" in source
     assert "Privileged portal authentication required" in source
+
+
+def test_role_only_admin_session_can_establish_step_up_without_portal_access(monkeypatch):
+    ctx = _portal_ctx(authenticated=False)
+    update_filters = []
+
+    monkeypatch.setattr(admin_auth.staff_mfa, "_mfa_doc", lambda user: {"totp_secret": "encrypted"})
+    monkeypatch.setattr(admin_auth.staff_mfa, "_decrypt_secret", lambda value: "secret")
+    monkeypatch.setattr(admin_auth.staff_mfa, "_verify_totp", lambda secret, code: True)
+
+    async def fake_update_one(query, update):
+        update_filters.append(query)
+        ctx["session"].update(update["$set"])
+        return SimpleNamespace(modified_count=1)
+
+    async def fake_audit(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(admin_auth.sessions, "update_one", fake_update_one)
+    monkeypatch.setattr(admin_auth, "write_audit", fake_audit)
+
+    result = asyncio.run(admin_auth.step_up(admin_auth.StepUpBody(code="123456"), ctx))
+    assert result == {"status": "verified", "expires_in": admin_auth.ADMIN_STEP_UP_SECONDS}
+    assert update_filters == [{"_id": "session-1", "user_id": "admin-1", "revoked": False}]
+    assert admin_auth.PORTAL_SESSION_FLAG not in update_filters[0]
+
+    accepted = asyncio.run(admin_auth.require_recent_admin_step_up(ctx))
+    assert accepted["user_id"] == "admin-1"
+
+    with pytest.raises(HTTPException) as exc:
+        admin_auth.platform_admin(ctx)
+    assert exc.value.status_code == 403
+    assert "portal authentication" in exc.value.detail.lower()
 
 
 def test_plan_payment_provider_is_cashfree_without_gateway_secret_projection():
