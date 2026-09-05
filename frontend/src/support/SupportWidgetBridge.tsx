@@ -14,7 +14,7 @@ const CUSTOMER_WIDGET_PATHS = new Set(["/customer", "/customer/orders", "/custom
 /**
  * Global support entry point with a strict authentication boundary:
  * - before login: static login/account guidance only, no customer APIs;
- * - after login: authenticated customers get the Support Agent entry only on
+ * - after login: authenticated customers get a compact Support Agent card on
  *   the four tab-shell screens that already reserve bottom-navigation space.
  *
  * The floating control uses the bundled Ionicons font rather than a raster
@@ -28,9 +28,11 @@ export function SupportWidgetBridge() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const [publicHelpOpen, setPublicHelpOpen] = useState(false);
+  const [customerHelpOpen, setCustomerHelpOpen] = useState(false);
 
   useEffect(() => {
     setPublicHelpOpen(false);
+    setCustomerHelpOpen(false);
   }, [pathname, token, user?.role]);
 
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -47,25 +49,98 @@ export function SupportWidgetBridge() {
           pointerEvents="box-none"
           style={[styles.customerAnchor, { bottom: Math.max(insets.bottom + 104, 120) }]}
         >
-          <Pressable
-            testID="customer-support-widget"
-            accessibilityRole="button"
-            accessibilityLabel="Open TrackMyRMC Support"
-            accessibilityHint="Opens authenticated customer support, support cases, tracking help and assisted ordering"
-            onPress={() => router.push("/support" as never)}
-            style={({ pressed }) => [
-              styles.supportButton,
-              {
-                backgroundColor: colors.surfaceSecondary,
-                borderColor: colors.brand,
-                opacity: pressed ? 0.84 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="chatbubbles-outline" size={30} color={colors.brand} />
-          </Pressable>
-          <View pointerEvents="none" style={[styles.customerBadge, { backgroundColor: colors.brand }]}> 
-            <AppText style={[styles.badgeText, { color: colors.onBrand }]}>Support</AppText>
+          {customerHelpOpen ? (
+            <View
+              testID="customer-support-panel"
+              accessibilityLiveRegion="polite"
+              style={[styles.publicPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+            >
+              <View style={styles.panelHeader}>
+                <View style={[styles.panelIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }]}>
+                  <Ionicons name="chatbubbles-outline" size={24} color={colors.brand} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <AppText variant="heading">TrackMyRMC Support</AppText>
+                  <AppText variant="caption">Quick help from this screen. Open the full support center only when you need detailed issue steps or your case history.</AppText>
+                </View>
+                <Pressable
+                  testID="customer-support-close"
+                  accessibilityRole="button"
+                  accessibilityLabel="Close TrackMyRMC Support"
+                  hitSlop={10}
+                  onPress={() => setCustomerHelpOpen(false)}
+                  style={[styles.closeButton, { borderColor: colors.border }]}
+                >
+                  <Ionicons name="close" size={18} color={colors.onSurface} />
+                </Pressable>
+              </View>
+
+              <Pressable
+                testID="customer-support-place-order"
+                accessibilityRole="button"
+                onPress={() => router.push("/new-order?assistant=1" as never)}
+                style={({ pressed }) => [styles.actionRow, { borderColor: colors.border, opacity: pressed ? 0.78 : 1 }]}
+              >
+                <Ionicons name="cart-outline" size={19} color={colors.brand} />
+                <View style={{ flex: 1 }}>
+                  <AppText variant="label">Place Order with Agent</AppText>
+                  <AppText variant="caption">Prepare an assisted order, then confirm it yourself.</AppText>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} />
+              </Pressable>
+
+              <Pressable
+                testID="customer-support-track-delivery"
+                accessibilityRole="button"
+                onPress={() => router.push("/customer/orders" as never)}
+                style={({ pressed }) => [styles.actionRow, { borderColor: colors.border, opacity: pressed ? 0.78 : 1 }]}
+              >
+                <Ionicons name="navigate-outline" size={19} color={colors.brand} />
+                <View style={{ flex: 1 }}>
+                  <AppText variant="label">Track Delivery</AppText>
+                  <AppText variant="caption">Open your orders and live delivery tracking.</AppText>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} />
+              </Pressable>
+
+              <Pressable
+                testID="customer-support-open-center"
+                accessibilityRole="button"
+                onPress={() => router.push("/support" as never)}
+                style={({ pressed }) => [styles.actionRow, { borderColor: colors.border, opacity: pressed ? 0.78 : 1 }]}
+              >
+                <Ionicons name="help-circle-outline" size={19} color={colors.brand} />
+                <View style={{ flex: 1 }}>
+                  <AppText variant="label">All Issues & My Support Cases</AppText>
+                  <AppText variant="caption">Login, KYC, order, payment, account, onboarding and other support.</AppText>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View pointerEvents="box-none" style={styles.customerLauncher}>
+            <Pressable
+              testID="customer-support-widget"
+              accessibilityRole="button"
+              accessibilityLabel="Open TrackMyRMC Support"
+              accessibilityHint="Expands a compact support card without leaving this screen"
+              accessibilityState={{ expanded: customerHelpOpen }}
+              onPress={() => setCustomerHelpOpen((value) => !value)}
+              style={({ pressed }) => [
+                styles.supportButton,
+                {
+                  backgroundColor: colors.surfaceSecondary,
+                  borderColor: colors.brand,
+                  opacity: pressed ? 0.84 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="chatbubbles-outline" size={30} color={colors.brand} />
+            </Pressable>
+            <View pointerEvents="none" style={[styles.customerBadge, { backgroundColor: colors.brand }]}> 
+              <AppText style={[styles.badgeText, { color: colors.onBrand }]}>Support</AppText>
+            </View>
           </View>
         </View>
       </View>
@@ -182,7 +257,13 @@ export function SupportWidgetBridge() {
 }
 
 const styles = StyleSheet.create({
-  customerAnchor: { position: "absolute", right: spacing.md, alignItems: "center" },
+  customerAnchor: {
+    position: "absolute",
+    right: spacing.md,
+    alignItems: "flex-end",
+    gap: spacing.sm,
+  },
+  customerLauncher: { alignItems: "center" },
   publicAnchor: {
     position: "absolute",
     right: spacing.sm,
