@@ -19,22 +19,12 @@ function metricValue(metrics: Metric[], label: string) {
   return metrics.find((item) => item.label === label)?.value ?? 0;
 }
 
-function MiniBars({ values }: { values: number[] }) {
-  const max = Math.max(...values, 1);
-  return (
-    <div className="ccMiniBars" aria-hidden="true">
-      {values.map((value, index) => <i key={index} style={{ height: `${Math.max(14, (value / max) * 100)}%` }} />)}
-    </div>
-  );
-}
-
-function MetricCard({ title, value, caption, tone, bars }: { title: string; value: number; caption: string; tone: string; bars: number[] }) {
+function MetricCard({ title, value, caption, tone }: { title: string; value: number; caption: string; tone: string }) {
   return (
     <article className={`ccMetric ${tone}`}>
       <header><span>{title}</span><b>LIVE</b></header>
       <strong>{nf.format(value)}</strong>
       <p>{caption}</p>
-      <MiniBars values={bars} />
     </article>
   );
 }
@@ -127,10 +117,10 @@ export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: Comman
       </section>
 
       <section className="ccMetrics">
-        <MetricCard title="Registered users" value={users} caption="Platform identities under RBAC" tone="blue" bars={[28, 46, 39, 63, 72, Math.max(users, 35)]} />
-        <MetricCard title="RMC plants" value={plants} caption="Directory and partner footprint" tone="green" bars={[18, 27, 36, 48, 57, Math.max(plants, 24)]} />
-        <MetricCard title="Active orders" value={activeOrders} caption="Orders currently in lifecycle" tone="orange" bars={[14, 42, 34, 54, 45, Math.max(activeOrders, 20)]} />
-        <MetricCard title="Open support" value={openSupport} caption="Cases needing operational attention" tone="purple" bars={[8, 18, 12, 24, 17, Math.max(openSupport, 10)]} />
+        <MetricCard title="Registered users" value={users} caption="Platform identities under RBAC" tone="blue" />
+        <MetricCard title="RMC plants" value={plants} caption="Directory and partner footprint" tone="green" />
+        <MetricCard title="Active orders" value={activeOrders} caption="Orders currently in lifecycle" tone="orange" />
+        <MetricCard title="Open support" value={openSupport} caption="Cases needing operational attention" tone="purple" />
       </section>
 
       <section className="ccGrid ccGridWide">
