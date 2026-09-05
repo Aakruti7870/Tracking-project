@@ -1,13 +1,14 @@
 """Read-only data surface for the dedicated privileged web portal.
 
 The public mobile client never calls these routes. Every endpoint is protected by
-platform-admin RBAC, projections deliberately omit secrets and unnecessary
-location/contact details, and this module adds no destructive mutations.
+portal-authenticated platform-admin RBAC, projections deliberately omit secrets
+and unnecessary location/contact details, and this module adds no destructive
+mutations.
 """
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import (
     account_deletion_requests,
@@ -24,11 +25,17 @@ from database import (
 )
 from roles import Role
 from routers.admin_auth import platform_admin
-from security import require_role, utcnow
+from security import utcnow
 
 router = APIRouter(prefix="/api/admin/portal", tags=["admin-portal"])
-central_admin_only = require_role(Role.CENTRAL_ADMIN.value)
 support_cases = db.support_cases
+
+
+async def central_admin_only(ctx: dict = Depends(platform_admin)) -> dict:
+    """Require both privileged portal-TOTP provenance and Central Admin role."""
+    if ctx["role"] != Role.CENTRAL_ADMIN.value:
+        raise HTTPException(403, "Insufficient permissions")
+    return ctx
 
 
 def _iso(value: Any) -> str | None:
@@ -110,13 +117,16 @@ def _safe_support_case(doc: dict) -> dict:
 
 def _safe_payment(doc: dict, kind: str) -> dict:
     if kind == "plan":
+        # plan_payment_orders is created only by the verified Cashfree online
+        # payment path. Derive the provider from collection semantics instead
+        # of projecting gateway order/session identifiers into the portal.
         return {
             "id": _id(doc),
             "kind": "PLAN",
             "reference": doc.get("order_number"),
             "plant_id": doc.get("plant_id"),
             "amount": doc.get("payable", 0),
-            "method": "CASHFREE" if doc.get("cashfree_order_id") or doc.get("payment_session_id") else "ONLINE",
+            "method": "CASHFREE",
             "status": doc.get("status", "PAYMENT_PENDING"),
             "created_at": _iso(doc.get("created_at")),
             "updated_at": _iso(doc.get("updated_at")),
