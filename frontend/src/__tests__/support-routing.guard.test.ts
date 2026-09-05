@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const routes = readFileSync(`${process.cwd()}/src/support/routes.ts`, "utf8");
+const scripted = readFileSync(`${process.cwd()}/src/support/scriptedSupport.ts`, "utf8");
 const screen = readFileSync(`${process.cwd()}/app/support.tsx`, "utf8");
 const order = readFileSync(`${process.cwd()}/app/new-order.tsx`, "utf8");
 const staff = readFileSync(`${process.cwd()}/app/support-cases.tsx`, "utf8");
@@ -19,12 +20,43 @@ test("support actions route only to existing secure screens", () => {
   assert.ok(!routes.includes("http://") && !routes.includes("https://"));
 });
 
-test("support UI includes escalation, owned-order selector, and safe loading states", () => {
-  assert.ok(screen.includes("Create Support Case"));
+test("support categories provide scripted choices and instant answers before typing", () => {
+  assert.ok(screen.includes("SCRIPTED_SUPPORT"));
+  assert.ok(screen.includes('testID="support-scripted-question"'));
+  assert.ok(screen.includes('testID="support-instant-answer"'));
+  assert.ok(screen.includes("You do not need to type first"));
+  assert.ok(screen.includes('testID="support-solved-yes"'));
+  assert.ok(screen.includes('testID="support-solved-no"'));
+  assert.ok(screen.includes("Extra details are optional"));
+  assert.ok(screen.includes("You can create a support case now without typing anything"));
+});
+
+test("scripted support covers common login, KYC, order, tracking, payment, account and onboarding issues", () => {
+  for (const text of [
+    "OTP not received", "OTP invalid or expired", "KYC pending", "KYC failed",
+    "Order still pending", "Plant not responding", "Open live tracking", "Location not updating",
+    "Payment failed", "Money deducted but not updated", "Delete my account", "Staff email not approved",
+    "Describe another issue",
+  ]) assert.ok(scripted.includes(text), `missing scripted option: ${text}`);
+  for (const category of ["LOGIN", "KYC", "ORDER", "TRACKING", "PAYMENT", "ACCOUNT_DELETION", "PLANT_ONBOARDING", "GENERAL"]) {
+    assert.ok(scripted.includes(`${category}: {`));
+  }
+});
+
+test("order and tracking scripted answers stay bound to an owned selected order", () => {
   assert.ok(screen.includes("/customer/orders"));
-  assert.ok(screen.includes("Loading your orders"));
-  assert.ok(screen.includes("Unable to reach support"));
-  assert.ok(screen.includes("Do not include passwords, OTPs, passkeys, recovery codes or payment credentials"));
+  assert.ok(screen.includes("Choose one of your orders"));
+  assert.ok(screen.includes("choice.requiresOrder && !orderId"));
+  assert.ok(scripted.includes("requiresOrder: true"));
+  assert.ok(screen.includes("order_id: orderId"));
+});
+
+test("unresolved scripted guidance escalates safely and can omit free text", () => {
+  assert.ok(screen.includes("generatedSupportMessage"));
+  assert.ok(screen.includes("scripted guidance did not resolve the issue"));
+  assert.ok(screen.includes('testID="support-escalate"'));
+  assert.ok(screen.includes("Create Support Case"));
+  assert.ok(screen.includes("passwords, OTPs, passkeys, recovery codes or payment credentials"));
 });
 
 test("support escalation rotates idempotency only after a successful case request", () => {
