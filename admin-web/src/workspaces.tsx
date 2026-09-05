@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { get } from "./api";
+import "./workspaces.css";
 
 export type PortalModule = "Plants" | "Users" | "KYC" | "Orders" | "Payments" | "Support" | "Audit Logs" | "System";
 
