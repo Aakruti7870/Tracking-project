@@ -4,6 +4,7 @@ import "./workspaces.css";
 
 export type PortalModule = "Plants" | "Users" | "KYC" | "Orders" | "Payments" | "Support" | "Audit Logs" | "System";
 
+type ListModule = Exclude<PortalModule, "System">;
 type Row = Record<string, unknown>;
 type Column = { key: string; label: string; format?: (value: unknown, row: Row) => string };
 type ListResponse = { items: Row[] };
@@ -26,7 +27,7 @@ const date = (value: unknown) => value ? new Date(String(value)).toLocaleString(
 const number = (value: unknown) => typeof value === "number" ? new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value) : text(value);
 const yesNo = (value: unknown) => value === true ? "Yes" : value === false ? "No" : text(value);
 
-const CONFIG: Record<Exclude<PortalModule, "System">, WorkspaceConfig> = {
+const CONFIG: Record<ListModule, WorkspaceConfig> = {
   Plants: {
     endpoint: "/admin/portal/plants",
     title: "Plant directory",
@@ -136,8 +137,7 @@ function SystemWorkspace({ token }: { token: string }) {
   );
 }
 
-export function DataWorkspace({ module, token }: { module: PortalModule; token: string }) {
-  if (module === "System") return <SystemWorkspace token={token} />;
+function ListWorkspace({ module, token }: { module: ListModule; token: string }) {
   const config = CONFIG[module];
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,4 +166,8 @@ export function DataWorkspace({ module, token }: { module: PortalModule; token: 
       {!loading && !error ? <p className="workspaceTimestamp">Showing {visible.length} of {rows.length} latest records. Read-only administrative view.</p> : null}
     </section>
   );
+}
+
+export function DataWorkspace({ module, token }: { module: PortalModule; token: string }) {
+  return module === "System" ? <SystemWorkspace token={token} /> : <ListWorkspace module={module} token={token} />;
 }
