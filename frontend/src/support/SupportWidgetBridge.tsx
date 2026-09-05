@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -10,7 +9,6 @@ import { AppText } from "@/src/components/ui/AppText";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, radius, spacing } from "@/src/theme/tokens";
 
-const SUPPORT_MASCOT = require("../../assets/images/support-agent-mascot.png");
 const CUSTOMER_WIDGET_PATHS = new Set(["/customer", "/customer/orders", "/customer/plants", "/customer/more"]);
 
 /**
@@ -19,9 +17,9 @@ const CUSTOMER_WIDGET_PATHS = new Set(["/customer", "/customer/orders", "/custom
  * - after login: authenticated customers get the Support Agent entry only on
  *   the four tab-shell screens that already reserve bottom-navigation space.
  *
- * The login control is pinned over the decorative hero instead of the footer,
- * while the customer control sits above the tab bar. All overlay wrappers use
- * box-none so only the visible support controls can receive touches.
+ * The floating control uses the bundled Ionicons font rather than a raster
+ * image so it renders consistently without image decoding/cropping issues.
+ * All overlay wrappers use box-none so only visible support controls receive touches.
  */
 export function SupportWidgetBridge() {
   const { hydrating, token, user } = useAuth();
@@ -56,7 +54,7 @@ export function SupportWidgetBridge() {
             accessibilityHint="Opens authenticated customer support, support cases, tracking help and assisted ordering"
             onPress={() => router.push("/support" as never)}
             style={({ pressed }) => [
-              styles.mascotButton,
+              styles.supportButton,
               {
                 backgroundColor: colors.surfaceSecondary,
                 borderColor: colors.brand,
@@ -64,7 +62,7 @@ export function SupportWidgetBridge() {
               },
             ]}
           >
-            <Image source={SUPPORT_MASCOT} style={styles.mascotImage} contentFit="contain" transition={0} />
+            <Ionicons name="chatbubbles-outline" size={30} color={colors.brand} />
           </Pressable>
           <View pointerEvents="none" style={[styles.customerBadge, { backgroundColor: colors.brand }]}> 
             <AppText style={[styles.badgeText, { color: colors.onBrand }]}>Support</AppText>
@@ -87,7 +85,9 @@ export function SupportWidgetBridge() {
             style={[styles.publicPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <View style={styles.panelHeader}>
-              <Image source={SUPPORT_MASCOT} style={styles.panelMascot} contentFit="contain" transition={0} />
+              <View style={[styles.panelIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }]}>
+                <Ionicons name="chatbubbles-outline" size={24} color={colors.brand} />
+              </View>
               <View style={{ flex: 1, gap: 2 }}>
                 <AppText variant="heading">Need help logging in?</AppText>
                 <AppText variant="caption">Safe help before sign-in. No customer, order, tracking or payment data is available here.</AppText>
@@ -166,7 +166,7 @@ export function SupportWidgetBridge() {
           accessibilityState={{ expanded: publicHelpOpen }}
           onPress={() => setPublicHelpOpen((value) => !value)}
           style={({ pressed }) => [
-            styles.mascotButton,
+            styles.supportButton,
             {
               backgroundColor: colors.surfaceSecondary,
               borderColor: colors.brand,
@@ -174,7 +174,7 @@ export function SupportWidgetBridge() {
             },
           ]}
         >
-          <Image source={SUPPORT_MASCOT} style={styles.mascotImage} contentFit="contain" transition={0} />
+          <Ionicons name="chatbubbles-outline" size={30} color={colors.brand} />
         </Pressable>
       </View>
     </View>
@@ -190,21 +190,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flexDirection: "column-reverse",
   },
-  mascotButton: {
+  supportButton: {
     width: 56,
     height: 56,
     borderRadius: 28,
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "visible",
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.16,
     shadowRadius: 12,
     elevation: 7,
   },
-  mascotImage: { width: 48, height: 48 },
   customerBadge: {
     minHeight: 24,
     minWidth: 54,
@@ -229,7 +228,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   panelHeader: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  panelMascot: { width: 46, height: 46 },
+  panelIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeButton: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   guidanceBlock: { gap: spacing.md },
   guidanceRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
