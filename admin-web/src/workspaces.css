@@ -1,0 +1,48 @@
+.portalWorkspaceCard {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.workspaceHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.workspaceHeader > div { min-width: 0; }
+.workspaceHeader small, .workspaceTimestamp { color: var(--muted); }
+.workspaceHeader h3 { margin: 4px 0 6px; font-size: 22px; }
+.workspaceHeader p { margin: 0; max-width: 760px; color: var(--muted); line-height: 1.5; }
+.workspaceToolbar { display: grid; gap: 7px; padding: 18px 24px; border-bottom: 1px solid var(--border); }
+.workspaceToolbar label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.workspaceToolbar input { width: min(520px, 100%); }
+.tableScroll { width: 100%; overflow: auto; overscroll-behavior: contain; }
+.adminTable { width: 100%; min-width: 780px; border-collapse: collapse; font-size: 13px; }
+.adminTable th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 12px 16px; background: var(--panel-strong); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--border); }
+.adminTable td { padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: top; max-width: 280px; overflow-wrap: anywhere; }
+.adminTable tbody tr:hover { background: var(--hover); }
+.portalEmpty, .workspaceLoading { display: grid; gap: 6px; place-items: center; text-align: center; min-height: 220px; padding: 32px; color: var(--muted); }
+.portalEmpty b { color: var(--text); }
+.workspaceTimestamp { margin: 0; padding: 12px 24px 16px; font-size: 11px; }
+.systemKpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 22px 24px; }
+.systemKpis article { border: 1px solid var(--border); border-radius: 18px; padding: 18px; background: var(--panel-strong); display: grid; gap: 8px; }
+.systemKpis small { color: var(--muted); }
+.systemKpis strong { font-size: 30px; }
+.workerList { display: grid; gap: 10px; padding: 0 24px 20px; }
+.workerList article { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr 2fr; gap: 14px; align-items: center; border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.workerList span, .workerList small { color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .workspaceHeader { flex-direction: column; }
+  .systemKpis { grid-template-columns: 1fr; }
+  .workerList article { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .portalWorkspaceCard { border-radius: 18px; }
+  .workspaceHeader, .workspaceToolbar { padding-left: 16px; padding-right: 16px; }
+  .workspaceTimestamp { padding-left: 16px; padding-right: 16px; }
+  .systemKpis, .workerList { padding-left: 16px; padding-right: 16px; }
+}
