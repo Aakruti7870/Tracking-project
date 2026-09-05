@@ -1,14 +1,20 @@
-"""Regression coverage for permanent Play review credentials and support Authority identities."""
+"""Regression coverage for permanent Play review credentials and support platform-admin identities."""
+
+import asyncio
+from unittest.mock import patch
 
 from roles import Role
+from routers import permanent_access
 from routers.permanent_access import (
     DEMO_CUSTOMER_PHONE,
     DEMO_DRIVER_PHONE,
     DEMO_OTP,
     DEMO_OWNER_EMAIL,
     PERMANENT_AUTHORITY_EMAILS,
+    PERMANENT_CENTRAL_ADMIN_EMAILS,
     demo_mobile_role,
     demo_staff_role,
+    permanent_platform_role,
 )
 
 
@@ -34,10 +40,35 @@ def test_owner_demo_email_is_the_only_staff_demo_allowlist_entry():
     assert demo_staff_role("someone@trackmyrmc.test") is None
 
 
-def test_support_authorities_never_inherit_demo_otp_allowlist():
-    assert PERMANENT_AUTHORITY_EMAILS == (
-        "support@goldetech.com",
-        "support@trackmyrmc.com",
-    )
-    for email in PERMANENT_AUTHORITY_EMAILS:
+def test_support_platform_admins_never_inherit_demo_otp_allowlist():
+    assert PERMANENT_AUTHORITY_EMAILS == ("support@goldetech.com",)
+    assert PERMANENT_CENTRAL_ADMIN_EMAILS == ("support@trackmyrmc.com",)
+    for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
         assert demo_staff_role(email) is None
+
+
+def test_trackmyrmc_support_is_full_central_admin():
+    assert permanent_platform_role("support@trackmyrmc.com") == Role.CENTRAL_ADMIN.value
+    assert permanent_platform_role(" SUPPORT@TRACKMYRMC.COM ") == Role.CENTRAL_ADMIN.value
+    assert permanent_platform_role("support@goldetech.com") == Role.AUTHORITY.value
+    assert permanent_platform_role("unknown@trackmyrmc.com") is None
+
+
+def test_existing_super_admin_suspension_is_not_overridden_at_startup():
+    class FakeUsers:
+        def __init__(self):
+            self.update = None
+
+        async def find_one(self, query):
+            return {"_id": "support-user", "status": "suspended"}
+
+        async def update_one(self, query, update):
+            self.update = update
+
+    fake = FakeUsers()
+    with patch.object(permanent_access, "users", fake):
+        asyncio.run(permanent_access._ensure_platform_admin("support@trackmyrmc.com"))
+
+    assert fake.update is not None
+    assert fake.update["$set"]["primary_role"] == Role.CENTRAL_ADMIN.value
+    assert "status" not in fake.update["$set"]

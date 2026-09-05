@@ -1,8 +1,8 @@
 """Permanent production access rules for Play review and verified DigiLocker KYC.
 
-The Google Play demo OTP is intentionally reusable, but only for the four exact,
+The Google Play demo OTP is intentionally reusable, but only for the exact,
 non-production reviewer identities below. Normal customers, drivers, plant staff
-and permanent Authority accounts continue through the normal OTP/MFA providers.
+and permanent platform-admin accounts continue through the normal OTP/MFA providers.
 """
 from datetime import datetime, timezone
 
@@ -37,10 +37,20 @@ DEMO_CUSTOMER_PHONE = "+919000009901"
 DEMO_DRIVER_PHONE = "+919000009902"
 DEMO_OWNER_EMAIL = "play-review-owner@trackmyrmc.test"
 
+# Production support identities. These accounts never inherit the reusable demo
+# OTP and must complete the normal staff OTP -> Authenticator enrollment path.
+# support@trackmyrmc.com is the single full-access Central Admin identity used by
+# the dedicated web portal; support@goldetech.com remains an Authority account.
 PERMANENT_AUTHORITY_EMAILS = (
     "support@goldetech.com",
+)
+PERMANENT_CENTRAL_ADMIN_EMAILS = (
     "support@trackmyrmc.com",
 )
+PERMANENT_PLATFORM_ROLES = {
+    "support@goldetech.com": Role.AUTHORITY.value,
+    "support@trackmyrmc.com": Role.CENTRAL_ADMIN.value,
+}
 
 
 def _mobile_digits(value: str) -> str:
@@ -65,56 +75,80 @@ def demo_staff_role(value: str) -> str | None:
     }.get(email)
 
 
-async def _ensure_authority(email: str) -> None:
-    """Idempotently guarantee a production Authority identity by email.
+def permanent_platform_role(value: str) -> str | None:
+    """Return the exact production platform role assigned to a support identity."""
+    return PERMANENT_PLATFORM_ROLES.get(value.strip().lower())
 
-    No fixed/demo OTP is granted here. These support accounts use the normal
-    Plant Staff email OTP and MFA policy.
+
+async def _ensure_platform_admin(email: str) -> None:
+    """Idempotently guarantee the configured production platform-admin identity.
+
+    This changes authorization only; it does not grant a fixed/demo OTP. These
+    accounts still use normal Plant Staff email verification, Authenticator MFA,
+    dedicated portal TOTP provenance, and step-up checks for sensitive actions.
     """
     normalized = email.strip().lower()
+    role = permanent_platform_role(normalized)
+    if role not in {Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value}:
+        raise ValueError(f"Unsupported permanent platform-admin identity: {normalized}")
+
     key = identifier_key(normalized)
     existing = await users.find_one({"identifier_keys": key})
+    flags = {
+        "permanent_platform_admin": True,
+        "permanent_authority": role == Role.AUTHORITY.value,
+        "permanent_central_admin": role == Role.CENTRAL_ADMIN.value,
+    }
     if existing:
         await users.update_one(
             {"_id": existing["_id"]},
             {
                 "$set": {
                     "email": normalized,
-                    "primary_role": Role.AUTHORITY.value,
-                    "status": "active",
-                    "permanent_authority": True,
+                    "primary_role": role,
+                    **flags,
                 },
-                "$addToSet": {"roles": Role.AUTHORITY.value},
+                "$addToSet": {"roles": role},
             },
         )
         return
 
     name = (
-        "GOLD-e Tech Support Authority"
-        if normalized == "support@goldetech.com"
-        else "TrackMyRMC Support Authority"
+        "TrackMyRMC Super Admin"
+        if role == Role.CENTRAL_ADMIN.value
+        else "GOLD-e Tech Support Authority"
     )
     user = User(
         name=name,
         email=normalized,
         identifier_keys=[key],
-        roles=[Role.AUTHORITY.value],
-        primary_role=Role.AUTHORITY.value,
+        roles=[role],
+        primary_role=role,
     ).to_mongo()
-    user["permanent_authority"] = True
+    user.update(flags)
     try:
         await users.insert_one(user)
     except DuplicateKeyError:
-        # Another startup worker may have created it concurrently.
         existing = await users.find_one({"identifier_keys": key})
         if not existing:
             raise
+        await users.update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {
+                    "email": normalized,
+                    "primary_role": role,
+                    **flags,
+                },
+                "$addToSet": {"roles": role},
+            },
+        )
 
 
 async def ensure_permanent_access() -> None:
     """Apply idempotent production bootstrap/migration rules at startup."""
-    for email in PERMANENT_AUTHORITY_EMAILS:
-        await _ensure_authority(email)
+    for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
+        await _ensure_platform_admin(email)
 
     # Older builds converted a successful DigiLocker consent into PENDING and
     # waited for Authority review. Provider success is the verification event,
