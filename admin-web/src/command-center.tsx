@@ -49,6 +49,36 @@ function HealthRow({ label, value, status }: { label: string; value: string; sta
   );
 }
 
+function LoadingCommandCenter({ user, stepUpFresh, requestStepUp }: Omit<CommandCenterProps, "home">) {
+  const firstName = user.name.split(" ")[0] || "Administrator";
+  return (
+    <div className="ccRoot" aria-busy="true">
+      <section className="ccHero">
+        <div className="ccHeroCopy">
+          <div className="ccEyebrow"><span /> SUPER ADMIN COMMAND CENTER</div>
+          <h2>Platform intelligence at a glance.</h2>
+          <p>{firstName}, secure platform metrics are loading from the server-authorized administrative summary.</p>
+          <div className="ccHeroActions">
+            <button type="button" className="primaryButton" onClick={requestStepUp}>{stepUpFresh ? "Identity verified" : "Verify privileged identity"}</button>
+            <span className="ccLive"><i /> Syncing control plane</span>
+          </div>
+        </div>
+        <div className="ccOrbit" aria-hidden="true">
+          <div className="ccOrbitRing ringOne" />
+          <div className="ccOrbitRing ringTwo" />
+          <div className="ccCore"><b>TMRMC</b><span>SYNCING</span></div>
+          <i className="node n1" /><i className="node n2" /><i className="node n3" /><i className="node n4" />
+        </div>
+      </section>
+
+      <section className="ccPanel">
+        <header className="ccPanelHeader"><div><small>LIVE ADMINISTRATIVE SUMMARY</small><h3>Loading verified platform data</h3></div><span className="ccPanelBadge">Syncing</span></header>
+        <div className="workspaceLoading">Fetching current users, plants, active orders and support signals. No placeholder values are shown as live data.</div>
+      </section>
+    </div>
+  );
+}
+
 export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: CommandCenterProps) {
   const metrics = home?.kpis ?? [];
   const plants = metricValue(metrics, "Plants");
@@ -56,19 +86,24 @@ export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: Comman
   const activeOrders = metricValue(metrics, "Active Orders");
   const openSupport = metricValue(metrics, "Open Support");
 
-  const total = Math.max(plants + users + activeOrders + openSupport, 1);
+  const total = plants + users + activeOrders + openSupport;
+  const denominator = total || 1;
   const segments = useMemo(() => [
-    { label: "Users", value: users, pct: Math.round((users / total) * 100) },
-    { label: "Plants", value: plants, pct: Math.round((plants / total) * 100) },
-    { label: "Orders", value: activeOrders, pct: Math.round((activeOrders / total) * 100) },
-    { label: "Support", value: openSupport, pct: Math.round((openSupport / total) * 100) },
-  ], [users, plants, activeOrders, openSupport, total]);
+    { label: "Users", value: users, pct: total ? Math.round((users / denominator) * 100) : 0 },
+    { label: "Plants", value: plants, pct: total ? Math.round((plants / denominator) * 100) : 0 },
+    { label: "Orders", value: activeOrders, pct: total ? Math.round((activeOrders / denominator) * 100) : 0 },
+    { label: "Support", value: openSupport, pct: total ? Math.round((openSupport / denominator) * 100) : 0 },
+  ], [users, plants, activeOrders, openSupport, total, denominator]);
 
   const donutStyle: DonutStyle = {
     "--u": `${segments[0].pct * 3.6}deg`,
     "--p": `${(segments[0].pct + segments[1].pct) * 3.6}deg`,
     "--o": `${(segments[0].pct + segments[1].pct + segments[2].pct) * 3.6}deg`,
   };
+
+  if (!home) {
+    return <LoadingCommandCenter user={user} stepUpFresh={stepUpFresh} requestStepUp={requestStepUp} />;
+  }
 
   const firstName = user.name.split(" ")[0] || "Administrator";
   return (
