@@ -138,7 +138,7 @@ export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: Comman
 
         <article className="ccPanel">
           <header className="ccPanelHeader"><div><small>SECURITY POSTURE</small><h3>Privileged session health</h3></div><span className={`ccPanelBadge ${stepUpFresh ? "verified" : ""}`}>{stepUpFresh ? "Verified" : "Protected"}</span></header>
-          <div className="ccSecurityScore"><div className="ccShieldScore"><strong>100</strong><span>SECURE</span></div><div><h4>Core controls enforced</h4><p>Dedicated portal MFA, server-side RBAC, memory-only bearer session and minimized read APIs remain active.</p></div></div>
+          <div className="ccSecurityScore"><div className="ccShieldScore"><strong>ON</strong><span>ENFORCED</span></div><div><h4>Core controls enforced</h4><p>Dedicated portal MFA, server-side RBAC, memory-only bearer session and minimized read APIs remain active.</p></div></div>
           <div className="ccHealthList">
             <HealthRow label="Portal authentication" value="TOTP provenance required" status="good" />
             <HealthRow label="Session isolation" value="No local/session storage" status="good" />
