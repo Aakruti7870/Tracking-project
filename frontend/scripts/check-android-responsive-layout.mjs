@@ -5,7 +5,7 @@ import process from "node:process";
 
 const root = process.cwd();
 const appDir = path.join(root, "app");
-const screensDir = path.join(root, "src", "screens");
+const srcDir = path.join(root, "src");
 const config = JSON.parse(fs.readFileSync(path.join(root, "app.json"), "utf8")).expo || {};
 const rootLayout = fs.readFileSync(path.join(appDir, "_layout.tsx"), "utf8");
 const failures = [];
@@ -20,6 +20,10 @@ function walk(dir) {
     else if (entry.name.endsWith(".tsx")) rows.push(full);
   }
   return rows;
+}
+
+function isProductionTsx(file) {
+  return !/[\\/]__tests__[\\/]/.test(file) && !/\.(?:test|spec)\.tsx$/.test(file);
 }
 
 function scanLayoutViolations(file) {
@@ -47,15 +51,18 @@ if (config.android?.edgeToEdgeEnabled !== true) fail("Android edge-to-edge layou
 if (!rootLayout.includes("<SafeAreaProvider>")) fail("Root layout must provide SafeAreaProvider.");
 if (!rootLayout.includes("<KeyboardProvider>")) fail("Root layout must provide KeyboardProvider for form/OTP screens.");
 
-const routeFiles = walk(appDir).filter((file) => !/[\\/](?:_layout|\+html)\.tsx$/.test(file));
-const screenFiles = walk(screensDir).filter((file) => !/[\\/](?:__tests__)[\\/]/.test(file));
-const guardFiles = [...new Set([...routeFiles, ...screenFiles])];
+const appFiles = walk(appDir).filter((file) => !/[\\/]\+html\.tsx$/.test(file));
+const srcFiles = walk(srcDir).filter(isProductionTsx);
+const routeFiles = appFiles.filter((file) => !/[\\/]_layout\.tsx$/.test(file));
+const guardFiles = [...new Set([...appFiles, ...srcFiles])];
 const responsiveSignal = /ScrollView|FlatList|SectionList|useSafeAreaInsets|SafeAreaView|KeyboardAvoidingView|useWindowDimensions|flex\s*:\s*1/;
 const substantial = [];
 let responsiveCount = 0;
 
-// Guard both Expo route modules and the shared screen implementations behind thin wrappers.
-// Coverage remains route-focused so shared implementation files do not distort the route metric.
+// Scan every production TSX implementation reachable from the Expo app tree,
+// including route/layout modules and globally mounted/shared UI under src/.
+// Coverage remains route-focused so shared implementation files do not distort
+// the route responsiveness metric.
 for (const file of guardFiles) scanLayoutViolations(file);
 
 for (const file of routeFiles) {
@@ -68,7 +75,7 @@ for (const file of routeFiles) {
 
 const coverage = substantial.length ? responsiveCount / substantial.length : 1;
 console.log(`Android responsive scan: ${responsiveCount}/${substantial.length} substantial route screens expose a responsive/safe-area/scroll signal (${(coverage * 100).toFixed(1)}%).`);
-console.log(`Scanned ${routeFiles.length} Expo route files and ${screenFiles.length} shared screen implementation files for prohibited Android sizing patterns.`);
+console.log(`Scanned ${appFiles.length} Expo app TSX files and ${srcFiles.length} production src TSX files for prohibited Android sizing patterns.`);
 if (coverage < 0.65) fail(`Responsive primitive coverage is unexpectedly low: ${(coverage * 100).toFixed(1)}% (<65%).`);
 
 if (failures.length) {
