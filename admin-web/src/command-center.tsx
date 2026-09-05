@@ -1,0 +1,171 @@
+import { useMemo } from "react";
+import type { CSSProperties } from "react";
+import type { AdminUser, Home } from "./api";
+import "./command-center.css";
+
+type CommandCenterProps = {
+  home?: Home;
+  user: AdminUser;
+  stepUpFresh: boolean;
+  requestStepUp(): void;
+};
+
+type Metric = { label: string; value: number };
+type DonutStyle = CSSProperties & { "--u": string; "--p": string; "--o": string };
+
+const nf = new Intl.NumberFormat("en-IN");
+
+function metricValue(metrics: Metric[], label: string) {
+  return metrics.find((item) => item.label === label)?.value ?? 0;
+}
+
+function MetricCard({ title, value, caption, tone }: { title: string; value: number; caption: string; tone: string }) {
+  return (
+    <article className={`ccMetric ${tone}`}>
+      <header><span>{title}</span><b>LIVE</b></header>
+      <strong>{nf.format(value)}</strong>
+      <p>{caption}</p>
+    </article>
+  );
+}
+
+function HealthRow({ label, value, status }: { label: string; value: string; status: "good" | "warn" | "info" }) {
+  return (
+    <div className="ccHealthRow">
+      <span className={`ccHealthDot ${status}`} />
+      <div><b>{label}</b><small>{value}</small></div>
+      <span className={`ccHealthBadge ${status}`}>{status === "good" ? "Healthy" : status === "warn" ? "Watch" : "Active"}</span>
+    </div>
+  );
+}
+
+function LoadingCommandCenter({ user, stepUpFresh, requestStepUp }: Omit<CommandCenterProps, "home">) {
+  const firstName = user.name.split(" ")[0] || "Administrator";
+  return (
+    <div className="ccRoot" aria-busy="true">
+      <section className="ccHero">
+        <div className="ccHeroCopy">
+          <div className="ccEyebrow"><span /> SUPER ADMIN COMMAND CENTER</div>
+          <h2>Platform intelligence at a glance.</h2>
+          <p>{firstName}, secure platform metrics are loading from the server-authorized administrative summary.</p>
+          <div className="ccHeroActions">
+            <button type="button" className="primaryButton" onClick={requestStepUp}>{stepUpFresh ? "Identity verified" : "Verify privileged identity"}</button>
+            <span className="ccLive"><i /> Syncing control plane</span>
+          </div>
+        </div>
+        <div className="ccOrbit" aria-hidden="true">
+          <div className="ccOrbitRing ringOne" />
+          <div className="ccOrbitRing ringTwo" />
+          <div className="ccCore"><b>TMRMC</b><span>SYNCING</span></div>
+          <i className="node n1" /><i className="node n2" /><i className="node n3" /><i className="node n4" />
+        </div>
+      </section>
+
+      <section className="ccPanel">
+        <header className="ccPanelHeader"><div><small>LIVE ADMINISTRATIVE SUMMARY</small><h3>Loading verified platform data</h3></div><span className="ccPanelBadge">Syncing</span></header>
+        <div className="workspaceLoading">Fetching current users, plants, active orders and support signals. No placeholder values are shown as live data.</div>
+      </section>
+    </div>
+  );
+}
+
+export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: CommandCenterProps) {
+  const metrics = home?.kpis ?? [];
+  const plants = metricValue(metrics, "Plants");
+  const users = metricValue(metrics, "Users");
+  const activeOrders = metricValue(metrics, "Active Orders");
+  const openSupport = metricValue(metrics, "Open Support");
+
+  const total = plants + users + activeOrders + openSupport;
+  const denominator = total || 1;
+  const segments = useMemo(() => [
+    { label: "Users", value: users, pct: total ? Math.round((users / denominator) * 100) : 0 },
+    { label: "Plants", value: plants, pct: total ? Math.round((plants / denominator) * 100) : 0 },
+    { label: "Orders", value: activeOrders, pct: total ? Math.round((activeOrders / denominator) * 100) : 0 },
+    { label: "Support", value: openSupport, pct: total ? Math.round((openSupport / denominator) * 100) : 0 },
+  ], [users, plants, activeOrders, openSupport, total, denominator]);
+
+  const donutStyle: DonutStyle = {
+    "--u": `${segments[0].pct * 3.6}deg`,
+    "--p": `${(segments[0].pct + segments[1].pct) * 3.6}deg`,
+    "--o": `${(segments[0].pct + segments[1].pct + segments[2].pct) * 3.6}deg`,
+  };
+
+  if (!home) {
+    return <LoadingCommandCenter user={user} stepUpFresh={stepUpFresh} requestStepUp={requestStepUp} />;
+  }
+
+  const firstName = user.name.split(" ")[0] || "Administrator";
+  return (
+    <div className="ccRoot">
+      <section className="ccHero">
+        <div className="ccHeroCopy">
+          <div className="ccEyebrow"><span /> SUPER ADMIN COMMAND CENTER</div>
+          <h2>Platform intelligence at a glance.</h2>
+          <p>{firstName}, this control plane gives you a live operational view across plants, customers, orders, support and privileged security posture without exposing sensitive backend data.</p>
+          <div className="ccHeroActions">
+            <button type="button" className="primaryButton" onClick={requestStepUp}>{stepUpFresh ? "Identity verified" : "Verify privileged identity"}</button>
+            <span className="ccLive"><i /> Live control plane</span>
+          </div>
+        </div>
+        <div className="ccOrbit" aria-hidden="true">
+          <div className="ccOrbitRing ringOne" />
+          <div className="ccOrbitRing ringTwo" />
+          <div className="ccCore"><b>TMRMC</b><span>CONTROL</span></div>
+          <i className="node n1" /><i className="node n2" /><i className="node n3" /><i className="node n4" />
+        </div>
+      </section>
+
+      <section className="ccMetrics">
+        <MetricCard title="Registered users" value={users} caption="Platform identities under RBAC" tone="blue" />
+        <MetricCard title="RMC plants" value={plants} caption="Directory and partner footprint" tone="green" />
+        <MetricCard title="Active orders" value={activeOrders} caption="Orders currently in lifecycle" tone="orange" />
+        <MetricCard title="Open support" value={openSupport} caption="Cases needing operational attention" tone="purple" />
+      </section>
+
+      <section className="ccGrid ccGridWide">
+        <article className="ccPanel ccActivityPanel">
+          <header className="ccPanelHeader"><div><small>PLATFORM ACTIVITY</small><h3>Operational distribution</h3></div><span className="ccPanelBadge">Live</span></header>
+          <div className="ccDistribution">
+            <div className="ccDonut" style={donutStyle}>
+              <div><strong>{nf.format(total)}</strong><span>visible signals</span></div>
+            </div>
+            <div className="ccLegend">
+              {segments.map((segment, index) => <div key={segment.label}><i className={`legend${index + 1}`} /><span>{segment.label}</span><b>{nf.format(segment.value)}</b><small>{segment.pct}%</small></div>)}
+            </div>
+          </div>
+        </article>
+
+        <article className="ccPanel">
+          <header className="ccPanelHeader"><div><small>SECURITY POSTURE</small><h3>Privileged session health</h3></div><span className={`ccPanelBadge ${stepUpFresh ? "verified" : ""}`}>{stepUpFresh ? "Verified" : "Protected"}</span></header>
+          <div className="ccSecurityScore"><div className="ccShieldScore"><strong>ON</strong><span>ENFORCED</span></div><div><h4>Core controls enforced</h4><p>Dedicated portal MFA, server-side RBAC, memory-only bearer session and minimized read APIs remain active.</p></div></div>
+          <div className="ccHealthList">
+            <HealthRow label="Portal authentication" value="TOTP provenance required" status="good" />
+            <HealthRow label="Session isolation" value="No local/session storage" status="good" />
+            <HealthRow label="Sensitive actions" value="Fresh verification required" status={stepUpFresh ? "good" : "info"} />
+          </div>
+        </article>
+      </section>
+
+      <section className="ccGrid">
+        <article className="ccPanel">
+          <header className="ccPanelHeader"><div><small>OPERATIONS</small><h3>Attention center</h3></div><span className="ccPanelBadge">Priority</span></header>
+          <div className="ccAttention">
+            <div><span className="ccAttentionIcon">OR</span><div><b>Active order lifecycle</b><small>{nf.format(activeOrders)} orders currently require platform visibility.</small></div><strong>{nf.format(activeOrders)}</strong></div>
+            <div><span className="ccAttentionIcon">SP</span><div><b>Support queue</b><small>{nf.format(openSupport)} cases are currently open or in progress.</small></div><strong>{nf.format(openSupport)}</strong></div>
+            <div><span className="ccAttentionIcon">PL</span><div><b>Plant network</b><small>{nf.format(plants)} plants are visible to the secure directory.</small></div><strong>{nf.format(plants)}</strong></div>
+          </div>
+        </article>
+
+        <article className="ccPanel">
+          <header className="ccPanelHeader"><div><small>GOVERNANCE</small><h3>Control-plane guarantees</h3></div><span className="ccPanelBadge verified">Enforced</span></header>
+          <div className="ccGuarantees">
+            <div><span>01</span><div><b>Web-only privileged boundary</b><small>Authority and Central Admin remain outside the mobile route tree.</small></div></div>
+            <div><span>02</span><div><b>Data minimization</b><small>Secrets, raw KYC payloads, coordinates and gateway sessions stay excluded.</small></div></div>
+            <div><span>03</span><div><b>Read-only administration</b><small>Operational workspaces do not invent destructive mutations.</small></div></div>
+          </div>
+        </article>
+      </section>
+    </div>
+  );
+}

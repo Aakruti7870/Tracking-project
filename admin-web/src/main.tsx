@@ -1,10 +1,12 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type AdminUser, get, type Home, post } from "./api";
+import { CommandCenter } from "./command-center";
+import { DataWorkspace, type PortalModule } from "./workspaces";
 import "./styles.css";
 
 type Session = { access_token: string };
-type ModuleKey = "Dashboard" | "Plants" | "Users" | "KYC" | "Orders" | "Payments" | "Support" | "Security" | "Audit Logs" | "System";
+type ModuleKey = "Dashboard" | "Security" | PortalModule;
 type ModuleDefinition = {
   key: ModuleKey;
   label: string;
@@ -26,14 +28,13 @@ const modules: ModuleDefinition[] = [
   { key: "System", label: "System", short: "SY", group: "Governance", description: "System status and controlled platform administration." },
 ];
 
+const CENTRAL_ADMIN_ONLY = new Set<ModuleKey>(["Users", "Audit Logs", "System"]);
+
 function Brand({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
     <div className={`brand${compact ? " brandCompact" : ""}`}>
       <span className="brandMark" aria-hidden="true">CK</span>
-      <div>
-        <b>TrackMyRMC</b>
-        <small>{label}</small>
-      </div>
+      <div><b>TrackMyRMC</b><small>{label}</small></div>
     </div>
   );
 }
@@ -111,16 +112,6 @@ function Login({ onLogin }: { onLogin(token: string, user: AdminUser): void }) {
   );
 }
 
-function KpiCard({ label, value, loading }: { label: string; value?: number; loading?: boolean }) {
-  return (
-    <article className="kpiCard">
-      <div className="kpiTop"><small>{label}</small><span aria-hidden="true">↗</span></div>
-      {loading ? <div className="skeleton skeletonValue" /> : <strong>{new Intl.NumberFormat("en-IN").format(value ?? 0)}</strong>}
-      <span className="kpiHint">Live administrative summary</span>
-    </article>
-  );
-}
-
 function Panel({ title, eyebrow, children, action }: { title: string; eyebrow?: string; children: ReactNode; action?: ReactNode }) {
   return (
     <section className="panel">
@@ -185,40 +176,6 @@ function ConfirmDialog({ onCancel, onConfirm, busy }: { onCancel(): void; onConf
   );
 }
 
-function Dashboard({ home, user, stepUpFresh, requestStepUp }: { home?: Home; user: AdminUser; stepUpFresh: boolean; requestStepUp(): void }) {
-  const kpis = home?.kpis ?? [];
-  return (
-    <>
-      <section className="heroPanel">
-        <div>
-          <p className="eyebrow">PRIVILEGED COMMAND CENTER</p>
-          <h2>Good to see you, {user.name.split(" ")[0] || "Administrator"}.</h2>
-          <p>Platform-level visibility lives here; customer and plant operations remain in their role-specific application surfaces.</p>
-        </div>
-        <div className="heroSecurity"><span className={stepUpFresh ? "statusDot fresh" : "statusDot"} /><div><b>{stepUpFresh ? "Identity freshly verified" : "Standard privileged session"}</b><small>{stepUpFresh ? "Five-minute step-up window is active." : "High-risk actions will request fresh MFA."}</small></div></div>
-      </section>
-
-      <div className="kpiGrid">
-        {kpis.length ? kpis.slice(0, 4).map((kpi) => <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} />) : ["Plants", "Users", "Orders", "Operations"].map((label) => <KpiCard key={label} label={label} loading />)}
-      </div>
-
-      <div className="dashboardGrid">
-        <Panel title="Administration overview" eyebrow="CONTROL PLANE" action={<button className="textButton" type="button" onClick={requestStepUp}>Confirm identity</button>}>
-          <div className="overviewList">
-            <article><span className="overviewNumber">01</span><div><b>Mobile boundary protected</b><p>Central Admin and Authority remain outside the public mobile route tree.</p></div></article>
-            <article><span className="overviewNumber">02</span><div><b>Backend remains authoritative</b><p>RBAC, MFA, session revocation and audit behavior stay server controlled.</p></div></article>
-            <article><span className="overviewNumber">03</span><div><b>High-risk actions need step-up</b><p>Use the five-minute fresh identity challenge before sensitive administrative operations.</p></div></article>
-          </div>
-        </Panel>
-        <Panel title="Security posture" eyebrow="CURRENT SESSION">
-          <div className="securityScore"><div className="scoreRing"><span>3</span><small>/ 3</small></div><div><b>Core controls active</b><p>MFA sign-in, memory-only bearer session and server-side role verification are part of this admin surface.</p></div></div>
-          <div className="statusRows"><span><i className="okDot" />Authenticator MFA</span><span><i className="okDot" />Memory-only session</span><span><i className="okDot" />Privileged web separation</span></div>
-        </Panel>
-      </div>
-    </>
-  );
-}
-
 function ModuleWorkspace({ module, token, requestStepUp, onLogout }: { module: ModuleDefinition; token: string; requestStepUp(): void; onLogout(): void }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -248,16 +205,8 @@ function ModuleWorkspace({ module, token, requestStepUp, onLogout }: { module: M
     );
   }
 
-  return (
-    <Panel title={module.label} eyebrow={module.group.toUpperCase()}>
-      <div className="emptyWorkspace">
-        <span className="emptyGlyph" aria-hidden="true">{module.short}</span>
-        <h4>{module.label} workspace</h4>
-        <p>{module.description}</p>
-        <small>This premium shell does not invent privileged backend operations. Existing and future actions must remain bound to authenticated server APIs and RBAC.</small>
-      </div>
-    </Panel>
-  );
+  if (module.key !== "Dashboard") return <DataWorkspace module={module.key} token={token} />;
+  return null;
 }
 
 function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onLogout(): void }) {
@@ -267,14 +216,19 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [stepUpUntil, setStepUpUntil] = useState<number | null>(null);
 
-  const currentModule = useMemo(() => modules.find((item) => item.key === active) ?? modules[0], [active]);
+  const visibleModules = useMemo(() => modules.filter((item) => user.role === "central_admin" || !CENTRAL_ADMIN_ONLY.has(item.key)), [user.role]);
+  const currentModule = useMemo(() => visibleModules.find((item) => item.key === active) ?? visibleModules[0], [active, visibleModules]);
   const stepUpFresh = Boolean(stepUpUntil && stepUpUntil > Date.now());
 
   useEffect(() => {
     let mounted = true;
-    get<Home>("/staff/home", token).then((value) => { if (mounted) setHome(value); }).catch(() => { if (mounted) onLogout(); });
+    get<Home>("/admin/portal/summary", token).then((value) => { if (mounted) setHome(value); }).catch(() => { if (mounted) onLogout(); });
     return () => { mounted = false; };
-  }, [token]);
+  }, [token, onLogout]);
+
+  useEffect(() => {
+    if (!visibleModules.some((item) => item.key === active)) setActive("Dashboard");
+  }, [active, visibleModules]);
 
   useEffect(() => {
     if (!stepUpUntil) return;
@@ -290,7 +244,7 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
         {(["Operations", "Governance"] as const).map((group) => (
           <section className="navGroup" key={group} aria-label={group}>
             <small>{group}</small>
-            {modules.filter((item) => item.group === group).map((item) => (
+            {visibleModules.filter((item) => item.group === group).map((item) => (
               <button key={item.key} className={active === item.key ? "navItem active" : "navItem"} type="button" aria-current={active === item.key ? "page" : undefined} onClick={() => setActive(item.key)}>
                 <span aria-hidden="true">{item.short}</span><b>{item.label}</b>
               </button>
@@ -311,8 +265,8 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
         </header>
 
         <main className="content">
-          <div className="securityNotice"><div className="noticeIcon"><ShieldIcon /></div><div><b>MFA-protected administration</b><span>High-risk operations require fresh identity confirmation and remain subject to backend audit and authorization.</span></div><button className={stepUpFresh ? "verifiedButton" : "secondaryButton"} type="button" onClick={() => setStepUpOpen(true)}>{stepUpFresh ? "Identity verified" : "Confirm identity"}</button></div>
-          {active === "Dashboard" ? <Dashboard home={home} user={user} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} /> : <ModuleWorkspace module={currentModule} token={token} requestStepUp={() => setStepUpOpen(true)} onLogout={onLogout} />}
+          <div className="securityNotice"><div className="noticeIcon"><ShieldIcon /></div><div><b>MFA-protected administration</b><span>Operational workspaces are read-only; high-risk mutations remain in dedicated server-audited flows with fresh verification where required.</span></div><button className={stepUpFresh ? "verifiedButton" : "secondaryButton"} type="button" onClick={() => setStepUpOpen(true)}>{stepUpFresh ? "Identity verified" : "Confirm identity"}</button></div>
+          {active === "Dashboard" ? <CommandCenter home={home} user={user} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} /> : <ModuleWorkspace module={currentModule} token={token} requestStepUp={() => setStepUpOpen(true)} onLogout={onLogout} />}
         </main>
       </section>
 
