@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { get } from "./api";
 import "./workspaces.css";
 
@@ -143,14 +143,27 @@ function ListWorkspace({ module, token }: { module: ListModule; token: string })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const requestGeneration = useRef(0);
 
   async function load() {
+    const generation = ++requestGeneration.current;
     setLoading(true); setError("");
-    try { const result = await get<ListResponse>(config.endpoint, token); setRows(result.items || []); }
-    catch { setRows([]); setError("This secure workspace could not be loaded. Confirm your administrator role and session."); }
-    finally { setLoading(false); }
+    try {
+      const result = await get<ListResponse>(config.endpoint, token);
+      if (generation !== requestGeneration.current) return;
+      setRows(result.items || []);
+    } catch {
+      if (generation !== requestGeneration.current) return;
+      setRows([]);
+      setError("This secure workspace could not be loaded. Confirm your administrator role and session.");
+    } finally {
+      if (generation === requestGeneration.current) setLoading(false);
+    }
   }
-  useEffect(() => { void load(); }, [config.endpoint, token]);
+  useEffect(() => {
+    void load();
+    return () => { requestGeneration.current += 1; };
+  }, [config.endpoint, token]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
