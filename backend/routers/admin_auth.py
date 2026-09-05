@@ -125,7 +125,13 @@ async def require_recent_admin_step_up(ctx: dict = Depends(platform_admin_role))
 
 
 @router.post("/step-up")
-async def step_up(body: StepUpBody, ctx: dict = Depends(platform_admin)):
+async def step_up(body: StepUpBody, ctx: dict = Depends(platform_admin_role)):
+    """Establish recent admin verification for any authenticated platform admin.
+
+    Step-up is also used by sensitive operations outside the dedicated portal,
+    so establishing it must not require portal-session provenance. Portal reads
+    remain protected by platform_admin().
+    """
     user = ctx["user"]
     try:
         secret = staff_mfa._decrypt_secret(staff_mfa._mfa_doc(user)["totp_secret"])
@@ -136,13 +142,16 @@ async def step_up(body: StepUpBody, ctx: dict = Depends(platform_admin)):
         await write_audit(ctx["user_id"], "admin.step_up.failed", "session", ctx["sid"])
         raise _failed()
     now = utcnow()
-    await sessions.update_one(
-        {"_id": ctx["sid"], "revoked": False, PORTAL_SESSION_FLAG: True},
+    updated = await sessions.update_one(
+        {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
         {"$set": {
             "admin_step_up_at": now,
             "admin_step_up_expires_at": now + timedelta(seconds=ADMIN_STEP_UP_SECONDS),
         }},
     )
+    if updated.modified_count != 1:
+        await write_audit(ctx["user_id"], "admin.step_up.failed", "session", ctx["sid"], {"result": "session_mark_failed"})
+        raise _failed()
     await write_audit(ctx["user_id"], "admin.step_up.succeeded", "session", ctx["sid"])
     return {"status": "verified", "expires_in": ADMIN_STEP_UP_SECONDS}
 
