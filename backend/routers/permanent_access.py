@@ -106,7 +106,6 @@ async def _ensure_platform_admin(email: str) -> None:
                 "$set": {
                     "email": normalized,
                     "primary_role": role,
-                    "status": "active",
                     **flags,
                 },
                 "$addToSet": {"roles": role},
@@ -130,8 +129,6 @@ async def _ensure_platform_admin(email: str) -> None:
     try:
         await users.insert_one(user)
     except DuplicateKeyError:
-        # Another startup worker may have created it concurrently. Re-apply the
-        # exact primary role so a stale Authority record cannot survive startup.
         existing = await users.find_one({"identifier_keys": key})
         if not existing:
             raise
@@ -141,7 +138,6 @@ async def _ensure_platform_admin(email: str) -> None:
                 "$set": {
                     "email": normalized,
                     "primary_role": role,
-                    "status": "active",
                     **flags,
                 },
                 "$addToSet": {"roles": role},
