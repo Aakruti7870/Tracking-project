@@ -107,8 +107,10 @@ test("login help widget is public guidance only and never calls customer APIs", 
   assert.ok(!publicWidget.includes('"/assistant/') && !publicWidget.includes('"/customer/orders'));
 });
 
-test("mascot widget remains compact and does not steal surrounding touches", () => {
-  assert.ok(widget.includes("support-agent-mascot.png"));
+test("support widget uses a bundled system icon and does not depend on raster rendering", () => {
+  assert.ok(widget.includes('name="chatbubbles-outline"'));
+  assert.ok(!widget.includes("support-agent-mascot.png"));
+  assert.ok(!widget.includes('from "expo-image"'));
   assert.ok(widget.includes("Need help logging in?"));
   assert.ok(widget.includes("width: 56"));
   assert.ok(widget.includes("height: 56"));
@@ -117,7 +119,7 @@ test("mascot widget remains compact and does not steal surrounding touches", () 
   assert.ok(widget.includes("flexDirection: \"column-reverse\""));
 });
 
-test("authenticated mascot is limited to customer tab screens with reserved bottom space", () => {
+test("authenticated support icon is limited to customer tab screens with reserved bottom space", () => {
   assert.ok(widget.includes('Boolean(token) && user?.role === "customer"'));
   assert.ok(widget.includes("CUSTOMER_WIDGET_PATHS.has(normalizedPath)"));
   for (const path of ["/customer", "/customer/orders", "/customer/plants", "/customer/more"]) assert.ok(widget.includes(`\"${path}\"`));
