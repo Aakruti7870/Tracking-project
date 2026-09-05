@@ -98,16 +98,27 @@ async def verify_admin_totp(body: AdminLoginBody):
     return result
 
 
-def platform_admin(ctx: dict = Depends(current_user)) -> dict:
+def platform_admin_role(ctx: dict = Depends(current_user)) -> dict:
+    """Require a platform-administrator role without changing existing step-up flows."""
     if ctx["role"] not in PLATFORM_ROLES:
         raise HTTPException(403, "Insufficient permissions")
+    return ctx
+
+
+def platform_admin(ctx: dict = Depends(platform_admin_role)) -> dict:
+    """Require platform role plus dedicated admin-portal TOTP provenance."""
     if not (ctx.get("session") or {}).get(PORTAL_SESSION_FLAG):
         raise HTTPException(403, "Privileged portal authentication required")
     return ctx
 
 
-async def require_recent_admin_step_up(ctx: dict = Depends(platform_admin)) -> dict:
-    """Fail closed unless this privileged portal session recently re-verified TOTP."""
+async def require_recent_admin_step_up(ctx: dict = Depends(platform_admin_role)) -> dict:
+    """Require the existing server-issued recent admin step-up marker.
+
+    This dependency is shared by sensitive operations outside the read-only
+    admin portal. Portal routes still use platform_admin(), so portal access
+    continues to require dedicated TOTP provenance.
+    """
     if not _has_recent_admin_step_up(ctx.get("session") or {}):
         raise HTTPException(403, "Recent administrator verification required")
     return ctx
