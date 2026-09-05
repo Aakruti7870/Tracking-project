@@ -6,11 +6,17 @@ on:
       - feat/admin-web-premium-ui-v2
     paths:
       - "admin-web/**"
+      - "backend/routers/admin_auth.py"
+      - "backend/routers/admin_portal.py"
+      - "backend/server.py"
       - "frontend/src/auth/roleRoutes.ts"
       - ".github/workflows/admin-web-quality.yml"
   pull_request:
     paths:
       - "admin-web/**"
+      - "backend/routers/admin_auth.py"
+      - "backend/routers/admin_portal.py"
+      - "backend/server.py"
       - "frontend/src/auth/roleRoutes.ts"
       - ".github/workflows/admin-web-quality.yml"
   workflow_dispatch:
@@ -43,6 +49,18 @@ jobs:
               raise SystemExit(f'Privileged mobile role routing detected: {found}')
           print('Privileged web-only boundary passed.')
           PY
+
+      - name: Enforce admin portal security contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '/admin/portal/summary' admin-web/src/main.tsx
+          grep -F 'CENTRAL_ADMIN_ONLY' admin-web/src/main.tsx
+          grep -F 'APIRouter(prefix="/api/admin/portal"' backend/routers/admin_portal.py
+          grep -F 'Depends(central_admin_only)' backend/routers/admin_portal.py
+          ! grep -R -E 'localStorage|sessionStorage' admin-web/src
+          ! grep -E '@router\.(post|put|patch|delete)' backend/routers/admin_portal.py
+          echo 'Admin portal read-only and memory-session guard passed.'
 
       - name: Setup Node
         uses: actions/setup-node@v4
