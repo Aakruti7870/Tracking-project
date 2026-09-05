@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { CSSProperties } from "react";
 import type { AdminUser, Home } from "./api";
 import "./command-center.css";
 
@@ -10,6 +11,7 @@ type CommandCenterProps = {
 };
 
 type Metric = { label: string; value: number };
+type DonutStyle = CSSProperties & { "--u": string; "--p": string; "--o": string };
 
 const nf = new Intl.NumberFormat("en-IN");
 
@@ -62,6 +64,12 @@ export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: Comman
     { label: "Support", value: openSupport, pct: Math.round((openSupport / total) * 100) },
   ], [users, plants, activeOrders, openSupport, total]);
 
+  const donutStyle: DonutStyle = {
+    "--u": `${segments[0].pct * 3.6}deg`,
+    "--p": `${(segments[0].pct + segments[1].pct) * 3.6}deg`,
+    "--o": `${(segments[0].pct + segments[1].pct + segments[2].pct) * 3.6}deg`,
+  };
+
   const firstName = user.name.split(" ")[0] || "Administrator";
   return (
     <div className="ccRoot">
@@ -94,7 +102,7 @@ export function CommandCenter({ home, user, stepUpFresh, requestStepUp }: Comman
         <article className="ccPanel ccActivityPanel">
           <header className="ccPanelHeader"><div><small>PLATFORM ACTIVITY</small><h3>Operational distribution</h3></div><span className="ccPanelBadge">Live</span></header>
           <div className="ccDistribution">
-            <div className="ccDonut" style={{ "--u": `${segments[0].pct * 3.6}deg`, "--p": `${(segments[0].pct + segments[1].pct) * 3.6}deg`, "--o": `${(segments[0].pct + segments[1].pct + segments[2].pct) * 3.6}deg` } as React.CSSProperties}>
+            <div className="ccDonut" style={donutStyle}>
               <div><strong>{nf.format(total)}</strong><span>visible signals</span></div>
             </div>
             <div className="ccLegend">
