@@ -2,13 +2,14 @@ name: Release Signed AAB
 
 # Produces a Google Play upload-signed .aab for com.trackmyrmc.concreteking.
 # Required GitHub Actions secrets (Repo -> Settings -> Secrets and variables -> Actions):
-#   ANDROID_KEYSTORE_BASE64      - base64 of the upload keystore .jks / .p12
-#   ANDROID_KEYSTORE_PASSWORD    - keystore password
-#   ANDROID_STORE_PASSWORD       - key store password (usually same as ANDROID_KEYSTORE_PASSWORD)
-#   ANDROID_KEY_ALIAS            - alias inside the keystore (e.g. "concreteking")
+#   ANDROID_KEYSTORE_BASE64      - base64 of the Play upload keystore .jks / .p12
+#   ANDROID_KEYSTORE_PASSWORD    - key password
+#   ANDROID_STORE_PASSWORD       - keystore password
+#   ANDROID_KEY_ALIAS            - alias inside the Play upload keystore
 #
-# Production release builds are intentionally pinned to https://trackmyrmc.com.
-# Do not bake a preview, legacy, or api.* hostname into a Play candidate.
+# IMPORTANT: Google Play currently expects the upload certificate SHA1 below.
+# The workflow validates BOTH the restored keystore and the final AAB against it.
+# A wrong/debug key therefore fails CI before any release artifact is uploaded.
 
 on:
   workflow_dispatch:
@@ -39,6 +40,7 @@ jobs:
       CI: "1"
       EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,6 +99,30 @@ jobs:
           test -s upload-keystore.jks
           echo "keystore size: $(stat -c%s upload-keystore.jks) bytes"
 
+      - name: Verify Play upload keystore fingerprint
+        working-directory: frontend/android/app
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          actual_sha1="$({ keytool -list -v \
+            -keystore upload-keystore.jks \
+            -alias "$KEY_ALIAS" \
+            -storepass "$STORE_PASSWORD"; } 2>/dev/null | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          test -n "$actual_sha1" || {
+            echo "Unable to read SHA1 from configured upload keystore/alias"
+            exit 1
+          }
+          echo "Configured upload certificate SHA1: $actual_sha1"
+          if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "ERROR: Wrong Android signing keystore configured."
+            echo "Expected by Google Play: $EXPECTED_PLAY_UPLOAD_SHA1"
+            echo "Configured keystore:       $actual_sha1"
+            echo "Refusing to build/upload a Play release candidate."
+            exit 1
+          fi
+
       - name: Wire release signingConfig into build.gradle
         working-directory: frontend/android
         env:
@@ -112,12 +138,13 @@ jobs:
           TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
           EOF
           python3 - <<'PY'
-          import re, pathlib
+          import pathlib
+          import re
+
           gradle = pathlib.Path("app/build.gradle")
           text = gradle.read_text()
-          if "TRACKMYRMC_UPLOAD_STORE_FILE" in text:
-              print("signingConfig already wired, skipping")
-          else:
+
+          if "TRACKMYRMC_UPLOAD_STORE_FILE" not in text:
               signing_block = """
               signingConfigs {
                   release {
@@ -130,27 +157,38 @@ jobs:
                   }
               }
               """
-              text2 = re.sub(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              text2 = re.sub(
-                  r'(buildTypes\s*\{[^{}]*release\s*\{[^{}]*?)(signingConfig\s+signingConfigs\.\w+)',
-                  r'\1signingConfig signingConfigs.release',
-                  text2,
-                  count=1,
-                  flags=re.DOTALL,
-              )
-              if text2 == text:
-                  raise SystemExit("failed to patch app/build.gradle with release signingConfig")
-              gradle.write_text(text2)
-              print("signingConfig wired into app/build.gradle")
+              text, inserted = re.subn(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
+              if inserted != 1:
+                  raise SystemExit("failed to insert release signingConfig")
+
+          debug_signing = "signingConfig signingConfigs.debug"
+          release_signing = "signingConfig signingConfigs.release"
+
+          if release_signing not in text:
+              count = text.count(debug_signing)
+              if count != 1:
+                  raise SystemExit(
+                      f"expected exactly one generated debug signing assignment to replace, found {count}"
+                  )
+              text = text.replace(debug_signing, release_signing, 1)
+
+          if release_signing not in text:
+              raise SystemExit("release build is not wired to signingConfigs.release")
+
+          gradle.write_text(text)
+          print("release build is wired to signingConfigs.release")
           PY
+
+          grep -F "signingConfig signingConfigs.release" app/build.gradle >/dev/null
 
       - name: Build signed release AAB
         working-directory: frontend/android
         run: |
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:bundleRelease --no-daemon --stacktrace
 
-      - name: Verify signed AAB
+      - name: Verify signed AAB and Play certificate
         working-directory: frontend/android
         run: |
           set -euo pipefail
@@ -161,6 +199,19 @@ jobs:
           echo "AAB: $aab"
           echo "Size: $size bytes"
           echo "SHA-256: $sha"
+
+          actual_aab_sha1="$(keytool -printcert -jarfile "$aab" 2>/dev/null | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          test -n "$actual_aab_sha1" || {
+            echo "ERROR: Unable to read signer certificate from final AAB"
+            exit 1
+          }
+          echo "Final AAB signer SHA1: $actual_aab_sha1"
+          if [ "$actual_aab_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
+            echo "ERROR: Final AAB was signed with the wrong certificate."
+            echo "Expected by Google Play: $EXPECTED_PLAY_UPLOAD_SHA1"
+            echo "Final AAB signer:        $actual_aab_sha1"
+            exit 1
+          fi
 
           curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
