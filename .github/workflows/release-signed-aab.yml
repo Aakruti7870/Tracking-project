@@ -204,14 +204,25 @@ jobs:
 
           props = pathlib.Path("gradle.properties")
           ptext = props.read_text()
-          jvm = "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
-          if re.search(r"(?m)^org\.gradle\.jvmargs=.*$", ptext):
-              ptext = re.sub(r"(?m)^org\.gradle\.jvmargs=.*$", jvm, ptext)
-          else:
-              ptext += "\n" + jvm + "\n"
-          if not re.search(r"(?m)^org\.gradle\.caching=", ptext):
-              ptext += "org.gradle.caching=true\n"
+
+          settings = {
+              "org.gradle.jvmargs": "-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+              "org.gradle.caching": "true",
+              "org.gradle.parallel": "true",
+              "org.gradle.configureondemand": "true",
+              "reactNativeArchitectures": "armeabi-v7a,arm64-v8a",
+          }
+          for key, value in settings.items():
+              line = f"{key}={value}"
+              pattern = rf"(?m)^{re.escape(key)}=.*$"
+              if re.search(pattern, ptext):
+                  ptext = re.sub(pattern, line, ptext)
+              else:
+                  if not ptext.endswith("\n"):
+                      ptext += "\n"
+                  ptext += line + "\n"
           props.write_text(ptext)
+          print("fast build enabled: Gradle cache/parallel + ARM ABIs only")
           PY
 
       - name: Build unsigned release AAB
@@ -219,7 +230,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+          ./gradlew :app:bundleRelease \
+            --no-daemon \
+            --stacktrace \
+            --build-cache \
+            --parallel \
+            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
           test -s app/build/outputs/bundle/release/app-release.aab
 
       - name: Sign AAB with verified Play upload key
@@ -298,7 +314,7 @@ jobs:
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.26-vc84-signed-aab
+          name: trackmyrmc-v2.0.26-vc84-fast-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
