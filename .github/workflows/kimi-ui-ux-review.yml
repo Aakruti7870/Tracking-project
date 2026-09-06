@@ -68,28 +68,26 @@ jobs:
 
           system="""You are Kimi K3 acting as senior mobile product architect and React Native UI systems reviewer for TrackMyRMC. Review repository evidence only. The attached textual contract is the normalized implementation of the approved visual reference. Do not invent backend fields or routes. Preserve auth, KYC, payments, tracking, Android identity/signing/App Links, order lifecycle, MongoDB/API contracts, Play policy, and the privileged-role boundary. Ordinary React Native UI should stay TypeScript. Prefer reusable shared primitives and minimal behavioral change. Separate proven findings from recommendations."""
 
-          user=f"""Compare the current implementation against this FINAL UI CONTRACT and produce a concrete implementation review.
-
-FINAL UI CONTRACT:
-{contract}
-
-REPOSITORY FILES:
-{''.join(blocks)}
-
-Return exactly:
-## Verdict
-## Already Matching The Contract
-## Proven Visual Inconsistencies
-## Reusable Component Changes Required
-## Screen-Level Changes Required
-## KYC Identity Presentation Check
-## Interaction / Accessibility Gaps
-## Performance / Render Risks
-## Protected Logic That Must Not Change
-## Recommended Implementation Order
-## Final Go / No-Go
-
-For every actionable item name exact repository files. Do not claim image vision; the contract above is the authoritative visual interpretation."""
+          user=(
+            "Compare the current implementation against this FINAL UI CONTRACT and produce a concrete implementation review.\n\n"
+            "FINAL UI CONTRACT:\n"
+            f"{contract}\n\n"
+            "REPOSITORY FILES:\n"
+            f"{''.join(blocks)}\n\n"
+            "Return exactly:\n"
+            "## Verdict\n"
+            "## Already Matching The Contract\n"
+            "## Proven Visual Inconsistencies\n"
+            "## Reusable Component Changes Required\n"
+            "## Screen-Level Changes Required\n"
+            "## KYC Identity Presentation Check\n"
+            "## Interaction / Accessibility Gaps\n"
+            "## Performance / Render Risks\n"
+            "## Protected Logic That Must Not Change\n"
+            "## Recommended Implementation Order\n"
+            "## Final Go / No-Go\n\n"
+            "For every actionable item name exact repository files. Do not claim image vision; the contract above is the authoritative visual interpretation."
+          )
 
           payload={"model":model,"messages":[{"role":"system","content":system},{"role":"user","content":user}],"temperature":0.1,"reasoning_effort":"high","max_tokens":5000,"stream":False}
           req=urllib.request.Request("https://integrate.api.nvidia.com/v1/chat/completions",data=json.dumps(payload).encode(),headers={"Authorization":f"Bearer {key}","Content-Type":"application/json","Accept":"application/json"},method="POST")
