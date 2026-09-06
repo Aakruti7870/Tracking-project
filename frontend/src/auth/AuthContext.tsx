@@ -28,6 +28,7 @@ export type Me = {
   name: string;
   email: string | null;
   phone: string | null;
+  mobile?: string | null;
   role: string;
   role_label: string;
   roles: string[];
