@@ -167,8 +167,8 @@ jobs:
           unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="83"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.25"' /tmp/aab-manifest.xml
+          grep -F 'android:versionCode="84"' /tmp/aab-manifest.xml
+          grep -F 'android:versionName="2.0.26"' /tmp/aab-manifest.xml
 
           bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
           test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
@@ -185,7 +185,7 @@ jobs:
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.25-vc83-signed-aab
+          name: trackmyrmc-v2.0.26-vc84-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
