@@ -119,12 +119,20 @@ test("support widget uses a bundled system icon and does not depend on raster re
   assert.ok(widget.includes("flexDirection: \"column-reverse\""));
 });
 
-test("authenticated support icon is limited to customer tab screens with reserved bottom space", () => {
+test("authenticated support icon expands a bottom-corner card before full support navigation", () => {
   assert.ok(widget.includes('Boolean(token) && user?.role === "customer"'));
   assert.ok(widget.includes("CUSTOMER_WIDGET_PATHS.has(normalizedPath)"));
   for (const path of ["/customer", "/customer/orders", "/customer/plants", "/customer/more"]) assert.ok(widget.includes(`\"${path}\"`));
   assert.ok(widget.includes("insets.bottom + 104"));
   assert.ok(widget.includes("Math.max(insets.bottom + 104, 120)"));
+  assert.ok(widget.includes('testID="customer-support-panel"'));
+  assert.ok(widget.includes('accessibilityState={{ expanded: customerHelpOpen }}'));
+  assert.ok(widget.includes("setCustomerHelpOpen((value) => !value)"));
+  assert.ok(widget.includes('testID="customer-support-place-order"'));
+  assert.ok(widget.includes('router.push("/new-order?assistant=1"'));
+  assert.ok(widget.includes('testID="customer-support-track-delivery"'));
+  assert.ok(widget.includes('router.push("/customer/orders"'));
+  assert.ok(widget.includes('testID="customer-support-open-center"'));
   assert.ok(widget.includes('router.push("/support"'));
   assert.ok(!widget.includes('user?.role === "driver"'));
   assert.ok(!widget.includes('user?.role === "admin"'));

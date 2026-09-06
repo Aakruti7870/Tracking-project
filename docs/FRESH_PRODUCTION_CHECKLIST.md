@@ -19,5 +19,5 @@ After merge to `main`:
 - [ ] `/.well-known/assetlinks.json` contains `com.trackmyrmc.concreteking`.
 - [ ] Plant Staff first-login email OTP delivery is verified with the production SendGrid configuration.
 - [ ] Create a release branch from the final green `main` SHA to trigger the signed AAB workflow.
-- [ ] Signed AAB is `2.0.24` / versionCode `82`, bundletool-valid, upload-signed, and pinned to `https://trackmyrmc.com`.
+- [ ] Signed AAB is `2.0.26` / versionCode `84`, bundletool-valid, upload-signed, and pinned to `https://trackmyrmc.com`.
 - [ ] Only that final AAB is used for the next Google Play Console upload.

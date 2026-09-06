@@ -13,7 +13,7 @@ This release must not publish, validate, or package any legacy TrackMyRMC/Concre
 
 - Candidate validation must check out the exact dispatched ref or pushed `main` SHA. It must never fall back to an older feature branch.
 - Production Android builds are pinned to `https://trackmyrmc.com`; the legacy `https://api.trackmyrmc.com` origin is rejected from the built bundle.
-- Current Play candidate: `com.trackmyrmc.concreteking`, version `2.0.24`, versionCode `82`.
+- Current Play candidate: `com.trackmyrmc.concreteking`, version `2.0.26`, versionCode `84`.
 - Bundletool validation, package/version checks, upload signing, and production asset-links availability are mandatory before publishing the AAB artifact.
 
 ## Passkey ceremony
