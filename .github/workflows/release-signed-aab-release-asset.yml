@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "release/signed-aab-v2.0.26-vc84-fast"
+      - "release/signed-aab-v2.0.27-vc85-full"
 
 permissions:
   contents: write
@@ -115,7 +115,7 @@ jobs:
             fi
           fi
 
-      - name: Prepare unsigned fast release build
+      - name: Prepare unsigned full-device release build
         working-directory: frontend/android
         shell: bash
         run: |
@@ -150,13 +150,14 @@ jobs:
               'org.gradle.caching':'true',
               'org.gradle.parallel':'true',
               'org.gradle.configureondemand':'true',
-              'reactNativeArchitectures':'armeabi-v7a,arm64-v8a',
+              'reactNativeArchitectures':'armeabi-v7a,arm64-v8a,x86,x86_64',
           }
           for k,v in settings.items():
               line=f'{k}={v}'; pat=rf'(?m)^{re.escape(k)}=.*$'
               if re.search(pat,p): p=re.sub(pat,line,p)
               else: p += ('\n' if not p.endswith('\n') else '') + line + '\n'
           props.write_text(p)
+          print('full device ABI build enabled: armeabi-v7a, arm64-v8a, x86, x86_64')
           PY
 
       - name: Build unsigned release AAB
@@ -165,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:bundleRelease --no-daemon --stacktrace --build-cache --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace --build-cache --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64
           test -s app/build/outputs/bundle/release/app-release.aab
 
       - name: Sign with verified Play upload key
@@ -205,8 +206,8 @@ jobs:
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="84"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.26"' /tmp/aab-manifest.xml
+          grep -F 'android:versionCode="85"' /tmp/aab-manifest.xml
+          grep -F 'android:versionName="2.0.27"' /tmp/aab-manifest.xml
           bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
           test -n "$bundle_entry"
           unzip -p "$aab" "$bundle_entry" >/tmp/index.android.bundle
@@ -224,11 +225,11 @@ jobs:
         run: |
           set -euo pipefail
           aab='app/build/outputs/bundle/release/app-release.aab'
-          release_tag="play-aab-v2.0.26-vc84-${GITHUB_RUN_ID}"
-          cp "$aab" TrackMyRMC-v2.0.26-vc84-signed.aab
-          gh release create "$release_tag" TrackMyRMC-v2.0.26-vc84-signed.aab \
+          release_tag="play-aab-v2.0.27-vc85-${GITHUB_RUN_ID}"
+          cp "$aab" TrackMyRMC-v2.0.27-vc85-signed.aab
+          gh release create "$release_tag" TrackMyRMC-v2.0.27-vc85-signed.aab \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TrackMyRMC v2.0.26 vc84 signed AAB" \
-            --notes "Verified Play upload-signed AAB. SHA-256: ${AAB_SHA256}. Signer SHA1: ${EXPECTED_PLAY_UPLOAD_SHA1}. Package: com.trackmyrmc.concreteking. Version: 2.0.26 (84)."
+            --title "TrackMyRMC v2.0.27 vc85 signed AAB" \
+            --notes "Verified Play upload-signed full-device AAB. SHA-256: ${AAB_SHA256}. Signer SHA1: ${EXPECTED_PLAY_UPLOAD_SHA1}. Package: com.trackmyrmc.concreteking. Version: 2.0.27 (85). ABIs: armeabi-v7a, arm64-v8a, x86, x86_64."
           gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json tagName,url,assets
