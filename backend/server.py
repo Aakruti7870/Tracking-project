@@ -198,7 +198,7 @@ async def on_startup():
     # Fail before serving traffic when production KYC hosts/callback are unsafe.
     # Development remains usable without KYC secrets, but partial configuration
     # is still rejected rather than failing during a customer's consent flow.
-    if settings.is_prod or any(os.getenv(name) for name in (
+    if not settings.is_dev or any(os.getenv(name) for name in (
         "KYC_API_KEY", "KYC_API_SECRET", "KYC_BASE_URL", "KYC_AUTH_BASE_URL",
         "KYC_INIT_BASE_URL", "KYC_READ_BASE_URL", "KYC_REDIRECT_URL",
     )):
