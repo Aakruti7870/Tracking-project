@@ -1,0 +1,29 @@
+name: Export AAB Direct URL
+
+on:
+  push:
+    branches:
+      - ops/aab-export-link
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-url:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release asset redirect URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_url='https://github.com/Aakruti7870/Tracking-project/releases/download/play-aab-v2.0.26-vc84-34047203822/TrackMyRMC-v2.0.26-vc84-signed.aab'
+          curl -sS -D /tmp/headers -o /dev/null "$asset_url"
+          direct_url="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[Ll]ocation:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' /tmp/headers)"
+          if [ -z "$direct_url" ]; then
+            echo 'ERROR: GitHub did not return a release asset redirect URL.'
+            cat /tmp/headers
+            exit 1
+          fi
+          echo "DIRECT_AAB_URL=$direct_url"
+          echo "AAB_SHA256=406e1ccf1b79ded092a17753337aaca19215ea940fc661b6989b6b6c21f04070"
