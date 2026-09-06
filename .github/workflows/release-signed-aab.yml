@@ -144,6 +144,22 @@ jobs:
           gradle = pathlib.Path("app/build.gradle")
           text = gradle.read_text()
 
+          def named_block_span(source: str, name: str, start: int = 0):
+              match = re.search(rf"\b{re.escape(name)}\s*\{{", source[start:])
+              if not match:
+                  raise SystemExit(f"could not find {name} block")
+              open_brace = source.find("{", start + match.start())
+              depth = 0
+              for i in range(open_brace, len(source)):
+                  ch = source[i]
+                  if ch == "{":
+                      depth += 1
+                  elif ch == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return open_brace, i + 1
+              raise SystemExit(f"unterminated {name} block")
+
           if "TRACKMYRMC_UPLOAD_STORE_FILE" not in text:
               signing_block = """
               signingConfigs {
@@ -164,22 +180,37 @@ jobs:
           debug_signing = "signingConfig signingConfigs.debug"
           release_signing = "signingConfig signingConfigs.release"
 
-          if release_signing not in text:
-              count = text.count(debug_signing)
-              if count != 1:
-                  raise SystemExit(
-                      f"expected exactly one generated debug signing assignment to replace, found {count}"
-                  )
-              text = text.replace(debug_signing, release_signing, 1)
+          build_open, build_end = named_block_span(text, "buildTypes")
+          build_text = text[build_open:build_end]
+          release_open_local, release_end_local = named_block_span(build_text, "release")
+          release_text = build_text[release_open_local:release_end_local]
 
-          if release_signing not in text:
+          if release_signing not in release_text:
+              count = release_text.count(debug_signing)
+              if count != 1:
+                  print("Generated release block was:")
+                  print(release_text)
+                  raise SystemExit(
+                      f"expected exactly one debug signing assignment inside release block, found {count}"
+                  )
+              release_text = release_text.replace(debug_signing, release_signing, 1)
+              build_text = (
+                  build_text[:release_open_local]
+                  + release_text
+                  + build_text[release_end_local:]
+              )
+              text = text[:build_open] + build_text + text[build_end:]
+
+          build_open, build_end = named_block_span(text, "buildTypes")
+          build_text = text[build_open:build_end]
+          release_open_local, release_end_local = named_block_span(build_text, "release")
+          release_text = build_text[release_open_local:release_end_local]
+          if release_signing not in release_text:
               raise SystemExit("release build is not wired to signingConfigs.release")
 
           gradle.write_text(text)
           print("release build is wired to signingConfigs.release")
           PY
-
-          grep -F "signingConfig signingConfigs.release" app/build.gradle >/dev/null
 
       - name: Build signed release AAB
         working-directory: frontend/android
