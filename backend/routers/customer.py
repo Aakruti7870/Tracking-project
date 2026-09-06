@@ -143,6 +143,7 @@ def _serialize_challan(doc: dict) -> dict:
         "id": str(doc["_id"]), "load_id": doc.get("load_id"), "load_code": doc.get("load_code"),
         "challan_number": doc.get("challan_number"), "order_number": doc.get("order_number"),
         "plant_name": doc.get("plant_name"), "customer_name": doc.get("customer_name"),
+        "customer_mobile": doc.get("customer_mobile"),
         "site_name": doc.get("site_name"), "site_address": doc.get("site_address"),
         "grade": doc.get("grade"), "quantity": doc.get("quantity"), "tm_number": doc.get("tm_number"),
         "driver_name": doc.get("driver_name"), "driver_mobile": doc.get("driver_mobile"),
@@ -615,12 +616,19 @@ async def _sync_customer_verified_name(uid: str, kyc: dict) -> bool:
     now = datetime.now(timezone.utc)
     try:
         profile = await get_digilocker_user_profile(session_id)
-    except (DigiLockerConfigurationError, DigiLockerProviderError):
+    except (DigiLockerConfigurationError, DigiLockerProviderError) as exc:
         # Do not expose or log the raw provider payload / KYC data.
-        logger.warning("Customer KYC verified-name sync deferred (user=%s)", uid)
+        logger.warning("Customer KYC verified-name synchronization deferred")
+        update: dict = {"name_sync_pending": True, "updated_at": now}
+        unset: dict = {}
+        if isinstance(exc, DigiLockerProviderError) and exc.status_code == 404:
+            # Consent succeeded but this provider session can no longer yield
+            # authoritative identity. Re-verification is the only safe recovery.
+            update.update({"status": "REQUIRES_REVERIFICATION", "provider_status": "profile_not_found"})
+            unset["provider_session_id"] = ""
         await kyc_profiles.update_one(
             {"_id": kyc["_id"]},
-            {"$set": {"name_sync_pending": True, "updated_at": now}},
+            {"$set": update, **({"$unset": unset} if unset else {})},
         )
         return False
 
@@ -631,7 +639,11 @@ async def _sync_customer_verified_name(uid: str, kyc: dict) -> bool:
     )
     await kyc_profiles.update_one(
         {"_id": kyc["_id"]},
-        {"$set": {"kyc_name": verified_name, "name_sync_pending": False, "updated_at": now}},
+        {"$set": {
+            "kyc_name": verified_name, "kyc_verified_name": verified_name,
+            "kyc_verified_at": kyc.get("verified_at") or now,
+            "kyc_provider": "DIGILOCKER", "name_sync_pending": False, "updated_at": now,
+        }},
     )
     await write_audit(uid, "kyc.name_synced", "user", uid, {"source": "DIGILOCKER"})
     return True
@@ -646,44 +658,70 @@ async def get_kyc(ctx: dict = Depends(customer_only)):
 
     status = kyc.get("status", "NOT_STARTED")
     session_id = kyc.get("provider_session_id")
+    proven_name = " ".join(str(kyc.get("kyc_verified_name") or kyc.get("kyc_name") or "").split())
 
-    # Reconciliation: KYC is genuinely VERIFIED but the verified name could not
-    # be persisted earlier. Retry the profile sync without touching KYC status.
+    if status == "VERIFIED" and not proven_name and not session_id:
+        status = "REQUIRES_REVERIFICATION"
+        await kyc_profiles.update_one(
+            {"_id": kyc["_id"], "status": "VERIFIED"},
+            {"$set": {"status": status, "name_sync_pending": False,
+                      "provider_status": "verified_identity_unavailable",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"status": status, "provider": kyc.get("provider", "DIGILOCKER"), "restartable": True}
+
+    # Reconciliation: retry a historically incomplete name sync. A stale
+    # provider profile moves to controlled re-verification, never a deadlock.
     if status == "VERIFIED" and kyc.get("name_sync_pending") and session_id:
-        await _sync_customer_verified_name(uid, kyc)
-        return {"status": status, "provider": kyc.get("provider", "DIGILOCKER")}
+        synced = await _sync_customer_verified_name(uid, kyc)
+        if not synced:
+            refreshed = await kyc_profiles.find_one({"_id": kyc["_id"]})
+            status = (refreshed or {}).get("status", status)
+        return {"status": status, "provider": kyc.get("provider", "DIGILOCKER"),
+                "restartable": status == "REQUIRES_REVERIFICATION"}
 
     if status == "IN_PROGRESS" and session_id:
         try:
             provider = await get_digilocker_session_status(session_id)
-        except (DigiLockerConfigurationError, DigiLockerProviderError):
+        except (DigiLockerConfigurationError, DigiLockerProviderError) as exc:
+            if isinstance(exc, DigiLockerProviderError) and exc.status_code == 404:
+                await kyc_profiles.update_one(
+                    {"_id": kyc["_id"], "status": "IN_PROGRESS"},
+                    {"$set": {"status": "NOT_STARTED", "provider_status": "session_not_found",
+                              "updated_at": datetime.now(timezone.utc)},
+                     "$unset": {"provider_session_id": ""}},
+                )
+                return {"status": "NOT_STARTED", "provider": "DIGILOCKER", "restartable": True}
             # Never convert a transient provider/configuration problem into a
             # successful or rejected KYC decision.
             return {"status": "IN_PROGRESS", "provider": "DIGILOCKER", "refresh_failed": True}
 
         if provider["status"] == "SUCCEEDED":
-            # Customer KYC: a provider-confirmed successful DigiLocker session is
-            # authoritative and transitions the customer straight to VERIFIED.
-            # Authority retains visibility/audit but is not a routine blocker.
-            status = "VERIFIED"
+            # Consent success alone is insufficient: obtain a usable verified
+            # identity before exposing VERIFIED or unlocking ordering.
             now = datetime.now(timezone.utc)
-            result = await kyc_profiles.update_one(
+            await kyc_profiles.update_one(
                 {"_id": kyc["_id"], "status": "IN_PROGRESS"},
                 {"$set": {
-                    "status": status,
                     "provider_status": provider["provider_status"],
                     "provider_transaction_id": provider["transaction_id"],
                     "consent_verified_at": now,
-                    "verified_at": now,
-                    "verified_by": "DIGILOCKER_AUTO",
                     "name_sync_pending": True,
                     "updated_at": now,
                 }},
             )
-            if result.modified_count == 1:
+            fresh = await kyc_profiles.find_one({"_id": kyc["_id"]}) or kyc
+            if await _sync_customer_verified_name(uid, fresh):
+                status = "VERIFIED"
+                await kyc_profiles.update_one(
+                    {"_id": kyc["_id"], "status": "IN_PROGRESS", "name_sync_pending": False},
+                    {"$set": {"status": status, "verified_at": now,
+                              "verified_by": "DIGILOCKER_AUTO", "updated_at": now}},
+                )
                 await write_audit(uid, "kyc.digilocker.verified", "kyc_profile", str(kyc["_id"]), {"purpose": "CUSTOMER"})
-                fresh = await kyc_profiles.find_one({"_id": kyc["_id"]})
-                await _sync_customer_verified_name(uid, fresh or kyc)
+            else:
+                current = await kyc_profiles.find_one({"_id": kyc["_id"]})
+                status = (current or {}).get("status", "IN_PROGRESS")
         elif provider["status"] == "FAILED":
             status = "REQUIRES_REVERIFICATION"
             await kyc_profiles.update_one(
@@ -757,6 +795,13 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
         kyc = await kyc_profiles.find_one({"user_id": uid, "purpose": "CUSTOMER"})
         if (kyc or {}).get("status") != "VERIFIED":
             raise HTTPException(403, "KYC_REQUIRED")
+        verified_name = " ".join(str((kyc or {}).get("kyc_verified_name") or (kyc or {}).get("kyc_name") or "").split())
+        account_name = " ".join(str(ctx["user"].get("name") or "").split())
+        account_mobile = str(ctx["user"].get("phone") or "").strip()
+        if not verified_name or not account_name or verified_name != account_name:
+            raise HTTPException(409, "KYC_REVERIFICATION_REQUIRED")
+        if not account_mobile:
+            raise HTTPException(409, "VERIFIED_MOBILE_REQUIRED")
     site = None
     if body.site_id:
         site = await customer_sites.find_one({"_id": await _oid(body.site_id), "customer_id": uid})
@@ -789,6 +834,7 @@ async def create_order(body: CreateOrderBody, ctx: dict = Depends(customer_only)
     status = DRAFT if body.save_draft else PENDING
     doc = {
         "order_number": order_number, "customer_id": uid, "customer_name": ctx["user"].get("name"),
+        "customer_mobile": ctx["user"].get("phone"), "customer_email": ctx["user"].get("email"),
         "plant_id": str(plant["_id"]), "plant_name": plant.get("name"), "grade": body.grade,
         "quantity": body.quantity, "site_id": body.site_id, "site_name": body.site_name, "site_address": body.site_address,
         "lat": body.lat, "lng": body.lng, "delivery_date": body.delivery_date,

@@ -104,7 +104,7 @@ def test_provider_success_auto_verifies_and_persists_name(env, monkeypatch):
     assert users.doc("user2")["name"] == "Other Customer"
 
 
-def test_name_fetch_failure_keeps_verified_and_defers_sync(env, monkeypatch):
+def test_name_fetch_failure_keeps_recoverable_sync_state(env, monkeypatch):
     kyc, users = env
 
     async def status(_sid):
@@ -118,11 +118,44 @@ def test_name_fetch_failure_keeps_verified_and_defers_sync(env, monkeypatch):
 
     result = _run({"user_id": "user1"})
 
-    # Provider success is authoritative: VERIFIED holds, no fabricated name.
-    assert result["status"] == "VERIFIED"
+    # Consent success does not unlock ordering until identity is usable.
+    assert result["status"] == "IN_PROGRESS"
     assert users.doc("user1")["name"] == "Placeholder One"
     assert kyc.doc("kyc1")["name_sync_pending"] is True
     assert "kyc_name" not in kyc.doc("kyc1")
+
+
+def test_profile_404_requires_controlled_reverification(env, monkeypatch):
+    kyc, users = env
+
+    async def status(_sid):
+        return {"status": "SUCCEEDED", "provider_status": "success", "transaction_id": "t1"}
+
+    async def profile(_sid):
+        raise DigiLockerProviderError("not found", status_code=404)
+
+    monkeypatch.setattr(customer, "get_digilocker_session_status", status)
+    monkeypatch.setattr(customer, "get_digilocker_user_profile", profile)
+
+    result = _run({"user_id": "user1"})
+
+    assert result["status"] == "REQUIRES_REVERIFICATION"
+    assert "provider_session_id" not in kyc.doc("kyc1")
+    assert "kyc_name" not in kyc.doc("kyc1")
+    assert users.doc("user1")["name"] == "Placeholder One"
+
+
+def test_status_404_makes_session_restartable(env, monkeypatch):
+    kyc, _ = env
+
+    async def status(_sid):
+        raise DigiLockerProviderError("not found", status_code=404)
+
+    monkeypatch.setattr(customer, "get_digilocker_session_status", status)
+    result = _run({"user_id": "user1"})
+
+    assert result == {"status": "NOT_STARTED", "provider": "DIGILOCKER", "restartable": True}
+    assert "provider_session_id" not in kyc.doc("kyc1")
 
 
 def test_verified_reconciliation_retries_name_without_reverifying(env, monkeypatch):
@@ -144,6 +177,32 @@ def test_verified_reconciliation_retries_name_without_reverifying(env, monkeypat
     assert result["status"] == "VERIFIED"
     assert users.doc("user1")["name"] == "Priya Sharma"
     assert kyc.doc("kyc1")["name_sync_pending"] is False
+
+
+def test_historical_verified_without_proven_name_is_restartable(env, monkeypatch):
+    kyc, _ = env
+    kyc.doc("kyc1")["status"] = "VERIFIED"
+    kyc.doc("kyc1").pop("provider_session_id")
+
+    result = _run({"user_id": "user1"})
+
+    assert result["status"] == "REQUIRES_REVERIFICATION"
+    assert result["restartable"] is True
+
+
+def test_historical_verified_profile_404_does_not_remain_verified(env, monkeypatch):
+    kyc, _ = env
+    kyc.doc("kyc1")["status"] = "VERIFIED"
+    kyc.doc("kyc1")["name_sync_pending"] = True
+
+    async def profile(_sid):
+        raise DigiLockerProviderError("not found", status_code=404)
+
+    monkeypatch.setattr(customer, "get_digilocker_user_profile", profile)
+    result = _run({"user_id": "user1"})
+
+    assert result["status"] == "REQUIRES_REVERIFICATION"
+    assert result["restartable"] is True
 
 
 def test_provider_failure_requires_reverification_and_no_name_change(env, monkeypatch):

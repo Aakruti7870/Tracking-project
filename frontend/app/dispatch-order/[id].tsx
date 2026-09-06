@@ -19,6 +19,7 @@ type OrderDetail = {
   id: string;
   order_number: string;
   customer_name?: string;
+  customer_mobile?: string;
   grade: string;
   quantity: number;
   site_name?: string;
@@ -62,7 +63,9 @@ export default function DispatchOrder() {
             <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize["2xl"], color: colors.onSurface }}>
               {o.grade} · {o.quantity} m³
             </AppText>
-            {o.customer_name ? <AppText variant="caption">Customer: {o.customer_name}</AppText> : null}
+            <AppText variant="label">CUSTOMER</AppText>
+            {o.customer_name ? <AppText variant="caption">Name: {o.customer_name}</AppText> : null}
+            {o.customer_mobile ? <AppText variant="caption">Contact: {o.customer_mobile}</AppText> : null}
             {o.site_name ? <AppText variant="caption">Site: {o.site_name}</AppText> : null}
             {o.site_address ? <AppText variant="caption">{o.site_address}</AppText> : null}
           </Card>

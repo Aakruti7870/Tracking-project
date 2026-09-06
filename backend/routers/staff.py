@@ -792,6 +792,7 @@ async def dispatch_order_detail(order_id: str, ctx: dict = Depends(staff_only)):
         "id": str(order["_id"]),
         "order_number": order.get("order_number"),
         "customer_name": order.get("customer_name"),
+        "customer_mobile": order.get("customer_mobile"),
         "grade": order.get("grade"),
         "quantity": order.get("quantity"),
         "site_name": order.get("site_name"),
@@ -866,6 +867,7 @@ async def dispatch_challan(order_id: str, ctx: dict = Depends(staff_only)):
         await challans.insert_one({
             "challan_number": challan_number, "order_id": order_id, "order_number": order.get("order_number"),
             "plant_id": order["plant_id"], "plant_name": order.get("plant_name"), "customer_name": order.get("customer_name"),
+            "customer_mobile": order.get("customer_mobile"),
             "site_name": order.get("site_name"), "site_address": order.get("site_address"), "grade": order.get("grade"),
             "quantity": order.get("quantity"), "tm_number": order.get("tm_number"), "driver_name": order.get("driver_name"),
             "driver_mobile": order.get("driver_mobile"), "created_at": now,
