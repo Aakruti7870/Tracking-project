@@ -1,0 +1,2 @@
+Trigger guarded Play-signed AAB build after release-block signing fix.
+Expected Play upload SHA1: 3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC
