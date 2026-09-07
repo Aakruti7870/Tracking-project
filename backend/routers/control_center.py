@@ -92,6 +92,7 @@ MODULE_PERMISSION_MAP: dict[str, Permission | None] = {
     "Reviewer Access": Permission.REVIEWER_ACCESS_MANAGE,
     "Admins": Permission.ADMIN_ACCESS_MANAGE,
     "Permissions": Permission.PERMISSIONS_MANAGE,
+    "Roles": Permission.PERMISSIONS_MANAGE,
     "Sessions": Permission.SESSION_VIEW,
     "Security Overview": Permission.SESSION_VIEW,
     "Audit Logs": Permission.AUDIT_VIEW,
