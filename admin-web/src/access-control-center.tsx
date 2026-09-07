@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { get, post } from "./api";
 
 type ReviewerState = {
@@ -45,7 +45,7 @@ type OnboardingRequest = {
 
 type UnownedPlant = { id: string; name?: string; city?: string; address?: string; status?: string };
 
-function Notice({ children, danger = false }: { children: React.ReactNode; danger?: boolean }) {
+function Notice({ children, danger = false }: { children: ReactNode; danger?: boolean }) {
   return <div className={danger ? "errorBanner" : "runtimeNote"}>{children}</div>;
 }
 
@@ -56,7 +56,7 @@ export function ReviewerAccessWorkspace({ token, stepUpFresh, requestStepUp }: {
   const [error, setError] = useState("");
 
   const load = () => get<ReviewerState>("/control-center/reviewer-access", token).then(setState).catch(() => setError("Reviewer access state could not be loaded."));
-  useEffect(load, [token]);
+  useEffect(() => { void load(); }, [token]);
 
   async function setEnabled(enabled: boolean) {
     setError("");
@@ -116,7 +116,7 @@ export function AdminAccessWorkspace({ token, stepUpFresh, requestStepUp }: { to
   const [error, setError] = useState("");
 
   const load = () => get<AdminAccessResponse>("/control-center/admin-access", token).then(setData).catch(() => setError("Approved administrator identities could not be loaded."));
-  useEffect(load, [token]);
+  useEffect(() => { void load(); }, [token]);
 
   async function change(target: string, enabled: boolean) {
     setError("");
