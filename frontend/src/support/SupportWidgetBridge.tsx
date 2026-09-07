@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +27,7 @@ export function SupportWidgetBridge() {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
   const [publicHelpOpen, setPublicHelpOpen] = useState(false);
   const [customerHelpOpen, setCustomerHelpOpen] = useState(false);
 
@@ -43,17 +44,24 @@ export function SupportWidgetBridge() {
   if (!showPublicLoginHelp && !showCustomerSupport) return null;
 
   if (showCustomerSupport) {
+    const anchorBottom = Math.max(insets.bottom + 104, 120);
+    const panelWidth = Math.min(360, Math.max(0, viewportWidth - 24));
+    const panelMaxHeight = Math.min(520, Math.max(160, viewportHeight - anchorBottom - 76));
+
     return (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         <View
           pointerEvents="box-none"
-          style={[styles.customerAnchor, { bottom: Math.max(insets.bottom + 104, 120) }]}
+          style={[styles.customerAnchor, { bottom: anchorBottom }]}
         >
           {customerHelpOpen ? (
-            <View
+            <ScrollView
               testID="customer-support-panel"
               accessibilityLiveRegion="polite"
-              style={[styles.publicPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              style={[styles.supportPanel, { width: panelWidth, maxHeight: panelMaxHeight, backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              contentContainerStyle={styles.panelContent}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={panelMaxHeight < 520}
             >
               <View style={styles.panelHeader}>
                 <View style={[styles.panelIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }]}>
@@ -116,7 +124,7 @@ export function SupportWidgetBridge() {
                 </View>
                 <Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} />
               </Pressable>
-            </View>
+            </ScrollView>
           ) : null}
 
           <View pointerEvents="box-none" style={styles.customerLauncher}>
@@ -147,17 +155,24 @@ export function SupportWidgetBridge() {
     );
   }
 
+  const anchorTop = Math.max(insets.top + spacing.sm, 16);
+  const panelWidth = Math.min(360, Math.max(0, viewportWidth - 24));
+  const panelMaxHeight = Math.min(520, Math.max(160, viewportHeight - anchorTop - 76));
+
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       <View
         pointerEvents="box-none"
-        style={[styles.publicAnchor, { top: Math.max(insets.top + spacing.sm, 16) }]}
+        style={[styles.publicAnchor, { top: anchorTop }]}
       >
         {publicHelpOpen ? (
-          <View
+          <ScrollView
             testID="login-help-panel"
             accessibilityLiveRegion="polite"
-            style={[styles.publicPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+            style={[styles.supportPanel, { width: panelWidth, maxHeight: panelMaxHeight, backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+            contentContainerStyle={styles.panelContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={panelMaxHeight < 520}
           >
             <View style={styles.panelHeader}>
               <View style={[styles.panelIcon, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }]}>
@@ -230,7 +245,7 @@ export function SupportWidgetBridge() {
               </View>
               <Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} />
             </Pressable>
-          </View>
+          </ScrollView>
         ) : null}
 
         <Pressable
@@ -295,18 +310,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   badgeText: { fontFamily: fonts.semibold, fontSize: 10 },
-  publicPanel: {
-    width: 316,
-    maxWidth: "88%",
+  supportPanel: {
     borderWidth: 1,
     borderRadius: radius.xl,
-    padding: spacing.md,
-    gap: spacing.md,
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.18,
     shadowRadius: 22,
     elevation: 10,
+  },
+  panelContent: {
+    padding: spacing.md,
+    gap: spacing.md,
   },
   panelHeader: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   panelIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: "center", justifyContent: "center" },
