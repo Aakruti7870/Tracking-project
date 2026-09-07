@@ -58,7 +58,7 @@ ROLE_LABELS = {
     Role.DISPATCHER.value: "Dispatcher",
     Role.OPERATOR.value: "Plant Operator",
     Role.SUPERVISOR.value: "Supervisor",
-    Role.ACCANTANT.value if False else Role.ACCOUNTANT.value: "Accountant",
+    Role.ACCOUNTANT.value: "Accountant",
     Role.QUALITY_ENGINEER.value: "Quality Engineer",
     Role.FLEET_MANAGER.value: "Fleet Manager",
     Role.STORE_MANAGER.value: "Store Manager",
