@@ -4,8 +4,9 @@ This note records which Gemma full-application findings are accepted, rejected, 
 
 ## Locked product boundary
 
-- Central/Super Admin and Authority privileged control-plane pages are web-only.
-- Mobile must not add `central_admin` or `authority` routes/directories.
+- Central/Super Admin control-plane access is web-only through the dedicated Control Center after restricted MFA bootstrap and re-authentication.
+- Authority remains an operational Plant Staff role and continues through the approved Plant Staff email/MFA authentication flow. Authority is not a Central Admin and does not receive Control Center provenance.
+- Mobile must not add a `central_admin` route/directory or expose Authority as a Google Play reviewer identity. Authority operational authentication is preserved even though former public Authority control-plane pages are not restored to the mobile route tree.
 - Plant-side `admin` and `accountant` are legitimate operational mobile roles and must not be removed merely because their names sound privileged.
 - Authentication, six-digit OTP, KYC/DigiLocker, payments, orders, tracking, role routing and Play policy behavior remain protected.
 
@@ -20,7 +21,7 @@ This note records which Gemma full-application findings are accepted, rejected, 
 ## Accepted direction
 
 - Continue the shared token/component system instead of screen-by-screen ad-hoc styling.
-- Preserve the mobile/admin boundary in CI.
+- Preserve the mobile/admin boundary in CI without removing Authority's approved email/MFA operational login.
 - Continue touch-target, accessibility-label and reduced-motion audits.
 - Improve theme startup behavior only after validating the storage implementation and without introducing a new persistence dependency unnecessarily.
 - Add `Linking.canOpenURL`/error handling where external-map or external-app launches are not already guarded.
