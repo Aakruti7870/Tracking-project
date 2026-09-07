@@ -110,6 +110,7 @@ expectIncludes(notificationsScreen, 'Enable device notifications', 'Users must b
 
 const reviewScreen = read('frontend/app/review-access.tsx');
 const reviewRouter = read('backend/routers/play_review.py');
+const reviewerAccess = read('backend/reviewer_access.py');
 const reviewFixture = read('backend/play_review.py');
 const login = (() => {
   // app/login.tsx may be a thin re-export of the real screen implementation.
@@ -138,7 +139,9 @@ expectIncludes(reviewScreen, 'Nearby Plants review path', 'Reviewer instructions
 expectIncludes(reviewScreen, 'Background location review path', 'Reviewer instructions must expose the Driver background-location policy path.');
 expectIncludes(driverHome, 'play-review-location-hint', 'Reviewer Driver home must clearly point to the background-location review flow.');
 expectIncludes(driverHome, 'PLAY-REVIEW-001', 'Reviewer Driver must be directed to the seeded active trip.');
-expectIncludes(reviewRouter, 'PLAY_REVIEW_ACCESS_ENABLED', 'Reviewer access must be deployment-gated.');
+expectIncludes(reviewRouter, 'reviewer_access_enabled', 'Reviewer route must call the centralized runtime access gate.');
+expectIncludes(reviewerAccess, 'PLAY_REVIEW_ACCESS_ENABLED', 'Reviewer access must remain deployment-gated in the centralized reviewer-access service.');
+expectIncludes(reviewerAccess, 'credential_supported', 'Reviewer runtime gate must fail closed when the configured credential requires migration.');
 expectIncludes(reviewRouter, 'compare_digest', 'Reviewer access code comparison must be constant-time.');
 expectIncludes(config, 'PLAY_REVIEW_ACCESS_CODE', 'Reviewer access code must be configured server-side.');
 expectIncludes(reviewFixture, 'play_review_fixture', 'Reviewer accounts must use isolated demo fixtures.');
