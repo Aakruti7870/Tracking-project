@@ -1,15 +1,15 @@
-"""Read-only data surface for the dedicated privileged web portal.
+"""Read-only data surface for the dedicated privileged web Control Center.
 
-The public mobile client never calls these routes. Every endpoint is protected by
-portal-authenticated platform-admin RBAC, projections deliberately omit secrets
-and unnecessary location/contact details, and this module adds no destructive
-mutations.
+Every endpoint uses an explicit data permission. Central Admin role alone is not
+a substitute for an assigned permission set. Projections deliberately omit
+secrets and unnecessary location/contact details.
 """
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
+from control_center_security import Permission, control_center_admin, permissions_for, require_permission
 from database import (
     account_deletion_requests,
     audit_logs,
@@ -23,19 +23,10 @@ from database import (
     sessions,
     users,
 )
-from roles import Role
-from routers.admin_auth import platform_admin
 from security import utcnow
 
 router = APIRouter(prefix="/api/admin/portal", tags=["admin-portal"])
 support_cases = db.support_cases
-
-
-async def central_admin_only(ctx: dict = Depends(platform_admin)) -> dict:
-    """Require both privileged portal-TOTP provenance and Central Admin role."""
-    if ctx["role"] != Role.CENTRAL_ADMIN.value:
-        raise HTTPException(403, "Insufficient permissions")
-    return ctx
 
 
 def _iso(value: Any) -> str | None:
@@ -117,9 +108,6 @@ def _safe_support_case(doc: dict) -> dict:
 
 def _safe_payment(doc: dict, kind: str) -> dict:
     if kind == "plan":
-        # plan_payment_orders is created only by the verified Cashfree online
-        # payment path. Derive the provider from collection semantics instead
-        # of projecting gateway order/session identifiers into the portal.
         return {
             "id": _id(doc),
             "kind": "PLAN",
@@ -145,8 +133,6 @@ def _safe_payment(doc: dict, kind: str) -> dict:
 
 
 def _safe_audit(doc: dict) -> dict:
-    # Never return raw meta; it may contain historical operational context that
-    # is not necessary for the portal list view.
     return {
         "id": _id(doc),
         "actor_id": doc.get("actor_id"),
@@ -158,38 +144,55 @@ def _safe_audit(doc: dict) -> dict:
 
 
 @router.get("/summary")
-async def summary(_ctx: dict = Depends(platform_admin)):
-    active_orders = {"$nin": ["DELIVERED", "CANCELLED", "REJECTED"]}
-    kpis = [
-        {"label": "Plants", "value": await plants.count_documents({"status": {"$ne": "deleted"}})},
-        {"label": "Users", "value": await users.count_documents({"status": {"$ne": "deleted"}})},
-        {"label": "Active Orders", "value": await orders.count_documents({"status": active_orders})},
-        {"label": "Open Support", "value": await support_cases.count_documents({"status": {"$in": ["OPEN", "IN_PROGRESS"]}})},
-    ]
+async def summary(ctx: dict = Depends(control_center_admin)):
+    """Return only KPI categories the caller is permitted to view."""
+    granted = permissions_for(ctx)
+    kpis = []
+    if Permission.PLANT_VIEW in granted:
+        kpis.append({"label": "Plants", "value": await plants.count_documents({"status": {"$ne": "deleted"}})})
+    if Permission.USER_VIEW in granted:
+        kpis.append({"label": "Users", "value": await users.count_documents({"status": {"$ne": "deleted"}})})
+    if Permission.ORDER_VIEW in granted:
+        active_orders = {"$nin": ["DELIVERED", "CANCELLED", "REJECTED"]}
+        kpis.append({"label": "Active Orders", "value": await orders.count_documents({"status": active_orders})})
+    if Permission.SUPPORT_VIEW in granted:
+        kpis.append({"label": "Open Support", "value": await support_cases.count_documents({"status": {"$in": ["OPEN", "IN_PROGRESS"]}})})
     return {"kpis": kpis, "generated_at": utcnow().isoformat()}
 
 
 @router.get("/plants")
-async def list_plants(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(platform_admin)):
+async def list_plants(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.PLANT_VIEW)),
+):
     docs = await plants.find({}, {"name": 1, "city": 1, "district": 1, "status": 1, "verified": 1, "owner_id": 1, "created_at": 1}).sort("created_at", -1).to_list(limit)
     return {"items": [_safe_plant(doc) for doc in docs]}
 
 
 @router.get("/kyc")
-async def list_kyc(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(platform_admin)):
+async def list_kyc(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.KYC_VIEW)),
+):
     docs = await kyc_profiles.find({}, {"user_id": 1, "purpose": 1, "status": 1, "updated_at": 1}).sort("updated_at", -1).to_list(limit)
     return {"items": [_safe_kyc(doc) for doc in docs]}
 
 
 @router.get("/orders")
-async def list_orders(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(platform_admin)):
+async def list_orders(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.ORDER_VIEW)),
+):
     projection = {"order_number": 1, "customer_id": 1, "plant_id": 1, "plant_name": 1, "grade": 1, "quantity": 1, "site_name": 1, "delivery_date": 1, "delivery_mode": 1, "status": 1, "payment_status": 1, "created_at": 1}
     docs = await orders.find({}, projection).sort("created_at", -1).to_list(limit)
     return {"items": [_safe_order(doc) for doc in docs]}
 
 
 @router.get("/payments")
-async def list_payments(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(platform_admin)):
+async def list_payments(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.PAYMENT_VIEW)),
+):
     invoice_docs = await payments.find({}, {"invoice_id": 1, "order_id": 1, "plant_id": 1, "amount": 1, "method": 1, "status": 1, "created_at": 1, "updated_at": 1}).sort("created_at", -1).to_list(limit)
     plan_docs = await plan_payment_orders.find({}, {"order_number": 1, "plant_id": 1, "payable": 1, "status": 1, "created_at": 1, "updated_at": 1}).sort("created_at", -1).to_list(limit)
     items = [*[_safe_payment(doc, "invoice") for doc in invoice_docs], *[_safe_payment(doc, "plan") for doc in plan_docs]]
@@ -198,40 +201,46 @@ async def list_payments(limit: int = Query(default=100, ge=1, le=200), _ctx: dic
 
 
 @router.get("/support")
-async def list_support(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(platform_admin)):
+async def list_support(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.SUPPORT_VIEW)),
+):
     projection = {"case_number": 1, "customer_id": 1, "category": 1, "status": 1, "order_id": 1, "created_at": 1, "updated_at": 1}
     docs = await support_cases.find({}, projection).sort("created_at", -1).to_list(limit)
     return {"items": [_safe_support_case(doc) for doc in docs]}
 
 
 @router.get("/users")
-async def list_users(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(central_admin_only)):
+async def list_users(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.USER_VIEW)),
+):
     projection = {"name": 1, "email": 1, "phone": 1, "primary_role": 1, "status": 1, "plant_id": 1, "created_at": 1}
     docs = await users.find({}, projection).sort("created_at", -1).to_list(limit)
     return {"items": [_safe_user(doc) for doc in docs]}
 
 
 @router.get("/audit")
-async def list_audit(limit: int = Query(default=100, ge=1, le=200), _ctx: dict = Depends(central_admin_only)):
+async def list_audit(
+    limit: int = Query(default=100, ge=1, le=200),
+    _ctx: dict = Depends(require_permission(Permission.AUDIT_VIEW)),
+):
     projection = {"actor_id": 1, "action": 1, "entity_type": 1, "entity_id": 1, "created_at": 1}
     docs = await audit_logs.find({}, projection).sort("created_at", -1).to_list(limit)
     return {"items": [_safe_audit(doc) for doc in docs]}
 
 
 @router.get("/system")
-async def system_status(_ctx: dict = Depends(central_admin_only)):
+async def system_status(_ctx: dict = Depends(require_permission(Permission.SYSTEM_VIEW))):
     now = utcnow()
     heartbeat_docs = await automation_worker_heartbeats.find({}, {"last_started_at": 1, "last_success_at": 1}).to_list(20)
     return {
         "generated_at": now.isoformat(),
         "active_sessions": await sessions.count_documents({"revoked": False, "expires_at": {"$gt": now}}),
         "pending_account_deletions": await account_deletion_requests.count_documents({"status": "PENDING"}),
-        "automation_workers": [
-            {
-                "name": _id(doc),
-                "last_started_at": _iso(doc.get("last_started_at")),
-                "last_success_at": _iso(doc.get("last_success_at")),
-            }
-            for doc in heartbeat_docs
-        ],
+        "automation_workers": [{
+            "name": _id(doc),
+            "last_started_at": _iso(doc.get("last_started_at")),
+            "last_success_at": _iso(doc.get("last_success_at")),
+        } for doc in heartbeat_docs],
     }
