@@ -16,6 +16,18 @@ from config import settings
 
 logger = logging.getLogger("trackmyrmc.security")
 
+# Plant Staff authentication moved to approved-email bootstrap followed by
+# Authenticator/passkey. The older Google OAuth endpoints remain in the legacy
+# router for rollback archaeology only, but production HTTP traffic must never
+# reach them because they can mint an ordinary staff bearer without the current
+# MFA contract. Keep this boundary centralized and fail-closed until the dead
+# routes are removed in a dedicated compatibility cleanup.
+RETIRED_AUTH_PATH_PREFIXES = ("/api/auth/google/",)
+
+
+def is_retired_auth_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in RETIRED_AUTH_PATH_PREFIXES)
+
 
 class RateLimitMiddleware:
     """Configurable fixed-window limits with exponential auth backoff.
@@ -65,6 +77,22 @@ class RateLimitMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
+
+        # Do not let legacy Google staff OAuth reach the router at all. This is
+        # intentionally earlier than rate limiting and bearer inspection so no
+        # OAuth state/code can be exchanged for a TrackMyRMC session.
+        if is_retired_auth_path(path):
+            response = JSONResponse(
+                {
+                    "detail": (
+                        "Google Staff Sign-In has been retired. "
+                        "Use the approved Plant Staff email, Authenticator, or passkey login."
+                    )
+                },
+                status_code=410,
+            )
+            return await response(scope, receive, send)
+
         client = scope.get("client")
         ip = client[0] if client else "unknown"
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
