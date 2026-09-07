@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
+import control_center_security
+from roles import Role
 from routers import admin_auth, admin_portal
 
 
@@ -90,6 +93,51 @@ def test_role_only_admin_session_can_establish_step_up_without_control_center_ac
         admin_auth.platform_admin(ctx)
     assert exc.value.status_code == 403
     assert "web administrator" in exc.value.detail.lower()
+
+
+def _session_request(session_id: str) -> Request:
+    return Request({
+        "type": "http",
+        "method": "POST",
+        "path": f"/api/control-center/sessions/{session_id}/revoke",
+        "headers": [],
+        "path_params": {"session_id": session_id},
+    })
+
+
+def test_control_center_session_target_accepts_only_central_admin(monkeypatch):
+    class FakeSessions:
+        async def find_one(self, query, projection=None):
+            assert query == {"_id": "admin-session", "revoked": False}
+            return {"user_id": "admin-user"}
+
+    class FakeUsers:
+        async def find_one(self, query, projection=None):
+            assert query["primary_role"] == Role.CENTRAL_ADMIN.value
+            assert query["_id"] == "admin-user"
+            return {"_id": "admin-user", "primary_role": Role.CENTRAL_ADMIN.value}
+
+    monkeypatch.setattr(control_center_security, "sessions", FakeSessions())
+    monkeypatch.setattr(control_center_security, "users", FakeUsers())
+    asyncio.run(control_center_security._assert_central_admin_session_target(_session_request("admin-session")))
+
+
+def test_control_center_session_target_rejects_customer_session(monkeypatch):
+    class FakeSessions:
+        async def find_one(self, query, projection=None):
+            return {"user_id": "customer-user"}
+
+    class FakeUsers:
+        async def find_one(self, query, projection=None):
+            assert query["primary_role"] == Role.CENTRAL_ADMIN.value
+            return None
+
+    monkeypatch.setattr(control_center_security, "sessions", FakeSessions())
+    monkeypatch.setattr(control_center_security, "users", FakeUsers())
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(control_center_security._assert_central_admin_session_target(_session_request("customer-session")))
+    assert exc.value.status_code == 404
+    assert "administrator session" in str(exc.value.detail).lower()
 
 
 def test_plan_payment_provider_is_cashfree_without_gateway_secret_projection():
