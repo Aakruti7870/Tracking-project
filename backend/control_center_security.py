@@ -9,8 +9,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Callable
 
-from fastapi import Depends, HTTPException, status
+from bson import ObjectId
+from fastapi import Depends, HTTPException, Request, status
 
+from database import sessions, users
 from roles import Role
 from security import current_user
 
@@ -119,10 +121,46 @@ def permissions_for(ctx: dict) -> frozenset[Permission]:
     )
 
 
+async def _assert_central_admin_session_target(request: Request) -> None:
+    """Fail closed if a session-revocation request targets a non-admin session.
+
+    The Sessions workspace must never become a cross-role session revocation
+    primitive. The target is independently resolved server-side from the path
+    parameter and must belong to a user whose current primary role is Central
+    Admin. Customer, Driver, Owner, Authority and Plant Staff sessions therefore
+    remain outside this permission even if a caller somehow learns a session id.
+    """
+    session_id = str(request.path_params.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Active administrator session not found")
+    target_session = await sessions.find_one(
+        {"_id": session_id, "revoked": False},
+        {"user_id": 1},
+    )
+    if not target_session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Active administrator session not found")
+    target_user_id = target_session.get("user_id")
+    try:
+        target_oid = ObjectId(str(target_user_id))
+    except Exception:
+        target_oid = target_user_id
+    target_user = await users.find_one(
+        {"_id": target_oid, "primary_role": Role.CENTRAL_ADMIN.value},
+        {"_id": 1},
+    )
+    if not target_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Active administrator session not found")
+
+
 def require_permission(permission: Permission) -> Callable:
-    async def dependency(ctx: dict = Depends(control_center_admin)) -> dict:
+    async def dependency(
+        request: Request,
+        ctx: dict = Depends(control_center_admin),
+    ) -> dict:
         if permission not in permissions_for(ctx):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Permission denied")
+        if permission is Permission.SESSION_REVOKE:
+            await _assert_central_admin_session_target(request)
         return ctx
 
     return dependency
