@@ -69,8 +69,6 @@ def _production_mongo_error(url: str) -> str | None:
     if scheme not in {"mongodb", "mongodb+srv"}:
         return "MONGO_URL must use mongodb:// or mongodb+srv://"
 
-    # Strip credentials before evaluating the server list. Production must not
-    # point at a loopback database; CI/dev remain free to use localhost.
     hosts = parsed.netloc.rsplit("@", 1)[-1].lower()
     loopback_markers = ("localhost", "127.0.0.1", "[::1]")
     if any(marker in hosts for marker in loopback_markers):
@@ -80,10 +78,6 @@ def _production_mongo_error(url: str) -> str | None:
     tls_values = [value.lower() for key in ("tls", "ssl") for value in query.get(key, [])]
     if any(value in {"false", "0", "no", "off"} for value in tls_values):
         return "Production MONGO_URL must not disable TLS"
-
-    # mongodb+srv enables TLS by default. Plain mongodb:// does not, so require
-    # the deployment URI to opt in explicitly instead of relying on network
-    # placement alone.
     if scheme == "mongodb" and not any(value in {"true", "1", "yes", "on"} for value in tls_values):
         return "Production mongodb:// MONGO_URL must explicitly enable TLS (tls=true or ssl=true)"
     return None
@@ -107,7 +101,6 @@ class Settings:
     SESSION_TTL_SECONDS: int = _positive_int("SESSION_TTL_SECONDS", 604800)
     DEBUG_OTP: bool = os.environ.get("DEBUG_OTP", "false").lower() == "true"
 
-    # Order automation can be deployed dark and channels enabled independently.
     AUTOMATION_ENABLED: bool = _boolean("AUTOMATION_ENABLED", False)
     AUTOMATION_VOICE_ENABLED: bool = _boolean("AUTOMATION_VOICE_ENABLED", False)
     AUTOMATION_WHATSAPP_ENABLED: bool = _boolean("AUTOMATION_WHATSAPP_ENABLED", False)
@@ -115,27 +108,14 @@ class Settings:
     AUTOMATION_EMAIL_ENABLED: bool = _boolean("AUTOMATION_EMAIL_ENABLED", False)
     AUTOMATION_PUSH_ENABLED: bool = _boolean("AUTOMATION_PUSH_ENABLED", False)
     AUTOMATION_N8N_ENABLED: bool = _boolean("AUTOMATION_N8N_ENABLED", False)
-    # Historical replay is opt-in. Routine restarts must not enqueue stale order history.
     AUTOMATION_BACKFILL_ON_STARTUP: bool = _boolean("AUTOMATION_BACKFILL_ON_STARTUP", False)
 
-    # Automation worker heartbeat health thresholds (seconds). The worker is
-    # scheduled every minute, so a healthy heartbeat is very recent. These are
-    # centralized here instead of scattering magic numbers across the worker,
-    # the health monitor and tests.
     AUTOMATION_HEARTBEAT_HEALTHY_SECONDS: int = _positive_int("AUTOMATION_HEARTBEAT_HEALTHY_SECONDS", 180)
     AUTOMATION_HEARTBEAT_WARNING_SECONDS: int = _positive_int("AUTOMATION_HEARTBEAT_WARNING_SECONDS", 300)
 
-    # Plant Staff Authenticator MFA. Optional at process start so production can
-    # roll out the code before the Cloud Run secret is attached. MFA endpoints
-    # fail closed until a 32+ character key is configured.
     MFA_ENCRYPTION_KEY: str = os.environ.get("MFA_ENCRYPTION_KEY", "").strip()
     MFA_ISSUER: str = os.environ.get("MFA_ISSUER", "TrackMyRMC").strip() or "TrackMyRMC"
 
-    # Plant Staff passkeys/WebAuthn. These are public relying-party identifiers,
-    # not secrets. Production defaults are intentionally pinned to TrackMyRMC's
-    # canonical HTTPS origin so a deployment cannot silently trust arbitrary
-    # hosts. Native Android verification additionally derives the exact app
-    # origin from PLAY_SIGNING_SHA256 at request time.
     PASSKEY_RP_ID: str = os.environ.get("PASSKEY_RP_ID", "trackmyrmc.com").strip().lower()
     PASSKEY_RP_NAME: str = os.environ.get("PASSKEY_RP_NAME", "TrackMyRMC").strip() or "TrackMyRMC"
     PASSKEY_WEB_ORIGIN: str = os.environ.get(
@@ -156,8 +136,6 @@ class Settings:
 
     CORS_ORIGINS: list[str] = _csv("CORS_ORIGINS")
 
-    # Request protections are environment-configurable so operators can tune
-    # them without a deployment. Limits are requests per window.
     RATE_LIMIT_WINDOW_SECONDS: int = _positive_int("RATE_LIMIT_WINDOW_SECONDS", 60)
     RATE_LIMIT_AUTH_IP: int = _positive_int("RATE_LIMIT_AUTH_IP", 10)
     RATE_LIMIT_AUTH_ACCOUNT: int = _positive_int("RATE_LIMIT_AUTH_ACCOUNT", 5)
@@ -175,13 +153,17 @@ class Settings:
                 "APP_ENV must be one of: " + ", ".join(sorted(self.VALID_ENVIRONMENTS))
             )
 
-        if self.PLAY_REVIEW_ACCESS_CODE and (
-            len(self.PLAY_REVIEW_ACCESS_CODE) != 6 or not self.PLAY_REVIEW_ACCESS_CODE.isdigit()
-        ):
-            raise RuntimeError("PLAY_REVIEW_ACCESS_CODE must be exactly 6 digits when configured")
-        if self.PLAY_REVIEW_ACCESS_ENABLED and not self.PLAY_REVIEW_ACCESS_CODE:
+        review_code_supported = bool(
+            len(self.PLAY_REVIEW_ACCESS_CODE) == 6
+            and self.PLAY_REVIEW_ACCESS_CODE.isdigit()
+        )
+        # A legacy reviewer secret must not crash a deployment while reviewer
+        # access is OFF. The Control Center reports migration-required state and
+        # refuses to enable review access until a supported six-digit credential
+        # is configured by an operator. Secrets are never auto-rotated.
+        if self.PLAY_REVIEW_ACCESS_ENABLED and not review_code_supported:
             raise RuntimeError(
-                "PLAY_REVIEW_ACCESS_CODE must be configured when reviewer access is enabled"
+                "Reviewer access cannot be enabled until PLAY_REVIEW_ACCESS_CODE is configured as exactly 6 digits"
             )
 
         if self.MFA_ENCRYPTION_KEY and len(self.MFA_ENCRYPTION_KEY) < 32:
