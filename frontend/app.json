@@ -4,7 +4,7 @@
     "slug": "frontend",
     "version": "2.0.26",
     "orientation": "portrait",
-    "icon": "./assets/images/play-store-icon.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "trackmyrmc",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -20,7 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/play-store-icon.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
@@ -79,8 +79,8 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/favicon.png",
-          "imageWidth": 1,
+          "image": "./assets/images/splash-image.png",
+          "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#101112"
         }
