@@ -32,6 +32,8 @@ from security import (
 
 router = APIRouter(prefix="/api/auth/staff", tags=["staff-auth"])
 
+# Authority remains an operational Plant Staff role. Central Admin is purposely
+# absent: it may enter only the restricted first-time MFA bootstrap path below.
 STAFF_EMAIL_ROLES = {
     Role.AUTHORITY.value,
     Role.PLANT_OWNER.value,
@@ -47,14 +49,17 @@ STAFF_EMAIL_ROLES = {
 
 
 def _mfa_bootstrap_role_allowed(user: dict) -> bool:
-    """Allow approved Central Admins to bootstrap TOTP, but never normal staff login."""
+    """Allow staff or an approved Central Admin to bootstrap MFA only."""
     if _staff_role_allowed(user.get("primary_role")):
         return True
     if user.get("primary_role") != Role.CENTRAL_ADMIN.value:
         return False
-    from control_center_security import APPROVED_CONTROL_CENTER_EMAILS
+    # Use the same authoritative approval policy as the Control Center. This
+    # includes additional explicitly approved administrators and rejects a
+    # Control Center identity that has been suspended/disabled.
+    from control_center_security import is_control_center_approved_user
 
-    return (user.get("email") or "").strip().casefold() in APPROVED_CONTROL_CENTER_EMAILS
+    return is_control_center_approved_user(user)
 
 
 def _staff_role_allowed(role: str | None) -> bool:
@@ -72,31 +77,33 @@ def _staff_passkey_enabled(user: dict) -> bool:
     return any(isinstance(item, dict) and item.get("active", True) for item in passkeys)
 
 
-async def _issue_mfa_bootstrap_session(user: dict):
-    """Issue a session that can only reach /me + MFA enrollment until TOTP is confirmed."""
+async def _issue_mfa_bootstrap_session(user: dict, *, recovery: bool = False):
+    """Issue a short-lived session limited to MFA enrollment and logout."""
     _assert_account_available(user)
     role = user.get("primary_role")
     sid = new_session_id()
     token, full_expires = issue_jwt(str(user["_id"]), sid, role)
     bootstrap_expires = utcnow() + timedelta(minutes=15)
-    await sessions.insert_one(
-        {
-            "_id": sid,
-            "user_id": str(user["_id"]),
-            "role": role,
-            "revoked": False,
-            "mfa_bootstrap_only": True,
-            "created_at": utcnow(),
-            "expires_at": bootstrap_expires,
-            "post_mfa_expires_at": full_expires,
-        }
-    )
+    doc = {
+        "_id": sid,
+        "user_id": str(user["_id"]),
+        "role": role,
+        "revoked": False,
+        "mfa_bootstrap_only": True,
+        "created_at": utcnow(),
+        "expires_at": bootstrap_expires,
+        "post_mfa_expires_at": full_expires,
+    }
+    if recovery:
+        doc["control_center_recovery_bootstrap"] = True
+        doc["auth_surface"] = "control_center_recovery_bootstrap"
+    await sessions.insert_one(doc)
     await write_audit(
         str(user["_id"]),
-        "auth.mfa_bootstrap_login",
+        "auth.mfa_recovery_bootstrap_login" if recovery else "auth.mfa_bootstrap_login",
         "session",
         sid,
-        {"login_method": "staff_email_otp_bootstrap"},
+        {"login_method": "control_center_recovery" if recovery else "staff_email_otp_bootstrap"},
     )
     return {
         "access_token": token,
@@ -105,6 +112,7 @@ async def _issue_mfa_bootstrap_session(user: dict):
         "role": role,
         "name": user.get("name"),
         "mfa_setup_required": True,
+        "control_center_recovery_bootstrap": recovery,
     }
 
 
@@ -264,6 +272,12 @@ async def verify_staff_otp(body: VerifyOtpBody):
     if not consumed:
         raise HTTPException(400, "Invalid or expired code")
 
-    if settings.MFA_ENCRYPTION_KEY and len(settings.MFA_ENCRYPTION_KEY) >= 32:
+    mfa_configured = bool(settings.MFA_ENCRYPTION_KEY and len(settings.MFA_ENCRYPTION_KEY) >= 32)
+    if user.get("primary_role") == Role.CENTRAL_ADMIN.value and not mfa_configured:
+        # Central Admin email OTP is identity proof for enrollment only. It must
+        # never degrade into an ordinary bearer when MFA is unavailable.
+        raise HTTPException(503, "Control Center MFA is not configured on the server")
+    if mfa_configured:
         return await _issue_mfa_bootstrap_session(user)
+    # Preserve the existing compatibility behavior for ordinary Plant Staff.
     return await _issue_session(user, "staff_email_otp_bootstrap")
