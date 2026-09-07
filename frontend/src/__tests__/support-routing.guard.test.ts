@@ -90,44 +90,68 @@ test("legacy support operations remain available to privileged roles until the w
   assert.ok(staff.includes('user?.role === "authority" || user?.role === "central_admin"'));
 });
 
-test("login help widget is public guidance only and never calls customer APIs", () => {
+test("login help widget stays compact and public issue choices expand before navigation", () => {
   const publicWidget = widget.slice(widget.indexOf('testID="login-help-panel"'));
   assert.ok(layout.includes("<SupportWidgetBridge />"));
   assert.ok(widget.includes('normalizedPath === "/login"'));
   assert.ok(widget.includes("!token && !user"));
-  assert.ok(widget.includes("Safe help before sign-in"));
+  assert.ok(widget.includes("Safe quick help before sign-in"));
   assert.ok(widget.includes("No customer, order, tracking or payment data is available here"));
+  assert.ok(widget.includes('type PublicSupportFlow = "login" | "onboarding" | "delete" | null'));
+  assert.ok(widget.includes('testID="login-help-onboarding-card"'));
+  assert.ok(widget.includes('testID="login-help-delete-card"'));
+  assert.ok(widget.includes('testID="login-help-open-onboarding"'));
+  assert.ok(widget.includes('testID="login-help-open-delete-account"'));
   assert.ok(widget.includes("/plant-onboarding"));
   assert.ok(widget.includes("/account-deletion-public"));
   assert.ok(!widget.includes("apiPost") && !widget.includes("apiGet"));
   assert.ok(!publicWidget.includes('"/assistant/') && !publicWidget.includes('"/customer/orders'));
 });
 
-test("support widget uses a bundled system icon and does not depend on raster rendering", () => {
+test("support widget uses a bundled system icon and compact responsive sizing", () => {
   assert.ok(widget.includes('name="chatbubbles-outline"'));
   assert.ok(!widget.includes("support-agent-mascot.png"));
   assert.ok(!widget.includes('from "expo-image"'));
-  assert.ok(widget.includes("Need help logging in?"));
   assert.ok(widget.includes("width: 56"));
   assert.ok(widget.includes("height: 56"));
+  assert.ok(widget.includes("compactPanelWidth(viewportWidth)"));
+  assert.ok(widget.includes("viewportWidth * 0.72"));
+  assert.ok(widget.includes("viewportHeight * 0.42"));
   assert.ok((widget.match(/pointerEvents=\"box-none\"/g) || []).length >= 4);
   assert.ok(widget.includes("insets.top + spacing.sm"));
   assert.ok(widget.includes("flexDirection: \"column-reverse\""));
 });
 
-test("authenticated support icon expands a bottom-corner card before full support navigation", () => {
+test("authenticated Place Order and Track Delivery expand inside the corner card before navigation", () => {
   assert.ok(widget.includes('Boolean(token) && user?.role === "customer"'));
   assert.ok(widget.includes("CUSTOMER_WIDGET_PATHS.has(normalizedPath)"));
   for (const path of ["/customer", "/customer/orders", "/customer/plants", "/customer/more"]) assert.ok(widget.includes(`\"${path}\"`));
-  assert.ok(widget.includes("insets.bottom + 104"));
   assert.ok(widget.includes("Math.max(insets.bottom + 104, 120)"));
   assert.ok(widget.includes('testID="customer-support-panel"'));
   assert.ok(widget.includes('accessibilityState={{ expanded: customerHelpOpen }}'));
   assert.ok(widget.includes("setCustomerHelpOpen((value) => !value)"));
+
+  assert.ok(widget.includes('type CustomerSupportFlow = "order" | "tracking" | null'));
   assert.ok(widget.includes('testID="customer-support-place-order"'));
-  assert.ok(widget.includes('router.push("/new-order?assistant=1"'));
+  assert.ok(widget.includes('testID="customer-support-place-order-card"'));
+  assert.ok(widget.includes('setCustomerFlow((current) => (current === "order" ? null : "order"))'));
+  assert.ok(widget.includes('testID="customer-support-order-grade"'));
+  assert.ok(widget.includes('testID="customer-support-order-location"'));
+  assert.ok(widget.includes('testID="customer-support-start-assisted-order"'));
+  assert.ok(widget.includes('pathname: "/new-order"'));
+  assert.ok(widget.includes('assistant: "1"'));
+
   assert.ok(widget.includes('testID="customer-support-track-delivery"'));
+  assert.ok(widget.includes('testID="customer-support-track-delivery-card"'));
+  assert.ok(widget.includes('setCustomerFlow((current) => (current === "tracking" ? null : "tracking"))'));
+  assert.ok(widget.includes('testID="customer-support-open-orders"'));
   assert.ok(widget.includes('router.push("/customer/orders"'));
+
+  const placeOrderRow = widget.slice(widget.indexOf('testID="customer-support-place-order"'), widget.indexOf('testID="customer-support-place-order-card"'));
+  const trackingRow = widget.slice(widget.indexOf('testID="customer-support-track-delivery"'), widget.indexOf('testID="customer-support-track-delivery-card"'));
+  assert.ok(!placeOrderRow.includes("router.push"), "Place Order row must expand in-card before navigation");
+  assert.ok(!trackingRow.includes("router.push"), "Track Delivery row must expand in-card before navigation");
+
   assert.ok(widget.includes('testID="customer-support-open-center"'));
   assert.ok(widget.includes('router.push("/support"'));
   assert.ok(!widget.includes('user?.role === "driver"'));
