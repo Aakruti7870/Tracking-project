@@ -27,13 +27,20 @@ MFA_BOOTSTRAP_ALLOWED_PATHS = {
     "/api/auth/staff/mfa/enroll/confirm",
 }
 
-# Authority continues to use these operational routes. Central Admin has a
-# dedicated permission/MFA-gated Control Center surface and cannot reuse the
-# Authority route family as a privilege bypass.
-CENTRAL_ADMIN_LEGACY_DENIED_PREFIXES = (
-    "/api/plant-discovery/",
-    "/api/assistant/support/staff/",
+# A fully authenticated Central Admin is deliberately fail-closed to the
+# dedicated web administration surfaces. Legacy operational routers often still
+# include central_admin in historical RBAC lists for compatibility, but those
+# declarations must not become permission-bypass paths for a Control Center
+# bearer. Authority remains unaffected and keeps its operational Plant Staff
+# routes.
+CENTRAL_ADMIN_CONTROL_CENTER_PREFIXES = (
+    "/api/admin/",
+    "/api/control-center/",
 )
+CENTRAL_ADMIN_CONTROL_CENTER_PATHS = {
+    "/api/me",
+    "/api/auth/logout",
+}
 
 
 def utcnow() -> datetime:
@@ -109,6 +116,13 @@ def _is_control_center_session(session: dict) -> bool:
     )
 
 
+def _central_admin_path_allowed(request_path: str) -> bool:
+    return bool(
+        request_path in CENTRAL_ADMIN_CONTROL_CENTER_PATHS
+        or any(request_path.startswith(prefix) for prefix in CENTRAL_ADMIN_CONTROL_CENTER_PREFIXES)
+    )
+
+
 async def current_user(
     request: Request = None,
     authorization: str = Header(default=""),
@@ -176,7 +190,7 @@ async def current_user(
             )
 
     if role == CENTRAL_ADMIN_ROLE and _is_control_center_session(session):
-        if any(request_path.startswith(prefix) for prefix in CENTRAL_ADMIN_LEGACY_DENIED_PREFIXES):
+        if request is None or not _central_admin_path_allowed(request_path):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 "Central Admin must use the permission-gated Control Center route",
