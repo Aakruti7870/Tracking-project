@@ -17,12 +17,16 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 type Trip = { id: string; order_number: string; status: string; grade: string; quantity: number; tm_number: string; site_name: string };
 type Home = { name: string; vehicle: string | null; active_trip: Trip | null; completed_today: number; checked_in: boolean };
 
+const PLAY_REVIEW_DRIVER_NAME = "Google Play Review Driver";
+const PLAY_REVIEW_ORDER_NUMBER = "PLAY-REVIEW-001";
+
 export default function DriverHome() {
   const { colors, toggle, scheme } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<Home>("/driver/home");
+  const isPlayReviewDriver = user?.name === PLAY_REVIEW_DRIVER_NAME;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -77,6 +81,18 @@ export default function DriverHome() {
                   <AppText style={{ fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface }} numberOfLines={1}>{data.vehicle || "—"}</AppText>
                 </View>
               </View>
+
+              {isPlayReviewDriver ? (
+                <Card testID="play-review-location-hint" style={{ gap: spacing.sm, backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <Ionicons name="shield-checkmark-outline" size={20} color={colors.brand} />
+                    <AppText variant="label">Google Play background-location review</AppText>
+                  </View>
+                  <AppText variant="bodyMuted">
+                    Open Current Trip {PLAY_REVIEW_ORDER_NUMBER}. TrackMyRMC shows its prominent location disclosure before Android asks for location permission, then requests background access only for the active delivery.
+                  </AppText>
+                </Card>
+              ) : null}
 
               <AppText variant="heading">Current Trip</AppText>
               {data.active_trip ? (
