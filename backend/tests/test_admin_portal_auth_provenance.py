@@ -47,10 +47,10 @@ def test_platform_admin_requires_control_center_totp_provenance():
 
 def test_authority_portal_session_cannot_use_central_admin_only_dependency():
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(admin_portal.central_admin_only(_portal_ctx(role="authority", authenticated=True)))
+        asyncio.run(control_center_security.control_center_admin(_portal_ctx(role="authority", authenticated=True)))
     assert exc.value.status_code == 403
 
-    accepted = asyncio.run(admin_portal.central_admin_only(_portal_ctx(role="central_admin", authenticated=True)))
+    accepted = asyncio.run(control_center_security.control_center_admin(_portal_ctx(role="central_admin", authenticated=True)))
     assert accepted["role"] == "central_admin"
 
 
