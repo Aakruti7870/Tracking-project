@@ -8,6 +8,7 @@ on:
     paths:
       - "admin-web/**"
       - "backend/control_center_security.py"
+      - "backend/security.py"
       - "backend/routers/admin_auth.py"
       - "backend/routers/admin_portal.py"
       - "backend/routers/control_center.py"
@@ -19,6 +20,7 @@ on:
     paths:
       - "admin-web/**"
       - "backend/control_center_security.py"
+      - "backend/security.py"
       - "backend/routers/admin_auth.py"
       - "backend/routers/admin_portal.py"
       - "backend/routers/control_center.py"
@@ -53,6 +55,16 @@ jobs:
           staff_auth = Path('backend/routers/staff_auth.py').read_text(encoding='utf-8')
           if 'Role.AUTHORITY.value' not in staff_auth or 'Role.PLANT_OWNER.value' not in staff_auth:
               raise SystemExit('Authority/Plant Owner Plant Staff email auth boundary was removed')
+          security = Path('backend/security.py').read_text(encoding='utf-8')
+          required = [
+              'CENTRAL_ADMIN_CONTROL_CENTER_PREFIXES',
+              '"/api/admin/"',
+              '"/api/control-center/"',
+              '_central_admin_path_allowed',
+          ]
+          missing = [item for item in required if item not in security]
+          if missing:
+              raise SystemExit(f'Central Admin fail-closed route boundary missing: {missing}')
           print('Central Admin web-only and Authority Plant Staff auth boundaries passed.')
           PY
 
@@ -67,9 +79,25 @@ jobs:
           grep -F 'require_permission(Permission.PLANT_VIEW)' backend/routers/admin_portal.py
           grep -F 'require_permission(Permission.USER_VIEW)' backend/routers/admin_portal.py
           grep -F 'permissions_for(ctx)' backend/routers/control_center.py
+          grep -F '_assert_central_admin_session_target' backend/control_center_security.py
           ! grep -R -E 'localStorage|sessionStorage' admin-web/src
           ! grep -E '@router\.(post|put|patch|delete)' backend/routers/admin_portal.py
           echo 'Least-privilege admin portal and memory-session guards passed.'
+
+      - name: Enforce Central Admin MFA bootstrap and recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f admin-web/public/recovery.html
+          grep -F '/api/admin/auth/recover' admin-web/public/recovery.html
+          grep -F '/api/auth/staff/mfa/enroll/start' admin-web/public/recovery.html
+          grep -F '/api/auth/staff/mfa/enroll/confirm' admin-web/public/recovery.html
+          grep -F 'control_center_reauth_required' admin-web/public/recovery.html
+          grep -F 'control-center-recovery-link' admin-web/index.html
+          ! grep -R -E 'localStorage|sessionStorage' admin-web/public
+          grep -F 'control_center_recovery_bootstrap' backend/routers/admin_auth.py
+          grep -F 'control_center_admin_must_reauth' backend/routers/staff_mfa.py
+          echo 'Central Admin restricted bootstrap/recovery contract passed.'
 
       - name: Setup Node
         uses: actions/setup-node@v4
