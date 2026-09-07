@@ -37,6 +37,8 @@ export default function CustomerMore() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const kycVerified = user?.kyc_status === "VERIFIED";
+  const mobile = user?.phone || user?.mobile;
 
   const doLogout = async () => {
     await signOut();
@@ -67,6 +69,31 @@ export default function CustomerMore() {
             </View>
           </View>
         </Card>
+
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="label">PERSONAL DETAILS</AppText>
+          <Card style={{ gap: spacing.lg }}>
+            <View style={{ gap: 4 }}>
+              <AppText variant="caption">Name</AppText>
+              <AppText variant="heading">{kycVerified && user?.name ? user.name : "Complete DigiLocker KYC"}</AppText>
+              {kycVerified && user?.name ? <Badge label="KYC VERIFIED" status="VERIFIED" /> : null}
+            </View>
+            <View style={{ gap: 4 }}>
+              <AppText variant="caption">Mobile number</AppText>
+              <AppText variant="heading">{mobile || "Unavailable"}</AppText>
+              {mobile ? <Badge label="VERIFIED" status="VERIFIED" /> : null}
+            </View>
+            <View style={{ gap: 4 }}>
+              <AppText variant="caption">Email ID</AppText>
+              <AppText variant="heading">{user?.email || "Not added"}</AppText>
+            </View>
+            <Pressable onPress={() => router.push("/kyc")} style={[styles.kycAction, { borderColor: colors.brand }]}>
+              <AppText style={{ color: colors.brand, fontFamily: fonts.semibold }}>
+                {kycVerified ? "Manage KYC" : "Complete KYC"}
+              </AppText>
+            </Pressable>
+          </Card>
+        </View>
 
         <View style={{ gap: spacing.sm }}>
           <AppText variant="label">Appearance</AppText>
@@ -149,4 +176,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
   },
+  kycAction: { height: 44, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });

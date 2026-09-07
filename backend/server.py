@@ -195,6 +195,15 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
+    # Fail before serving traffic when production KYC hosts/callback are unsafe.
+    # Development remains usable without KYC secrets, but partial configuration
+    # is still rejected rather than failing during a customer's consent flow.
+    if not settings.is_dev or any(os.getenv(name) for name in (
+        "KYC_API_KEY", "KYC_API_SECRET", "KYC_BASE_URL", "KYC_AUTH_BASE_URL",
+        "KYC_INIT_BASE_URL", "KYC_READ_BASE_URL", "KYC_REDIRECT_URL",
+    )):
+        from services.digilocker import provider_settings
+        provider_settings()
     await ensure_indexes()
     from order_automation import backfill_order_status_events, ensure_indexes as ensure_automation_indexes
     await ensure_automation_indexes()

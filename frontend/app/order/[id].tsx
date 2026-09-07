@@ -48,7 +48,7 @@ type DeliveryLoad = {
 };
 
 type Detail = {
-  order: OrderData & { customer_name?: string };
+  order: OrderData & { customer_name?: string; customer_mobile?: string };
   contact_person?: string;
   contact_mobile?: string;
   notes?: string;
@@ -127,13 +127,18 @@ export default function OrderDetail() {
           </Card>
 
           <Card style={{ gap: spacing.sm }}>
-            {isOwner && data.order.customer_name ? <Row icon="person-outline" label="Customer" value={data.order.customer_name} colors={colors} /> : null}
+            {isOwner ? <AppText variant="label">CUSTOMER DETAILS</AppText> : null}
+            {isOwner && data.order.customer_name ? <Row icon="person-outline" label="Name" value={data.order.customer_name} colors={colors} /> : null}
+            {isOwner && data.order.customer_mobile ? <Row icon="call-outline" label="Contact" value={data.order.customer_mobile} colors={colors} /> : null}
+            {isOwner && (data.contact_person || data.contact_mobile) ? <AppText variant="label">SITE CONTACT</AppText> : null}
+            {isOwner && data.contact_person ? <Row icon="person-outline" label="Name" value={data.contact_person} colors={colors} /> : null}
+            {isOwner && data.contact_mobile ? <Row icon="navigate-outline" label="Contact" value={data.contact_mobile} colors={colors} /> : null}
             <Row icon="business-outline" label="Plant" value={o.plant_name} colors={colors} />
             <Row icon="layers-outline" label="Grade" value={o.grade} colors={colors} />
             <Row icon="cube-outline" label="Quantity" value={`${o.quantity} m³`} colors={colors} />
             <Row icon="calendar-outline" label="Delivery" value={`${o.delivery_date}${o.delivery_time ? " · " + o.delivery_time : ""}`} colors={colors} />
             <Row icon="location-outline" label="Site" value={`${o.site_name}${o.site_address ? " — " + o.site_address : ""}`} colors={colors} />
-            {data.contact_person ? <Row icon="call-outline" label="Contact" value={`${data.contact_person}${data.contact_mobile ? " · " + data.contact_mobile : ""}`} colors={colors} /> : null}
+            {!isOwner && data.contact_person ? <Row icon="navigate-outline" label="Site Contact" value={`${data.contact_person}${data.contact_mobile ? " · " + data.contact_mobile : ""}`} colors={colors} /> : null}
             {data.notes ? <Row icon="reader-outline" label="Notes" value={data.notes} colors={colors} /> : null}
           </Card>
 

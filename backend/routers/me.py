@@ -13,6 +13,20 @@ async def me(ctx: dict = Depends(current_user)):
     user = ctx["user"]
     kyc = await kyc_profiles.find_one({"user_id": ctx["user_id"], "purpose": "CUSTOMER"})
 
+    # Historical verified records may already contain the minimal verified-name
+    # metadata even though users.name was not updated. Reconcile only that
+    # provider-derived value; never infer identity from login identifiers.
+    stored_verified_name = " ".join(str((kyc or {}).get("kyc_verified_name") or (kyc or {}).get("kyc_name") or "").split())
+    if kyc and kyc.get("status") == "VERIFIED" and stored_verified_name and not str(user.get("name") or "").strip():
+        await users.update_one({"_id": user["_id"]}, {"$set": {"name": stored_verified_name}})
+        user = {**user, "name": stored_verified_name}
+    if kyc and kyc.get("status") == "VERIFIED" and not stored_verified_name and not kyc.get("provider_session_id"):
+        await kyc_profiles.update_one(
+            {"_id": kyc["_id"], "status": "VERIFIED"},
+            {"$set": {"status": "REQUIRES_REVERIFICATION", "name_sync_pending": False}},
+        )
+        kyc = {**kyc, "status": "REQUIRES_REVERIFICATION", "name_sync_pending": False}
+
     # A few production KYC completions were finalized by the permanent-access
     # compatibility route before the verified DigiLocker name was copied into
     # users.name. Reconcile that safely whenever the profile is loaded so an
@@ -41,6 +55,7 @@ async def me(ctx: dict = Depends(current_user)):
         "name": user.get("name"),
         "email": user.get("email"),
         "phone": user.get("phone"),
+        "mobile": user.get("phone"),
         "role": ctx["role"],
         "role_label": ROLE_LABELS.get(ctx["role"], ctx["role"]),
         "roles": ctx["roles"],
