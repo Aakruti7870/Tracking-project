@@ -24,19 +24,30 @@ CONTROL_CENTER_SESSION_FLAG = "control_center_mfa_authenticated"
 
 
 class Permission(str, Enum):
+    # Read permissions are explicit so restricted administrators cannot inherit
+    # portal data merely because their role is central_admin.
     PLANT_VIEW = "plant.view"
+    USER_VIEW = "user.view"
+    ORDER_VIEW = "order.view"
+    KYC_VIEW = "kyc.view"
+    PAYMENT_VIEW = "payment.view"
+    SUPPORT_VIEW = "support.view"
+    AUDIT_VIEW = "audit.view"
+    SYSTEM_VIEW = "system.view"
+    SESSION_VIEW = "session.view"
+    OWNER_VIEW = "owner.view"
+
     PLANT_EDIT = "plant.edit"
     PLANT_SUSPEND = "plant.suspend"
     OWNER_APPROVE = "owner.approve"
     OWNER_ASSIGN = "owner.assign"
-    KYC_VIEW = "kyc.view"
     KYC_REVIEW = "kyc.review"
     KYC_RETRY = "kyc.retry"
     LOGIN_UNLOCK = "login.unlock"
     SESSION_REVOKE = "session.revoke"
+    SUPPORT_MANAGE = "support.manage"
     PROMOTION_CREATE = "promotion.create"
     PROMOTION_ACTIVATE = "promotion.activate"
-    PAYMENT_VIEW = "payment.view"
     MARKETING_SEND = "marketing.send"
     INCIDENT_RESOLVE = "incident.resolve"
     PERMISSIONS_MANAGE = "permissions.manage"
@@ -53,18 +64,22 @@ def normalized_email(ctx: dict) -> str:
     return str((ctx.get("user") or {}).get("email") or "").strip().casefold()
 
 
+def is_root_control_center_user(user: dict | None) -> bool:
+    user = user or {}
+    return str(user.get("email") or "").strip().casefold() in APPROVED_CONTROL_CENTER_EMAILS
+
+
 def is_control_center_approved_user(user: dict | None) -> bool:
     """Return whether a Central Admin identity is currently approved.
 
-    The three root identities remain code-pinned so an accidental database edit
-    cannot remove every recovery path. Any approved identity can still be
-    suspended from the Control Center through the explicit disabled flag.
+    Root identities remain code-pinned so a database mistake cannot remove every
+    recovery administrator. Any approved identity can still be suspended with
+    the explicit Control Center disabled flag.
     """
     user = user or {}
     if user.get("control_center_access_disabled"):
         return False
-    email = str(user.get("email") or "").strip().casefold()
-    return email in APPROVED_CONTROL_CENTER_EMAILS or bool(user.get("control_center_approved"))
+    return is_root_control_center_user(user) or bool(user.get("control_center_approved"))
 
 
 def authorize_control_center_context(ctx: dict) -> dict:
@@ -86,11 +101,22 @@ async def control_center_admin(ctx: dict = Depends(current_user)) -> dict:
 
 
 def permissions_for(ctx: dict) -> frozenset[Permission]:
+    """Return only the caller's effective permissions.
+
+    Code-pinned root administrators retain the legacy full-admin default when no
+    explicit grants have been stored. Additional approved Central Admins fail
+    closed until an explicit permission set is assigned.
+    """
     authorize_control_center_context(ctx)
-    configured = (ctx.get("user") or {}).get("control_center_permissions")
+    user = ctx.get("user") or {}
+    configured = user.get("control_center_permissions")
     if configured is None:
-        return FULL_ADMIN_PERMISSIONS
-    return frozenset(Permission(value) for value in configured if value in Permission._value2member_map_)
+        return FULL_ADMIN_PERMISSIONS if is_root_control_center_user(user) else frozenset()
+    return frozenset(
+        Permission(value)
+        for value in configured
+        if value in Permission._value2member_map_
+    )
 
 
 def require_permission(permission: Permission) -> Callable:
