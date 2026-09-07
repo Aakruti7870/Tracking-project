@@ -2,33 +2,31 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "re
 import { createRoot } from "react-dom/client";
 import { type AdminUser, get, type Home, post } from "./api";
 import { CommandCenter } from "./command-center";
+import { AICommandCenter } from "./ai-command-center";
 import { DataWorkspace, type PortalModule } from "./workspaces";
 import "./styles.css";
 
 type Session = { access_token: string };
-type ModuleKey = "Dashboard" | "Security" | PortalModule;
+type ModuleKey = string;
 type ModuleDefinition = {
   key: ModuleKey;
   label: string;
   short: string;
-  group: "Operations" | "Governance";
+  group: "Command" | "Support" | "Plants" | "Growth" | "AI & Automation" | "System" | "Security";
   description: string;
 };
 
-const modules: ModuleDefinition[] = [
-  { key: "Dashboard", label: "Command Center", short: "DC", group: "Operations", description: "Platform-wide operational visibility and privileged oversight." },
-  { key: "Plants", label: "Plants", short: "PL", group: "Operations", description: "Review plant records and authority-controlled operational data." },
-  { key: "Users", label: "Users", short: "US", group: "Operations", description: "Review customer, staff and partner identities under server-side RBAC." },
-  { key: "KYC", label: "KYC", short: "KY", group: "Operations", description: "Review verification status without bypassing DigiLocker or approval rules." },
-  { key: "Orders", label: "Orders", short: "OR", group: "Operations", description: "Inspect order lifecycle information and operational exceptions." },
-  { key: "Payments", label: "Payments", short: "PY", group: "Operations", description: "Review payment status and reconciliation surfaces governed by backend contracts." },
-  { key: "Support", label: "Support", short: "SP", group: "Operations", description: "Central support and escalation workspace for approved administrators." },
-  { key: "Security", label: "Security", short: "SC", group: "Governance", description: "Manage your privileged session posture and fresh identity verification." },
-  { key: "Audit Logs", label: "Audit Logs", short: "AL", group: "Governance", description: "Audit-oriented workspace for privileged administrative activity." },
-  { key: "System", label: "System", short: "SY", group: "Governance", description: "System status and controlled platform administration." },
-];
-
-const CENTRAL_ADMIN_ONLY = new Set<ModuleKey>(["Users", "Audit Logs", "System"]);
+const catalog: Record<ModuleDefinition["group"], string[]> = {
+  Command: ["Dashboard", "AI Command Center", "Incidents", "Approval Queue"],
+  Support: ["Users", "Login / OTP", "KYC", "GPS Tracking", "Payments", "Problem Resolver"],
+  Plants: ["All Plants", "Plant 360", "Onboarding", "Verification", "Owners / Staff", "Fleet", "Data Quality"],
+  Growth: ["Marketing AI", "Campaigns", "WhatsApp", "Proposals", "Leads CRM", "Invitations", "Banner Studio", "Promotions", "Premium Plans"],
+  "AI & Automation": ["AI Providers", "Model Routing", "Automations", "AI Usage / Cost", "AI Audit"],
+  System: ["API Health", "OTP Health", "KYC Health", "GPS Health", "Payment Health", "Webhooks", "Errors", "Integrations", "Releases"],
+  Security: ["Admins", "Roles", "Permissions", "Sessions", "Devices", "Security Alerts", "Audit Logs"],
+};
+const modules: ModuleDefinition[] = Object.entries(catalog).flatMap(([group, labels]) => labels.map((label) => ({ key: label, label, short: label.split(/\s|\//).filter(Boolean).map((word) => word[0]).join("").slice(0, 2).toUpperCase(), group: group as ModuleDefinition["group"], description: `${label} is protected by Control Center authorization and immutable audit policy.` })));
+const DATA_MODULES = new Set(["Users", "KYC", "Payments", "Audit Logs"]);
 
 function Brand({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
@@ -74,7 +72,7 @@ function Login({ onLogin }: { onLogin(token: string, user: AdminUser): void }) {
       <section className="loginStory" aria-label="TrackMyRMC secure administration">
         <Brand label="Privileged Administration" />
         <div className="loginStoryCopy">
-          <p className="eyebrow">ADMIN.TRACKMYRMC.COM</p>
+          <p className="eyebrow">CONTROL.TRACKMYRMC.COM</p>
           <h1>Control the platform from a dedicated secure surface.</h1>
           <p className="lead">Central administration is intentionally separated from the public mobile application. Security boundaries stay visible at every privileged step.</p>
         </div>
@@ -92,7 +90,7 @@ function Login({ onLogin }: { onLogin(token: string, user: AdminUser): void }) {
           <div className="secureBadge"><ShieldIcon /><span>Restricted administrator portal</span></div>
           <p className="eyebrow">PRIVILEGED ACCESS</p>
           <h2>Welcome back</h2>
-          <p>Use an approved Authority or Central Admin account. Account registration is not available on this portal.</p>
+          <p>Use an explicitly approved Super Admin account with MFA. Authority and mobile accounts are always denied.</p>
           <form onSubmit={submit} noValidate>
             <label htmlFor="admin-email">Administrator email</label>
             <input id="admin-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" required />
@@ -176,7 +174,7 @@ function ConfirmDialog({ onCancel, onConfirm, busy }: { onCancel(): void; onConf
   );
 }
 
-function ModuleWorkspace({ module, token, requestStepUp, onLogout }: { module: ModuleDefinition; token: string; requestStepUp(): void; onLogout(): void }) {
+function ModuleWorkspace({ module, token, stepUpFresh, requestStepUp, onLogout }: { module: ModuleDefinition; token: string; stepUpFresh: boolean; requestStepUp(): void; onLogout(): void }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
@@ -205,7 +203,11 @@ function ModuleWorkspace({ module, token, requestStepUp, onLogout }: { module: M
     );
   }
 
-  if (module.key !== "Dashboard") return <DataWorkspace module={module.key} token={token} />;
+  if (module.key === "AI Command Center") return <AICommandCenter token={token} mfaVerified={stepUpFresh} requestStepUp={requestStepUp} />;
+
+  if (DATA_MODULES.has(module.key)) return <DataWorkspace module={module.key as PortalModule} token={token} />;
+  if (module.key === "All Plants") return <DataWorkspace module="Plants" token={token} />;
+  if (module.key !== "Dashboard") return <section className="portalWorkspaceCard"><div className="emptyWorkspace"><span className="emptyGlyph">{module.short}</span><h4>{module.label}</h4><p>{module.description}</p><small>Safe actions become available only when their backend permission, validation, approval, and audit contracts are configured.</small></div></section>;
   return null;
 }
 
@@ -216,7 +218,7 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [stepUpUntil, setStepUpUntil] = useState<number | null>(null);
 
-  const visibleModules = useMemo(() => modules.filter((item) => user.role === "central_admin" || !CENTRAL_ADMIN_ONLY.has(item.key)), [user.role]);
+  const visibleModules = modules;
   const currentModule = useMemo(() => visibleModules.find((item) => item.key === active) ?? visibleModules[0], [active, visibleModules]);
   const stepUpFresh = Boolean(stepUpUntil && stepUpUntil > Date.now());
 
@@ -241,7 +243,7 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
       <aside className="sidebar">
         <Brand label="Administration" />
         <div className="portalTag"><ShieldIcon /><span>Privileged web only</span></div>
-        {(["Operations", "Governance"] as const).map((group) => (
+        {(Object.keys(catalog) as ModuleDefinition["group"][]).map((group) => (
           <section className="navGroup" key={group} aria-label={group}>
             <small>{group}</small>
             {visibleModules.filter((item) => item.group === group).map((item) => (
@@ -266,7 +268,7 @@ function Portal({ token, user, onLogout }: { token: string; user: AdminUser; onL
 
         <main className="content">
           <div className="securityNotice"><div className="noticeIcon"><ShieldIcon /></div><div><b>MFA-protected administration</b><span>Operational workspaces are read-only; high-risk mutations remain in dedicated server-audited flows with fresh verification where required.</span></div><button className={stepUpFresh ? "verifiedButton" : "secondaryButton"} type="button" onClick={() => setStepUpOpen(true)}>{stepUpFresh ? "Identity verified" : "Confirm identity"}</button></div>
-          {active === "Dashboard" ? <CommandCenter home={home} user={user} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} /> : <ModuleWorkspace module={currentModule} token={token} requestStepUp={() => setStepUpOpen(true)} onLogout={onLogout} />}
+          {active === "Dashboard" ? <CommandCenter home={home} user={user} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} /> : <ModuleWorkspace module={currentModule} token={token} stepUpFresh={stepUpFresh} requestStepUp={() => setStepUpOpen(true)} onLogout={onLogout} />}
         </main>
       </section>
 

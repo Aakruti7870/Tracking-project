@@ -42,8 +42,6 @@ STAFF_EMAIL_ROLES = {
     Role.QUALITY_ENGINEER.value,
     Role.FLEET_MANAGER.value,
     Role.STORE_MANAGER.value,
-    Role.AUTHORITY.value,
-    Role.CENTRAL_ADMIN.value,
 }
 
 

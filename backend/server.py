@@ -23,6 +23,7 @@ from routers import (
     assistant,
     admin_auth,
     admin_portal,
+    control_center,
     auth,
     business_ui,
     customer,
@@ -143,6 +144,7 @@ app.include_router(automation.router)
 app.include_router(assistant.router)
 app.include_router(admin_auth.router)
 app.include_router(admin_portal.router)
+app.include_router(control_center.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
 app.include_router(plant_plans.router)

@@ -35,8 +35,6 @@ GOOGLE_LOGIN_ROLES = {
     Role.QUALITY_ENGINEER.value,
     Role.FLEET_MANAGER.value,
     Role.STORE_MANAGER.value,
-    Role.AUTHORITY.value,
-    Role.CENTRAL_ADMIN.value,
 }
 
 # OTP sign-in is intentionally mobile-only. Plant Owner and all staff/admin
