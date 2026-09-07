@@ -18,9 +18,9 @@ const STATUSES: Status[] = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
 
 export default function SupportCases() {
   const { token, user } = useAuth(); const { colors } = useTheme(); const insets = useSafeAreaInsets();
-  // Privileged support operations moved to control.trackmyrmc.com. Keep this
-  // legacy route fail-closed so an old deep link cannot expose admin APIs.
-  const authorized = false;
+  // Keep the operational support workflow available until its mutation
+  // controls have actually moved to the Control Center.
+  const authorized = user?.role === "authority" || user?.role === "central_admin";
   const [filter, setFilter] = useState<Status>("OPEN"); const [caseId, setCaseId] = useState<string | null>(null);
   const [message, setMessage] = useState(""); const [internal, setInternal] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const cases = useGet<{ cases: Case[] }>(authorized && token ? "/assistant/support/staff/cases" : null);

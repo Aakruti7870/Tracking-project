@@ -8,7 +8,7 @@ from routers.plant_onboarding import PlantOnboardingBody
 from routers.staff_auth import STAFF_EMAIL_ROLES, _staff_role_allowed
 
 
-def test_all_plant_and_platform_staff_can_use_staff_email_otp():
+def test_plant_staff_and_authority_can_use_staff_email_otp():
     expected = {
         Role.PLANT_OWNER.value,
         Role.ADMIN.value,
@@ -20,10 +20,10 @@ def test_all_plant_and_platform_staff_can_use_staff_email_otp():
         Role.FLEET_MANAGER.value,
         Role.STORE_MANAGER.value,
         Role.AUTHORITY.value,
-        Role.CENTRAL_ADMIN.value,
     }
     assert STAFF_EMAIL_ROLES == expected
     assert all(_staff_role_allowed(role) for role in expected)
+    assert _staff_role_allowed(Role.CENTRAL_ADMIN.value) is False
 
 
 def test_customer_and_driver_cannot_use_staff_email_otp():

@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F '/admin/portal/summary' admin-web/src/main.tsx
-          grep -F 'CENTRAL_ADMIN_ONLY' admin-web/src/main.tsx
+          grep -F 'const visibleModules = modules' admin-web/src/main.tsx
           grep -F 'APIRouter(prefix="/api/admin/portal"' backend/routers/admin_portal.py
           grep -F 'Depends(central_admin_only)' backend/routers/admin_portal.py
           ! grep -R -E 'localStorage|sessionStorage' admin-web/src

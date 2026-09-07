@@ -33,6 +33,7 @@ from security import (
 router = APIRouter(prefix="/api/auth/staff", tags=["staff-auth"])
 
 STAFF_EMAIL_ROLES = {
+    Role.AUTHORITY.value,
     Role.PLANT_OWNER.value,
     Role.ADMIN.value,
     Role.DISPATCHER.value,
@@ -43,6 +44,17 @@ STAFF_EMAIL_ROLES = {
     Role.FLEET_MANAGER.value,
     Role.STORE_MANAGER.value,
 }
+
+
+def _mfa_bootstrap_role_allowed(user: dict) -> bool:
+    """Allow approved Central Admins to bootstrap TOTP, but never normal staff login."""
+    if _staff_role_allowed(user.get("primary_role")):
+        return True
+    if user.get("primary_role") != Role.CENTRAL_ADMIN.value:
+        return False
+    from control_center_security import APPROVED_CONTROL_CENTER_EMAILS
+
+    return (user.get("email") or "").strip().casefold() in APPROVED_CONTROL_CENTER_EMAILS
 
 
 def _staff_role_allowed(role: str | None) -> bool:
@@ -174,11 +186,13 @@ async def request_staff_otp(body: RequestOtpBody):
         }
 
     role = user.get("primary_role")
-    if not _staff_role_allowed(role):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "This account cannot use Plant Staff Login")
     _assert_account_available(user)
 
     if _staff_mfa_enabled(user):
+        if role == Role.CENTRAL_ADMIN.value:
+            raise HTTPException(403, "Use the Control Center to sign in")
         passkey_available = _staff_passkey_enabled(user)
         return {
             "status": "AUTHENTICATOR_REQUIRED",
@@ -201,7 +215,7 @@ async def verify_staff_otp(body: VerifyOtpBody):
         raise HTTPException(422, "Plant Staff Login requires a valid email address")
 
     user = await _find_login_user(channel, value)
-    if not user or not _staff_role_allowed(user.get("primary_role")):
+    if not user or not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "This email is not approved for Plant Staff access")
     _assert_account_available(user)
     if _staff_mfa_enabled(user):

@@ -83,11 +83,11 @@ test("assisted ordering prepares before requiring explicit confirmation", () => 
   assert.ok(screen.includes("/new-order?assistant=1"));
 });
 
-test("legacy support screen is not linked from mobile privileged roles", () => {
+test("legacy support operations remain available to privileged roles until the web move", () => {
   for (const status of ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]) assert.ok(staff.includes(`"${status}"`));
   for (const text of ["Send Public Reply", "Add Internal Note", "Change status", "Loading support cases", "Unable to update case status"]) assert.ok(staff.includes(text));
   assert.ok(!more.includes('testID="staff-support-cases"'));
-  assert.ok(staff.includes("const authorized = false"));
+  assert.ok(staff.includes('user?.role === "authority" || user?.role === "central_admin"'));
 });
 
 test("login help widget is public guidance only and never calls customer APIs", () => {

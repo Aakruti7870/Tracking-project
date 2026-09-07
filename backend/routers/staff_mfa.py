@@ -29,7 +29,7 @@ from config import settings
 from database import plants, sessions, users
 from roles import Role
 from routers.auth import _assert_account_available, _find_login_user, _issue_session
-from routers.staff_auth import _staff_role_allowed
+from routers.staff_auth import _mfa_bootstrap_role_allowed, _staff_role_allowed
 from security import as_aware, current_user, normalize_identifier, utcnow
 
 router = APIRouter(prefix="/api/auth/staff/mfa", tags=["staff-mfa"])
@@ -272,7 +272,7 @@ async def verify_staff_totp(body: TotpLoginBody):
             Role.PLANT_OWNER.value, Role.ADMIN.value, Role.DISPATCHER.value,
             Role.OPERATOR.value, Role.SUPERVISOR.value, Role.ACCOUNTANT.value,
             Role.QUALITY_ENGINEER.value, Role.FLEET_MANAGER.value,
-            Role.STORE_MANAGER.value,
+            Role.STORE_MANAGER.value, Role.AUTHORITY.value,
         },
     )
 
@@ -310,7 +310,7 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
 @router.get("/status")
 async def mfa_status(ctx: dict = Depends(current_user)):
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA settings are available only to Plant Staff accounts")
     mfa = _mfa_doc(user)
     return {
@@ -325,7 +325,7 @@ async def mfa_status(ctx: dict = Depends(current_user)):
 async def start_totp_enrollment(ctx: dict = Depends(current_user)):
     _ensure_mfa_configured()
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is available only to Plant Staff accounts")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
@@ -371,7 +371,7 @@ async def confirm_totp_enrollment(
 ):
     _ensure_mfa_configured()
     user = await users.find_one({"_id": ObjectId(ctx["user_id"])})
-    if not user or not _staff_role_allowed(user.get("primary_role")):
+    if not user or not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is unavailable")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
