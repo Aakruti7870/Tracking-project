@@ -68,7 +68,7 @@ export default function RootLayout() {
       {showOpeningArtwork ? (
         <View style={styles.openingSplash} pointerEvents="auto">
           <Image
-            source={require("../assets/images/play-store-icon.png")}
+            source={require("../assets/images/splash-image.png")}
             style={styles.openingSplashArtwork}
             resizeMode="contain"
             onLoad={() => setArtworkLoaded(true)}
