@@ -2,7 +2,7 @@
 
 Covers:
 - Authority KYC approve/reject (RBAC: 403 for others)
-- Central admin user suspend/activate
+- Central Admin isolation from legacy staff user-management routes
 - Fleet manager: add vehicle + set status
 - Store manager: add material + stock adjust (incl. negative-stock 422)
 - Operator production start/batch/complete lifecycle
@@ -102,27 +102,19 @@ class TestKyc:
 
 # ---------------------------------------------------- CENTRAL ADMIN
 class TestCentralAdmin:
-    def test_central_lists_users(self, tokens):
+    def test_central_cannot_list_users_via_legacy_staff_api(self, tokens):
         r = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["central"]), timeout=15)
-        assert r.status_code == 200
-        assert len(r.json()["items"]) > 0
+        assert r.status_code == 403
 
     def test_non_central_forbidden(self, tokens):
         fake = "507f1f77bcf86cd799439011"
         r = requests.post(f"{BASE_URL}/api/staff/users/{fake}/suspend", headers=_h(tokens["admin"]), timeout=15)
         assert r.status_code == 403
 
-    def test_suspend_activate_user(self, tokens):
-        r = requests.get(f"{BASE_URL}/api/staff/collection/users", headers=_h(tokens["central"]), timeout=15)
-        users = r.json()["items"]
-        target = next((u for u in users if u.get("secondary") == "Customer"), None)
-        if not target:
-            pytest.skip("no customer user")
-        uid = target["id"]
+    def test_central_cannot_mutate_users_via_legacy_staff_api(self, tokens):
+        uid = "507f1f77bcf86cd799439011"
         rs = requests.post(f"{BASE_URL}/api/staff/users/{uid}/suspend", headers=_h(tokens["central"]), timeout=15)
-        assert rs.status_code == 200
-        ra = requests.post(f"{BASE_URL}/api/staff/users/{uid}/activate", headers=_h(tokens["central"]), timeout=15)
-        assert ra.status_code == 200
+        assert rs.status_code == 403
 
 
 # ---------------------------------------------------- FLEET
