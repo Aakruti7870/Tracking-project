@@ -220,7 +220,12 @@ async def run_seed() -> None:
     if customer_id:
         await kyc_profiles.update_one(
             {"user_id": customer_id, "purpose": "CUSTOMER"},
-            {"$setOnInsert": {"status": "VERIFIED"}}, upsert=True,
+            {"$set": {
+                "status": "VERIFIED",
+                "kyc_verified_name": "Rajesh Kumar",
+                "name_sync_pending": False,
+            }},
+            upsert=True,
         )
     if driver_id:
         await kyc_profiles.update_one(
