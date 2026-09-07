@@ -78,6 +78,9 @@ class Plant(BaseDocument):
 class Order(BaseDocument):
     order_number: str
     customer_id: str
+    customer_name: Optional[str] = None
+    customer_mobile: Optional[str] = None
+    customer_email: Optional[str] = None
     plant_id: str
     plant_name: str
     grade: str

@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useCallback, useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Image, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useFonts } from "expo-font";
@@ -17,13 +18,14 @@ import { PushNotificationBridge } from "@/src/notifications/PushNotificationBrid
 import { BackgroundLocationConsentProvider } from "@/src/location/BackgroundLocationConsent";
 import { SupportWidgetBridge } from "@/src/support/SupportWidgetBridge";
 
-// Keep the native splash visible from cold start until fonts and the persisted
-// theme preference are ready. Do not suppress LogBox globally: development
-// warnings are useful signals for performance, lifecycle, and deprecation bugs.
+// Keep the native splash visible from cold start until fonts, theme preference,
+// and the branded opening artwork are ready. Development warnings remain enabled.
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [themeReady, setThemeReady] = useState(false);
+  const [artworkLoaded, setArtworkLoaded] = useState(false);
+  const [showOpeningArtwork, setShowOpeningArtwork] = useState(true);
   const [iconsLoaded, iconError] = useIconFonts();
   const [fontsLoaded, fontError] = useFonts({
     "Outfit-SemiBold": require("../assets/fonts/Outfit-SemiBold.ttf"),
@@ -37,31 +39,58 @@ export default function RootLayout() {
   const iconsReady = iconsLoaded || !!iconError;
   const fontsReady = fontsLoaded || !!fontError;
   const handleThemeReady = useCallback(() => setThemeReady(true), []);
+  const appReady = iconsReady && fontsReady && themeReady;
 
   useEffect(() => {
-    if (iconsReady && fontsReady && themeReady) {
-      void SplashScreen.hideAsync();
-    }
-  }, [iconsReady, fontsReady, themeReady]);
+    if (!appReady || !artworkLoaded) return;
 
-  if (!iconsReady || !fontsReady) return null;
+    void SplashScreen.hideAsync().finally(() => setShowOpeningArtwork(false));
+  }, [appReady, artworkLoaded]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <KeyboardProvider>
-          <ThemeProvider onReady={handleThemeReady}>
-            <AuthProvider>
-              <ToastProvider>
-                <PushNotificationBridge />
-                <BackgroundLocationConsentProvider />
-                <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
-                <SupportWidgetBridge />
-              </ToastProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </KeyboardProvider>
-      </SafeAreaProvider>
+      {iconsReady && fontsReady ? (
+        <SafeAreaProvider>
+          <KeyboardProvider>
+            <ThemeProvider onReady={handleThemeReady}>
+              <AuthProvider>
+                <ToastProvider>
+                  <PushNotificationBridge />
+                  <BackgroundLocationConsentProvider />
+                  <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
+                  <SupportWidgetBridge />
+                </ToastProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </KeyboardProvider>
+        </SafeAreaProvider>
+      ) : null}
+      {showOpeningArtwork ? (
+        <View style={styles.openingSplash} pointerEvents="auto">
+          <Image
+            source={require("../assets/images/splash-image.png")}
+            style={styles.openingSplashArtwork}
+            resizeMode="contain"
+            onLoad={() => setArtworkLoaded(true)}
+            onError={() => setArtworkLoaded(true)}
+            accessible={false}
+          />
+        </View>
+      ) : null}
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  openingSplash: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#101112",
+  },
+  openingSplashArtwork: {
+    width: "72%",
+    maxWidth: 360,
+    aspectRatio: 1,
+  },
+});
