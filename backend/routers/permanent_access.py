@@ -18,7 +18,7 @@ from database import kyc_profiles, users
 from models import RequestOtpBody, User, VerifyOtpBody
 from notifications import record_notification
 from play_review import play_review_user
-from reviewer_access import reviewer_access_enabled
+from reviewer_access import issue_reviewer_session, reviewer_access_enabled
 from roles import Role
 from routers import auth as auth_routes
 from routers import customer as customer_routes
@@ -32,14 +32,10 @@ from services.digilocker import (
 
 router = APIRouter(tags=["permanent-access"])
 
-# Stable Google Play Console reviewer identities. The reusable credential itself
-# remains server-side in PLAY_REVIEW_ACCESS_CODE and is never embedded here.
 DEMO_CUSTOMER_PHONE = "+919000009901"
 DEMO_DRIVER_PHONE = "+919000009902"
 DEMO_OWNER_EMAIL = "play-review-owner@trackmyrmc.test"
 
-# Production support identities. These accounts never inherit reviewer access
-# and must complete the normal staff OTP -> Authenticator enrollment path.
 PERMANENT_AUTHORITY_EMAILS = (
     "support@goldetech.com",
 )
@@ -73,7 +69,6 @@ def demo_staff_role(value: str) -> str | None:
 
 
 def permanent_platform_role(value: str) -> str | None:
-    """Return the exact production platform role assigned to a support identity."""
     return PERMANENT_PLATFORM_ROLES.get(value.strip().lower())
 
 
@@ -88,12 +83,7 @@ async def _require_reviewer_access() -> None:
 
 
 async def _ensure_platform_admin(email: str) -> None:
-    """Idempotently guarantee the configured production platform-admin identity.
-
-    This changes authorization only; it does not grant a fixed/demo OTP. These
-    accounts still use normal Plant Staff email verification for first-time MFA
-    enrollment, then the dedicated web Control Center TOTP flow.
-    """
+    """Idempotently guarantee the configured production platform-admin identity."""
     normalized = email.strip().lower()
     role = permanent_platform_role(normalized)
     if role not in {Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value}:
@@ -157,9 +147,6 @@ async def ensure_permanent_access() -> None:
     for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
         await _ensure_platform_admin(email)
 
-    # Older builds converted a successful DigiLocker consent into PENDING and
-    # waited for Authority review. Provider success is the verification event,
-    # so safely upgrade only those legacy DigiLocker-completed records.
     now = datetime.now(timezone.utc)
     await kyc_profiles.update_many(
         {
@@ -206,7 +193,7 @@ async def verify_otp(body: VerifyOtpBody):
         if not _review_code_valid(body.code):
             raise HTTPException(400, "Invalid or expired code")
         user = await play_review_user(role)
-        return await auth_routes._issue_session(user, "permanent_google_play_demo_otp")
+        return await issue_reviewer_session(user, role, "permanent_google_play_demo_otp")
     return await auth_routes.verify_otp(body)
 
 
@@ -238,7 +225,7 @@ async def verify_staff_otp(body: VerifyOtpBody):
         if not _review_code_valid(body.code):
             raise HTTPException(400, "Invalid or expired code")
         user = await play_review_user(role)
-        return await auth_routes._issue_session(user, "permanent_google_play_demo_otp")
+        return await issue_reviewer_session(user, role, "permanent_google_play_demo_otp")
     return await staff_auth_routes.verify_staff_otp(body)
 
 
