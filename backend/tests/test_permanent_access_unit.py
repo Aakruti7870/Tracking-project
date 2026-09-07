@@ -62,7 +62,11 @@ def test_existing_super_admin_suspension_is_not_overridden_at_startup():
             self.update = None
 
         async def find_one(self, query):
-            return {"_id": "support-user", "status": "suspended"}
+            return {
+                "_id": "support-user",
+                "status": "suspended",
+                "primary_role": Role.CENTRAL_ADMIN.value,
+            }
 
         async def update_one(self, query, update):
             self.update = update
@@ -72,5 +76,28 @@ def test_existing_super_admin_suspension_is_not_overridden_at_startup():
         asyncio.run(permanent_access._ensure_platform_admin("support@trackmyrmc.com"))
 
     assert fake.update is not None
-    assert fake.update["$set"]["primary_role"] == Role.CENTRAL_ADMIN.value
+    assert "primary_role" not in fake.update["$set"]
     assert "status" not in fake.update["$set"]
+
+
+def test_existing_conflicting_identity_is_never_converted_to_platform_admin():
+    class FakeUsers:
+        def __init__(self):
+            self.update = None
+
+        async def find_one(self, query):
+            return {
+                "_id": "real-customer",
+                "status": "active",
+                "primary_role": Role.CUSTOMER.value,
+                "roles": [Role.CUSTOMER.value],
+            }
+
+        async def update_one(self, query, update):
+            self.update = update
+
+    fake = FakeUsers()
+    with patch.object(permanent_access, "users", fake):
+        asyncio.run(permanent_access._ensure_platform_admin("support@trackmyrmc.com"))
+
+    assert fake.update is None
