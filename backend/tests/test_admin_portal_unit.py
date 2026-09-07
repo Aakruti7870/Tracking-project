@@ -48,19 +48,22 @@ def test_portal_serializers_minimize_privileged_data():
     _assert_minimized(admin_portal._safe_payment(noisy, "plan"))
 
 
-def test_admin_portal_is_read_only_and_sensitive_lists_are_central_admin_only():
+def test_admin_portal_is_read_only_and_sensitive_lists_require_explicit_permissions():
     source = Path(admin_portal.__file__).read_text(encoding="utf-8")
     assert '@router.post(' not in source
     assert '@router.put(' not in source
     assert '@router.patch(' not in source
     assert '@router.delete(' not in source
-    for route in ("/users", "/audit", "/system"):
+    for route, permission in (
+        ("/users", "USER_VIEW"),
+        ("/audit", "AUDIT_VIEW"),
+        ("/system", "SYSTEM_VIEW"),
+    ):
         marker = f'@router.get("{route}")'
         start = source.index(marker)
         section = source[start:start + 500]
-        assert "Depends(central_admin_only)" in section, f"{route} must remain Central Admin only"
-    assert "Role.CENTRAL_ADMIN.value" in source
-    assert "platform_admin" in source
+        expected = f"Depends(require_permission(Permission.{permission}))"
+        assert expected in section, f"{route} must require {permission}"
 
 
 class _CountCollection:
@@ -78,7 +81,14 @@ def test_summary_uses_server_side_counts(monkeypatch):
     monkeypatch.setattr(admin_portal, "orders", fake_orders)
     monkeypatch.setattr(admin_portal, "support_cases", fake_support)
 
-    result = asyncio.run(admin_portal.summary({"role": "central_admin"}))
+    result = asyncio.run(admin_portal.summary({
+        "role": "central_admin",
+        "user": {"email": "support@trackmyrmc.com"},
+        "session": {
+            "control_center_mfa_authenticated": True,
+            "auth_surface": "control_center_web",
+        },
+    }))
     values = {item["label"]: item["value"] for item in result["kpis"]}
     assert values == {"Plants": 3, "Users": 11, "Active Orders": 4, "Open Support": 2}
     assert result["generated_at"]
