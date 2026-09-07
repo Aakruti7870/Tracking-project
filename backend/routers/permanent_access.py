@@ -5,6 +5,7 @@ identities below. Every reviewer entry point obeys the same audited runtime
 Control Center switch. Normal customers, drivers, plant staff and platform-admin
 accounts continue through their normal OTP/MFA providers.
 """
+import logging
 from datetime import datetime, timezone
 from secrets import compare_digest
 
@@ -31,6 +32,7 @@ from services.digilocker import (
 )
 
 router = APIRouter(tags=["permanent-access"])
+logger = logging.getLogger(__name__)
 
 DEMO_CUSTOMER_PHONE = "+919000009901"
 DEMO_DRIVER_PHONE = "+919000009902"
@@ -82,8 +84,28 @@ async def _require_reviewer_access() -> None:
         raise HTTPException(404, "Reviewer access is not enabled")
 
 
+def _platform_identity_role_is_safe(existing: dict, expected_role: str, email: str) -> bool:
+    """Never convert an existing account into a privileged platform role.
+
+    A configured permanent identity may be refreshed only when it is already
+    provisioned with the exact expected primary role. A conflicting Customer,
+    Owner, Authority, Central Admin, or Plant Staff identity is left untouched
+    so startup cannot silently escalate or rewrite a real account.
+    """
+    current_role = existing.get("primary_role")
+    if current_role == expected_role:
+        return True
+    logger.error(
+        "Permanent platform-admin identity conflict for %s: existing role %r does not match expected role %r; account left unchanged",
+        email,
+        current_role,
+        expected_role,
+    )
+    return False
+
+
 async def _ensure_platform_admin(email: str) -> None:
-    """Idempotently guarantee the configured production platform-admin identity."""
+    """Idempotently provision only non-conflicting configured platform identities."""
     normalized = email.strip().lower()
     role = permanent_platform_role(normalized)
     if role not in {Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value}:
@@ -97,12 +119,13 @@ async def _ensure_platform_admin(email: str) -> None:
         "permanent_central_admin": role == Role.CENTRAL_ADMIN.value,
     }
     if existing:
+        if not _platform_identity_role_is_safe(existing, role, normalized):
+            return
         await users.update_one(
-            {"_id": existing["_id"]},
+            {"_id": existing["_id"], "primary_role": role},
             {
                 "$set": {
                     "email": normalized,
-                    "primary_role": role,
                     **flags,
                 },
                 "$addToSet": {"roles": role},
@@ -129,12 +152,13 @@ async def _ensure_platform_admin(email: str) -> None:
         existing = await users.find_one({"identifier_keys": key})
         if not existing:
             raise
+        if not _platform_identity_role_is_safe(existing, role, normalized):
+            return
         await users.update_one(
-            {"_id": existing["_id"]},
+            {"_id": existing["_id"], "primary_role": role},
             {
                 "$set": {
                     "email": normalized,
-                    "primary_role": role,
                     **flags,
                 },
                 "$addToSet": {"roles": role},
