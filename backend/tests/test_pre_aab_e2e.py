@@ -70,9 +70,12 @@ def _assert_owner_is_google_only(session: requests.Session) -> None:
     assert verify.json().get("detail") == "This account must sign in with Google"
 
     google = session.get(f"{API}/auth/google/start", timeout=15)
-    # CI does not contain live Google secrets. The production route must fail closed.
-    assert google.status_code == 503, google.text
-    assert google.json().get("detail") == "Google sign-in is not configured"
+    # Legacy Google Staff Sign-In is retired and must fail closed.
+    assert google.status_code == 410, google.text
+    assert google.json().get("detail") == (
+        "Google Staff Sign-In has been retired. Use the approved Plant Staff email, "
+        "Authenticator, or passkey login."
+    )
 
 
 def _ci_owner_session() -> str:

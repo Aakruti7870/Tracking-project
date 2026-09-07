@@ -1,6 +1,6 @@
 # Plant Staff Authenticator MFA
 
-This change upgrades approved Plant Staff accounts from recurring email OTP to TOTP Authenticator App login while keeping Central Admin on its dedicated Control Center authentication boundary.
+Approved Plant Staff accounts use email only for first-login/bootstrap. Normal authentication is Authenticator TOTP or an enrolled passkey. Central Admin remains on its dedicated Control Center authentication boundary.
 
 ## Production secret
 
@@ -9,7 +9,7 @@ Add one server-side Cloud Run secret/environment variable before enabling enroll
 - `MFA_ENCRYPTION_KEY` — random value of at least 32 characters; keep it stable because it encrypts enrolled TOTP secrets.
 - optional `MFA_ISSUER` — defaults to `TrackMyRMC` and is the label shown in Authenticator apps.
 
-If `MFA_ENCRYPTION_KEY` is absent in production, the service still starts and existing email OTP continues to work for ordinary Plant Staff. MFA endpoints fail closed until the key is configured. Central Admin never falls back to an ordinary Plant Staff bearer when Control Center MFA is unavailable.
+If `MFA_ENCRYPTION_KEY` is absent in production, the service still starts and existing email OTP continues to work for ordinary Plant Staff that have not yet enrolled MFA. MFA endpoints fail closed until the key is configured. Central Admin never falls back to an ordinary Plant Staff bearer when Control Center MFA is unavailable.
 
 ## Login lifecycle
 
@@ -18,8 +18,12 @@ If `MFA_ENCRYPTION_KEY` is absent in production, the service still starts and ex
 3. The bootstrap session can access only `/api/me`, logout, and MFA enrollment endpoints.
 4. User scans the QR code (or uses the manual key), confirms the current six-digit TOTP, and receives ten one-time recovery codes.
 5. Ordinary Plant Staff bootstrap is promoted only after TOTP confirmation; other pre-enrollment sessions are revoked.
-6. Future Plant Staff login -> approved email + Authenticator code. Email OTP cannot bypass an enrolled TOTP.
+6. Future Plant Staff login -> approved email + passkey when available, otherwise Authenticator code. Email OTP cannot bypass enrolled MFA.
 7. Lost Plant Staff device -> one-time recovery code, or audited Owner/Authority reset within the existing operational authorization boundary.
+
+### Retired Google staff login
+
+The historical `/api/auth/google/*` Plant Staff OAuth surface is retired and must not mint TrackMyRMC staff sessions. The server request boundary returns `410 Gone` for that path. Current Plant Staff authentication is the approved-email bootstrap followed by TOTP/passkey flow above. Google configuration, if still present for rollback archaeology, is not an active login authority.
 
 ## Central Admin lifecycle
 
@@ -39,4 +43,11 @@ A permitted reset revokes all active sessions for the target account and writes 
 
 ## Passkeys
 
-Native Passkey / Android Credential Manager support is deliberately isolated to a follow-up PR. The MFA/session structure in this PR is the foundation for step-up authentication and passkey enrollment without coupling a new native module to the Authenticator rollout.
+Passkey/WebAuthn support is implemented for ordinary Plant Staff on the canonical `https://trackmyrmc.com` relying-party origin.
+
+- Authentication requires WebAuthn user verification.
+- The mobile app uses a short-lived browser ceremony; JWT bearer tokens are never placed in the URL.
+- Browser request IDs, challenges, and app handoff codes are random, short-lived, and single-use.
+- The server stores the credential public key and metadata, never the user's private passkey.
+- Registering or removing a passkey requires a fresh Authenticator TOTP, making TOTP the credential-management authority.
+- Central Admin does not use the ordinary Plant Staff passkey router; its privileged login remains the dedicated Control Center MFA boundary.
