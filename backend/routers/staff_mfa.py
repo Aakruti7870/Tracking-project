@@ -29,7 +29,7 @@ from config import settings
 from database import plants, sessions, users
 from roles import Role
 from routers.auth import _assert_account_available, _find_login_user, _issue_session
-from routers.staff_auth import _staff_role_allowed
+from routers.staff_auth import _mfa_bootstrap_role_allowed, _staff_role_allowed
 from security import as_aware, current_user, normalize_identifier, utcnow
 
 router = APIRouter(prefix="/api/auth/staff/mfa", tags=["staff-mfa"])
@@ -195,14 +195,19 @@ async def _record_success(user: dict) -> None:
     )
 
 
-async def _resolve_staff(identifier: str) -> tuple[str, dict]:
+async def _resolve_staff(identifier: str, allowed_roles: set[str] | None = None) -> tuple[str, dict]:
     channel, value = normalize_identifier(identifier)
     if channel != "email":
         raise HTTPException(422, "Plant Staff Login requires a valid email address")
     user = await _find_login_user(channel, value)
     if not user:
         raise HTTPException(403, "This email is not approved for Plant Staff access")
-    if not _staff_role_allowed(user.get("primary_role")):
+    role_allowed = (
+        user.get("primary_role") in allowed_roles
+        if allowed_roles is not None
+        else _staff_role_allowed(user.get("primary_role"))
+    )
+    if not role_allowed:
         raise HTTPException(403, "This account cannot use Plant Staff Login")
     _assert_account_available(user)
     return value, user
@@ -239,10 +244,12 @@ async def staff_auth_method(body: IdentifierBody):
     }
 
 
-@router.post("/verify-totp")
-async def verify_staff_totp(body: TotpLoginBody):
+async def verify_totp_for_roles(body: TotpLoginBody, allowed_roles: set[str]):
+    """Internal verifier with an explicit caller-owned role boundary."""
     _ensure_mfa_configured()
-    _value, user = await _resolve_staff(body.identifier)
+    _value, user = await _resolve_staff(body.identifier, allowed_roles)
+    if user.get("primary_role") not in allowed_roles:
+        raise HTTPException(403, "This account cannot use this login surface")
     if not _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is not activated for this account")
     _assert_not_locked(user)
@@ -254,12 +261,28 @@ async def verify_staff_totp(body: TotpLoginBody):
     return await _issue_session(user, "staff_totp")
 
 
+@router.post("/verify-totp")
+async def verify_staff_totp(body: TotpLoginBody):
+    # Authority remains in the normal Plant Staff MFA flow. Central Admin does
+    # not: its dedicated web verifier calls verify_totp_for_roles directly.
+    return await verify_totp_for_roles(
+        body,
+        {
+            Role.PLANT_OWNER.value, Role.ADMIN.value, Role.DISPATCHER.value,
+            Role.OPERATOR.value, Role.SUPERVISOR.value, Role.ACCOUNTANT.value,
+            Role.QUALITY_ENGINEER.value, Role.FLEET_MANAGER.value,
+            Role.STORE_MANAGER.value, Role.AUTHORITY.value,
+        },
+    )
+
+
 @router.post("/verify-recovery")
 async def verify_staff_recovery(body: RecoveryLoginBody):
     _ensure_mfa_configured()
     _value, user = await _resolve_staff(body.identifier)
     if not _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is not activated for this account")
+    _assert_not_locked(user)
     recovery_hash = _recovery_hash(str(user["_id"]), body.recovery_code)
     consumed = await users.find_one_and_update(
         {
@@ -274,7 +297,9 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
         return_document=ReturnDocument.AFTER,
     )
     if not consumed:
+        await _record_failure(user)
         raise HTTPException(400, "Invalid or already used recovery code")
+    await _record_success(consumed)
     await write_audit(
         str(user["_id"]),
         "auth.mfa_recovery_used",
@@ -287,7 +312,7 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
 @router.get("/status")
 async def mfa_status(ctx: dict = Depends(current_user)):
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA settings are available only to Plant Staff accounts")
     mfa = _mfa_doc(user)
     return {
@@ -302,7 +327,7 @@ async def mfa_status(ctx: dict = Depends(current_user)):
 async def start_totp_enrollment(ctx: dict = Depends(current_user)):
     _ensure_mfa_configured()
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is available only to Plant Staff accounts")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
@@ -348,7 +373,7 @@ async def confirm_totp_enrollment(
 ):
     _ensure_mfa_configured()
     user = await users.find_one({"_id": ObjectId(ctx["user_id"])})
-    if not user or not _staff_role_allowed(user.get("primary_role")):
+    if not user or not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is unavailable")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
@@ -398,31 +423,55 @@ async def confirm_totp_enrollment(
     )
 
     session = ctx.get("session") or {}
+    control_center_reauth_required = False
     if session.get("mfa_bootstrap_only"):
-        full_expires = session.get("post_mfa_expires_at")
-        await sessions.update_one(
-            {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
-            {
-                "$set": {
-                    "mfa_bootstrap_only": False,
-                    "auth_method": "staff_totp",
-                    "mfa_completed_at": now,
-                    **({"expires_at": full_expires} if full_expires else {}),
+        if user.get("primary_role") == Role.CENTRAL_ADMIN.value:
+            # A Central Admin bootstrap token is never promoted to an ordinary
+            # bearer. Enrollment ends the bootstrap and a dedicated web TOTP
+            # login must mint fresh Control Center provenance.
+            await sessions.update_one(
+                {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
+                {"$set": {
+                    "revoked": True,
+                    "revoked_at": now,
+                    "revoke_reason": "control_center_admin_must_reauth",
+                }},
+            )
+            control_center_reauth_required = True
+        else:
+            full_expires = session.get("post_mfa_expires_at")
+            await sessions.update_one(
+                {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
+                {
+                    "$set": {
+                        "mfa_bootstrap_only": False,
+                        "auth_method": "staff_totp",
+                        "mfa_completed_at": now,
+                        **({"expires_at": full_expires} if full_expires else {}),
+                    },
+                    "$unset": {"post_mfa_expires_at": ""},
                 },
-                "$unset": {"post_mfa_expires_at": ""},
-            },
-        )
+            )
     await write_audit(
         str(user["_id"]),
         "auth.mfa_enrolled",
         "user",
         str(user["_id"]),
-        {"method": "totp", "recovery_codes": RECOVERY_CODE_COUNT},
+        {
+            "method": "totp",
+            "recovery_codes": RECOVERY_CODE_COUNT,
+            "control_center_reauth_required": control_center_reauth_required,
+        },
     )
     return {
         "status": "MFA_ENABLED",
         "recovery_codes": plain_codes,
-        "message": "Save these recovery codes now. They will not be shown again.",
+        "control_center_reauth_required": control_center_reauth_required,
+        "message": (
+            "Save these recovery codes now. Sign in again through the secure Control Center."
+            if control_center_reauth_required
+            else "Save these recovery codes now. They will not be shown again."
+        ),
     }
 
 

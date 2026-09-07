@@ -4,18 +4,27 @@ on:
   push:
     branches:
       - feat/admin-web-premium-ui-v2
+      - codex/build-web-only-trackmyrmc-control-center
     paths:
       - "admin-web/**"
+      - "backend/control_center_security.py"
+      - "backend/security.py"
       - "backend/routers/admin_auth.py"
       - "backend/routers/admin_portal.py"
+      - "backend/routers/control_center.py"
+      - "backend/routers/staff_auth.py"
       - "backend/server.py"
       - "frontend/src/auth/roleRoutes.ts"
       - ".github/workflows/admin-web-quality.yml"
   pull_request:
     paths:
       - "admin-web/**"
+      - "backend/control_center_security.py"
+      - "backend/security.py"
       - "backend/routers/admin_auth.py"
       - "backend/routers/admin_portal.py"
+      - "backend/routers/control_center.py"
+      - "backend/routers/staff_auth.py"
       - "backend/server.py"
       - "frontend/src/auth/roleRoutes.ts"
       - ".github/workflows/admin-web-quality.yml"
@@ -32,22 +41,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enforce privileged web-only boundary
+      - name: Enforce Central Admin web-only boundary while preserving Authority staff auth
         shell: bash
         run: |
           set -euo pipefail
           test -d admin-web/src
           test ! -d frontend/app/central_admin
-          test ! -d frontend/app/authority
           python3 <<'PY'
           from pathlib import Path
-          route_file = Path('frontend/src/auth/roleRoutes.ts')
-          text = route_file.read_text(encoding='utf-8')
-          forbidden = ('central_admin', 'authority')
-          found = [name for name in forbidden if name in text]
-          if found:
-              raise SystemExit(f'Privileged mobile role routing detected: {found}')
-          print('Privileged web-only boundary passed.')
+          route_text = Path('frontend/src/auth/roleRoutes.ts').read_text(encoding='utf-8')
+          if 'central_admin' in route_text:
+              raise SystemExit('Central Admin mobile role routing detected')
+          staff_auth = Path('backend/routers/staff_auth.py').read_text(encoding='utf-8')
+          if 'Role.AUTHORITY.value' not in staff_auth or 'Role.PLANT_OWNER.value' not in staff_auth:
+              raise SystemExit('Authority/Plant Owner Plant Staff email auth boundary was removed')
+          security = Path('backend/security.py').read_text(encoding='utf-8')
+          required = [
+              'CENTRAL_ADMIN_CONTROL_CENTER_PREFIXES',
+              '"/api/admin/"',
+              '"/api/control-center/"',
+              '_central_admin_path_allowed',
+          ]
+          missing = [item for item in required if item not in security]
+          if missing:
+              raise SystemExit(f'Central Admin fail-closed route boundary missing: {missing}')
+          print('Central Admin web-only and Authority Plant Staff auth boundaries passed.')
           PY
 
       - name: Enforce admin portal security contracts
@@ -55,12 +73,31 @@ jobs:
         run: |
           set -euo pipefail
           grep -F '/admin/portal/summary' admin-web/src/main.tsx
-          grep -F 'CENTRAL_ADMIN_ONLY' admin-web/src/main.tsx
+          grep -F 'const modules: ModuleDefinition[]' admin-web/src/main.tsx
+          grep -F 'status: "planned"' admin-web/src/main.tsx
           grep -F 'APIRouter(prefix="/api/admin/portal"' backend/routers/admin_portal.py
-          grep -F 'Depends(central_admin_only)' backend/routers/admin_portal.py
+          grep -F 'require_permission(Permission.PLANT_VIEW)' backend/routers/admin_portal.py
+          grep -F 'require_permission(Permission.USER_VIEW)' backend/routers/admin_portal.py
+          grep -F 'permissions_for(ctx)' backend/routers/control_center.py
+          grep -F '_assert_central_admin_session_target' backend/control_center_security.py
           ! grep -R -E 'localStorage|sessionStorage' admin-web/src
           ! grep -E '@router\.(post|put|patch|delete)' backend/routers/admin_portal.py
-          echo 'Admin portal read-only and memory-session guard passed.'
+          echo 'Least-privilege admin portal and memory-session guards passed.'
+
+      - name: Enforce Central Admin MFA bootstrap and recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f admin-web/public/recovery.html
+          grep -F '/api/admin/auth/recover' admin-web/public/recovery.html
+          grep -F '/api/auth/staff/mfa/enroll/start' admin-web/public/recovery.html
+          grep -F '/api/auth/staff/mfa/enroll/confirm' admin-web/public/recovery.html
+          grep -F 'control_center_reauth_required' admin-web/public/recovery.html
+          grep -F 'control-center-recovery-link' admin-web/index.html
+          ! grep -E 'localStorage|sessionStorage' admin-web/public/recovery.html
+          grep -F '_issue_mfa_bootstrap_session(recovered, recovery=True)' backend/routers/admin_auth.py
+          grep -F 'control_center_admin_must_reauth' backend/routers/staff_mfa.py
+          echo 'Central Admin restricted bootstrap/recovery contract passed.'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -73,9 +110,17 @@ jobs:
         working-directory: admin-web
         run: npm install --ignore-scripts --no-audit --no-fund
 
+      - name: Lint admin web
+        working-directory: admin-web
+        run: npm run lint
+
       - name: Typecheck admin web
         working-directory: admin-web
         run: npm run typecheck
+
+      - name: Test admin web
+        working-directory: admin-web
+        run: npm test
 
       - name: Build admin web
         working-directory: admin-web

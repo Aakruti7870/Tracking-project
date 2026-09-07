@@ -23,6 +23,7 @@ from routers import (
     assistant,
     admin_auth,
     admin_portal,
+    control_center,
     auth,
     business_ui,
     customer,
@@ -143,6 +144,7 @@ app.include_router(automation.router)
 app.include_router(assistant.router)
 app.include_router(admin_auth.router)
 app.include_router(admin_portal.router)
+app.include_router(control_center.router)
 app.include_router(customer.router)
 app.include_router(owner.router)
 app.include_router(plant_plans.router)
@@ -229,9 +231,9 @@ async def on_startup():
     await workforce_roster.ensure_indexes()
     await workforce_reports.ensure_indexes()
     await payroll_closure.ensure_indexes()
-    # Production-safe and idempotent: registers the two permanent support
-    # Authority identities and upgrades only legacy DigiLocker-success PENDING
-    # records to VERIFIED. It does not grant the support accounts a demo OTP.
+    # Production-safe and idempotent: registers the permanent support/admin
+    # identities and upgrades only legacy DigiLocker-success PENDING records to
+    # VERIFIED. It does not grant production administrators a reviewer OTP.
     await permanent_access.ensure_permanent_access()
     try:
         from routers.storage import init_storage

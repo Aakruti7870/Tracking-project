@@ -83,15 +83,11 @@ test("assisted ordering prepares before requiring explicit confirmation", () => 
   assert.ok(screen.includes("/new-order?assistant=1"));
 });
 
-test("staff screen supports public replies, internal notes, filters, and status controls", () => {
+test("legacy support operations remain available to privileged roles until the web move", () => {
   for (const status of ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]) assert.ok(staff.includes(`"${status}"`));
   for (const text of ["Send Public Reply", "Add Internal Note", "Change status", "Loading support cases", "Unable to update case status"]) assert.ok(staff.includes(text));
-  assert.match(more, /role === "authority" \|\| user\?\.role === "central_admin"/);
-  assert.ok(!more.includes('user?.role === "admin"') && !more.includes('user?.role === "plant_owner"'));
-  const supportEntry = more.indexOf('testID="staff-support-cases"');
-  const workforceBlock = more.indexOf("{workforceEnabled ?");
-  assert.ok(supportEntry >= 0 && workforceBlock >= 0 && supportEntry < workforceBlock,
-    "Support Cases must remain independent of the Workforce feature block");
+  assert.ok(!more.includes('testID="staff-support-cases"'));
+  assert.ok(staff.includes('user?.role === "authority" || user?.role === "central_admin"'));
 });
 
 test("login help widget is public guidance only and never calls customer APIs", () => {

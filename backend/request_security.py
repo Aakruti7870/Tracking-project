@@ -70,7 +70,11 @@ class RateLimitMiddleware:
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
         now = time.monotonic()
         self._sweep(now)
-        is_auth = path.startswith("/api/auth") or path.startswith("/api/account-deletion")
+        is_auth = (
+            path.startswith("/api/auth")
+            or path.startswith("/api/admin/auth")
+            or path.startswith("/api/account-deletion")
+        )
         authenticated = False
         authorization = headers.get(b"authorization", b"").decode("latin-1")
         if authorization.lower().startswith("bearer "):

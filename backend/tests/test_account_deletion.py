@@ -54,7 +54,7 @@ def _mark_recent_admin_step_up(token: str) -> None:
         client.close()
 
 
-def test_account_deletion_request_cancel_and_admin_completion():
+def test_account_deletion_request_cancel_and_legacy_admin_completion_is_blocked():
     session = requests.Session()
     mobile = f"+91872{uuid.uuid4().int % 10000000:07d}"
     customer = _login(session, mobile)
@@ -94,11 +94,11 @@ def test_account_deletion_request_cancel_and_admin_completion():
 
     central = _login(session, CENTRAL_ADMIN)
     listing = session.get(f"{API}/account-deletion/requests", headers=_h(central), timeout=15)
-    assert listing.status_code == 200, listing.text
-    assert any(r["id"] == request_id and r["status"] == "PENDING" for r in listing.json()["requests"])
+    assert listing.status_code == 403, listing.text
 
-    # The destructive action must fail closed until the same admin session has
-    # a recent step-up marker.
+    # A Central Admin bootstrap must not regain access to the legacy
+    # operational endpoint, even if its session has a recent step-up marker.
+    _mark_recent_admin_step_up(central)
     blocked = session.post(
         f"{API}/account-deletion/requests/{request_id}/complete",
         headers=_h(central),
@@ -106,21 +106,7 @@ def test_account_deletion_request_cancel_and_admin_completion():
         timeout=15,
     )
     assert blocked.status_code == 403, blocked.text
-    assert blocked.json().get("detail") == "Recent administrator verification required", blocked.text
-
-    _mark_recent_admin_step_up(central)
-
-    completed = session.post(
-        f"{API}/account-deletion/requests/{request_id}/complete",
-        headers=_h(central),
-        json={"note": "TEST identity removal verified"},
-        timeout=15,
-    )
-    assert completed.status_code == 200 and completed.json()["status"] == "COMPLETED", completed.text
-
-    # Completion revokes the customer's existing authenticated session.
-    after = session.get(f"{API}/me", headers=_h(customer), timeout=15)
-    assert after.status_code == 401, after.text
+    assert blocked.json().get("detail") == "Central Admin must use the permission-gated Control Center route", blocked.text
 
 
 def test_account_deletion_confirmation_is_required():

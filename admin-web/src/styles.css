@@ -206,6 +206,22 @@ p { line-height: 1.55; }
 .dangerDialog .dangerIcon { margin-bottom: 20px; }
 .dangerText { color: var(--danger); }
 
+/* AI Command Center */
+.aiWorkspace { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .5fr); gap: 18px; }
+.aiHero, .aiGuardrails { border: 1px solid var(--line); border-radius: 20px; padding: 28px; background: var(--surface); }
+.aiHero h2 { margin: 8px 0; color: var(--ink); font-size: 34px; letter-spacing: -.04em; }
+.aiHero > p:not(.eyebrow), .aiGuardrails p { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.aiHero form { display: grid; gap: 10px; margin-top: 25px; }
+.aiHero label { color: var(--ink); font-size: 11px; font-weight: 800; }
+.aiHero textarea { min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 14px; padding: 15px; color: var(--ink); background: var(--canvas); font: inherit; line-height: 1.5; }
+.aiHero form > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.aiHero form small { color: var(--muted); font-size: 9px; }
+.aiDecision { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: start; margin-top: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; }
+.aiDecision > span { padding: 6px 8px; border-radius: 7px; color: #05634f; background: var(--success-soft); font-size: 8px; font-weight: 900; }
+.aiDecision b { color: var(--ink); text-transform: capitalize; font-size: 12px; }.aiDecision p,.aiDecision small { color: var(--muted); font-size: 9px; }
+.aiGuardrails h3 { margin-top: 0; color: var(--ink); }.aiGuardrails div { display: grid; gap: 10px; margin: 20px 0; }.aiGuardrails span { color: var(--success); font-size: 11px; font-weight: 750; }
+@media (max-width: 1000px) { .aiWorkspace { grid-template-columns: 1fr; } }
+
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -20% 0; } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 

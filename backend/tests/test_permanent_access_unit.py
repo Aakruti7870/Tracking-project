@@ -8,7 +8,6 @@ from routers import permanent_access
 from routers.permanent_access import (
     DEMO_CUSTOMER_PHONE,
     DEMO_DRIVER_PHONE,
-    DEMO_OTP,
     DEMO_OWNER_EMAIL,
     PERMANENT_AUTHORITY_EMAILS,
     PERMANENT_CENTRAL_ADMIN_EMAILS,
@@ -18,8 +17,11 @@ from routers.permanent_access import (
 )
 
 
-def test_permanent_demo_otp_is_the_play_console_code():
-    assert DEMO_OTP == "123456"
+def test_permanent_demo_otp_uses_server_side_play_console_code():
+    with patch.object(permanent_access.settings, "PLAY_REVIEW_ACCESS_CODE", "654321"):
+        assert permanent_access._review_code_valid("654321") is True
+        assert permanent_access._review_code_valid("123456") is False
+        assert permanent_access._review_code_valid("") is False
 
 
 def test_customer_demo_number_routes_only_to_customer():
@@ -41,8 +43,8 @@ def test_owner_demo_email_is_the_only_staff_demo_allowlist_entry():
 
 
 def test_support_platform_admins_never_inherit_demo_otp_allowlist():
-    assert PERMANENT_AUTHORITY_EMAILS == ("support@goldetech.com",)
-    assert PERMANENT_CENTRAL_ADMIN_EMAILS == ("support@trackmyrmc.com",)
+    assert "support@goldetech.com" in PERMANENT_AUTHORITY_EMAILS
+    assert "support@trackmyrmc.com" in PERMANENT_CENTRAL_ADMIN_EMAILS
     for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
         assert demo_staff_role(email) is None
 
@@ -60,7 +62,11 @@ def test_existing_super_admin_suspension_is_not_overridden_at_startup():
             self.update = None
 
         async def find_one(self, query):
-            return {"_id": "support-user", "status": "suspended"}
+            return {
+                "_id": "support-user",
+                "status": "suspended",
+                "primary_role": Role.CENTRAL_ADMIN.value,
+            }
 
         async def update_one(self, query, update):
             self.update = update
@@ -70,5 +76,28 @@ def test_existing_super_admin_suspension_is_not_overridden_at_startup():
         asyncio.run(permanent_access._ensure_platform_admin("support@trackmyrmc.com"))
 
     assert fake.update is not None
-    assert fake.update["$set"]["primary_role"] == Role.CENTRAL_ADMIN.value
+    assert "primary_role" not in fake.update["$set"]
     assert "status" not in fake.update["$set"]
+
+
+def test_existing_conflicting_identity_is_never_converted_to_platform_admin():
+    class FakeUsers:
+        def __init__(self):
+            self.update = None
+
+        async def find_one(self, query):
+            return {
+                "_id": "real-customer",
+                "status": "active",
+                "primary_role": Role.CUSTOMER.value,
+                "roles": [Role.CUSTOMER.value],
+            }
+
+        async def update_one(self, query, update):
+            self.update = update
+
+    fake = FakeUsers()
+    with patch.object(permanent_access, "users", fake):
+        asyncio.run(permanent_access._ensure_platform_admin("support@trackmyrmc.com"))
+
+    assert fake.update is None
