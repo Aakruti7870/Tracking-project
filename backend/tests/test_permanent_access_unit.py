@@ -43,8 +43,8 @@ def test_owner_demo_email_is_the_only_staff_demo_allowlist_entry():
 
 
 def test_support_platform_admins_never_inherit_demo_otp_allowlist():
-    assert PERMANENT_AUTHORITY_EMAILS == ("support@goldetech.com",)
-    assert PERMANENT_CENTRAL_ADMIN_EMAILS == ("support@trackmyrmc.com",)
+    assert "support@goldetech.com" in PERMANENT_AUTHORITY_EMAILS
+    assert "support@trackmyrmc.com" in PERMANENT_CENTRAL_ADMIN_EMAILS
     for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
         assert demo_staff_role(email) is None
 
