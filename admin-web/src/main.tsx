@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { type AdminUser, get, type Home, post } from "./api";
 import { CommandCenter } from "./command-center";
 import { AICommandCenter } from "./ai-command-center";
+import { AdminAccessWorkspace, OwnerAccessWorkspace, ReviewerAccessWorkspace } from "./access-control-center";
 import { DataWorkspace, type PortalModule } from "./workspaces";
 import "./styles.css";
 
@@ -23,7 +24,7 @@ const catalog: Record<ModuleDefinition["group"], string[]> = {
   Growth: ["Marketing AI", "Campaigns", "WhatsApp", "Proposals", "Leads CRM", "Invitations", "Banner Studio", "Promotions", "Premium Plans"],
   "AI & Automation": ["AI Providers", "Model Routing", "Automations", "AI Usage / Cost", "AI Audit"],
   System: ["API Health", "OTP Health", "KYC Health", "GPS Health", "Payment Health", "Webhooks", "Errors", "Integrations", "Releases"],
-  Security: ["Admins", "Roles", "Permissions", "Sessions", "Devices", "Security Alerts", "Audit Logs"],
+  Security: ["Reviewer Access", "Admins", "Roles", "Permissions", "Sessions", "Devices", "Security Alerts", "Audit Logs"],
 };
 const modules: ModuleDefinition[] = Object.entries(catalog).flatMap(([group, labels]) => labels.map((label) => ({ key: label, label, short: label.split(/\s|\//).filter(Boolean).map((word) => word[0]).join("").slice(0, 2).toUpperCase(), group: group as ModuleDefinition["group"], description: `${label} is protected by Control Center authorization and immutable audit policy.` })));
 const DATA_MODULES = new Set(["Users", "KYC", "Payments", "Audit Logs"]);
@@ -204,6 +205,9 @@ function ModuleWorkspace({ module, token, stepUpFresh, requestStepUp, onLogout }
   }
 
   if (module.key === "AI Command Center") return <AICommandCenter token={token} mfaVerified={stepUpFresh} requestStepUp={requestStepUp} />;
+  if (module.key === "Reviewer Access") return <ReviewerAccessWorkspace token={token} stepUpFresh={stepUpFresh} requestStepUp={requestStepUp} />;
+  if (module.key === "Admins") return <AdminAccessWorkspace token={token} stepUpFresh={stepUpFresh} requestStepUp={requestStepUp} />;
+  if (module.key === "Owners / Staff" || module.key === "Onboarding") return <OwnerAccessWorkspace token={token} stepUpFresh={stepUpFresh} requestStepUp={requestStepUp} />;
 
   if (DATA_MODULES.has(module.key)) return <DataWorkspace module={module.key as PortalModule} token={token} />;
   if (module.key === "All Plants") return <DataWorkspace module="Plants" token={token} />;
