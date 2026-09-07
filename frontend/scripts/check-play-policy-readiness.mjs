@@ -51,12 +51,33 @@ expect(permissions.has('ACCESS_BACKGROUND_LOCATION'), 'Background location is ex
 
 const tripTracking = read('frontend/src/location/tripTracking.ts');
 const tripScreen = read('frontend/app/trip/[id].tsx');
+const locationConsent = read('frontend/src/location/BackgroundLocationConsent.tsx');
+const customerPlants = read('frontend/app/customer/plants.tsx');
+const driverHome = read('frontend/app/driver/index.tsx');
+
 expectIncludes(tripTracking, 'options: { allowBackground?: boolean }', 'Background permission must be gated by an explicit caller option.');
 expectIncludes(tripTracking, 'options.allowBackground === true', 'Background permission may run only after app-owned consent.');
 expectIncludes(tripScreen, 'This app collects location data to enable live mixer delivery tracking even when the app is closed or not in use.', 'Prominent background-location disclosure text is missing.');
 expectIncludes(tripScreen, 'Agree & Continue', 'Background-location disclosure requires affirmative consent.');
 expectIncludes(tripScreen, 'Not now', 'Background-location disclosure must offer a decline path.');
 expectIncludes(tripScreen, 'assigned plant and the authorized customer tracking view', 'Disclosure must explain who receives active-trip location data.');
+
+const backgroundConsentIndex = tripTracking.indexOf('requestBackgroundLocationConsent()');
+const backgroundPromptIndex = tripTracking.indexOf('Location.requestBackgroundPermissionsAsync()');
+expect(backgroundConsentIndex >= 0 && backgroundPromptIndex > backgroundConsentIndex, 'Background runtime permission must be requested only after TrackMyRMC prominent consent.');
+
+expectIncludes(locationConsent, 'requestNearbyPlantsLocationConsent', 'Nearby Plants must expose an app-owned location consent bridge.');
+expectIncludes(locationConsent, 'Use your location to find nearby RMC plants?', 'Nearby Plants foreground-location disclosure title is missing.');
+expectIncludes(locationConsent, 'This customer feature does not use background location.', 'Nearby Plants disclosure must distinguish foreground-only use from Driver background tracking.');
+expectIncludes(locationConsent, 'You can choose Not now and still browse all registered plants', 'Nearby Plants disclosure must explain the no-location fallback.');
+expectIncludes(locationConsent, 'Read the TrackMyRMC Privacy Policy', 'Location disclosures must link to the Privacy Policy.');
+
+const nearbyConsentIndex = customerPlants.indexOf('requestNearbyPlantsLocationConsent()');
+const nearbyPromptIndex = customerPlants.indexOf('Location.requestForegroundPermissionsAsync()');
+expect(nearbyConsentIndex >= 0 && nearbyPromptIndex > nearbyConsentIndex, 'Nearby Plants must show TrackMyRMC disclosure before the OS foreground-location prompt.');
+expectIncludes(customerPlants, 'play-review-nearby-hint', 'Reviewer customer must get a visible Nearby Plants review hint.');
+expectIncludes(customerPlants, 'TrackMyRMC Play Review Plant', 'Reviewer customer must be able to identify the seeded review plant.');
+expectIncludes(customerPlants, 'Location is optional; choose Not now', 'Nearby Plants must remain reviewable when location is declined.');
 
 function walk(dir) {
   const out = [];
@@ -113,10 +134,16 @@ expectIncludes(login, 'router.push("/review-access"', 'Reviewer access control m
 expectIncludes(login, 'REVIEW APP', 'Reviewer access must remain visibly labeled on sign-in.');
 expectIncludes(reviewScreen, '6-digit reviewer OTP', 'Reviewer login must require the reusable six-digit credential supplied through Google Play Console.');
 expectIncludes(reviewScreen, 'Normal users must use the standard User Login or Plant Staff Login flow', 'Reviewer login must clearly explain that the reviewer OTP is separate from normal OTP/Google authentication.');
+expectIncludes(reviewScreen, 'Nearby Plants review path', 'Reviewer instructions must expose the customer Nearby Plants policy path.');
+expectIncludes(reviewScreen, 'Background location review path', 'Reviewer instructions must expose the Driver background-location policy path.');
+expectIncludes(driverHome, 'play-review-location-hint', 'Reviewer Driver home must clearly point to the background-location review flow.');
+expectIncludes(driverHome, 'PLAY-REVIEW-001', 'Reviewer Driver must be directed to the seeded active trip.');
 expectIncludes(reviewRouter, 'PLAY_REVIEW_ACCESS_ENABLED', 'Reviewer access must be deployment-gated.');
 expectIncludes(reviewRouter, 'compare_digest', 'Reviewer access code comparison must be constant-time.');
 expectIncludes(config, 'PLAY_REVIEW_ACCESS_CODE', 'Reviewer access code must be configured server-side.');
 expectIncludes(reviewFixture, 'play_review_fixture', 'Reviewer accounts must use isolated demo fixtures.');
+expectIncludes(reviewFixture, 'TrackMyRMC Play Review Plant', 'Reviewer fixture must seed an inspectable RMC plant.');
+expectIncludes(reviewFixture, 'PLAY-REVIEW-001', 'Reviewer fixture must seed an active delivery for background-location review.');
 expect(!reviewFixture.includes('PLAY_REVIEW_ACCESS_CODE'), 'Reviewer fixture must never contain the access secret.');
 
 const privacy = read('frontend/app/privacy.tsx');

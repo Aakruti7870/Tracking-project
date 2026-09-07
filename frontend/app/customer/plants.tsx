@@ -16,6 +16,7 @@ import { Skeleton } from "@/src/components/ui/Skeleton";
 import { PlantMap } from "@/src/components/PlantMap";
 import { PlantCard, PlantData } from "@/src/components/PlantCard";
 import { EmptyView, ErrorView } from "@/src/components/StateViews";
+import { requestNearbyPlantsLocationConsent } from "@/src/location/BackgroundLocationConsent";
 import { distanceKm, LatLng, validLatLng } from "@/src/maps/geo";
 import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -43,6 +44,8 @@ type NearbyLocationResult = { status: NearbyLocationStatus; coords: LatLng | nul
 let nearbyLocationCache: { coords: LatLng; at: number } | null = null;
 const NEARBY_CACHE_TTL_MS = 5 * 60 * 1000;
 const NEARBY_GPS_TIMEOUT_MS = 12000;
+const PLAY_REVIEW_CUSTOMER_NAME = "Google Play Review Customer";
+const PLAY_REVIEW_PLANT_NAME = "TrackMyRMC Play Review Plant";
 
 function getCachedNearbyLocation(): LatLng | null {
   if (nearbyLocationCache && Date.now() - nearbyLocationCache.at < NEARBY_CACHE_TTL_MS) return nearbyLocationCache.coords;
@@ -82,6 +85,10 @@ async function resolveNearbyLocation(opts?: { forceRefresh?: boolean; allowPromp
   if (permission.status !== "granted") {
     const undetermined = permission.status === "undetermined" || permission.canAskAgain;
     if (allowPrompt && undetermined) {
+      const consented = await requestNearbyPlantsLocationConsent();
+      if (!consented) {
+        return { status: "denied", coords: getCachedNearbyLocation(), canAskAgain: permission.canAskAgain };
+      }
       try {
         permission = await Location.requestForegroundPermissionsAsync();
       } catch {
@@ -124,7 +131,7 @@ async function resolveNearbyLocation(opts?: { forceRefresh?: boolean; allowPromp
 
 export default function CustomerPlants() {
   const { colors } = useTheme();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -138,6 +145,7 @@ export default function CustomerPlants() {
   const [requestingPlace, setRequestingPlace] = useState<string | null>(null);
   const { data, loading, error, refetch, reload } = useGet<{ plants: PlantData[] }>("/customer/plants");
   const didInit = useRef(false);
+  const isPlayReviewCustomer = user?.name === PLAY_REVIEW_CUSTOMER_NAME;
 
   const applyLocation = async (opts: { forceRefresh?: boolean; allowPrompt?: boolean; refetchPlants?: boolean }) => {
     setLocating(true);
@@ -225,21 +233,24 @@ export default function CustomerPlants() {
       ? { ...plant, distance_km: null }
       : { ...plant, distance_km: distanceKm(userLocation, { lat: plant.lat!, lng: plant.lng! }) });
 
-    if (userLocation) {
-      list.sort((a, b) => {
-        const promoted = Number(Boolean(b.promoted)) - Number(Boolean(a.promoted));
-        if (promoted) return promoted;
+    list.sort((a, b) => {
+      if (isPlayReviewCustomer) {
+        const aReview = a.name === PLAY_REVIEW_PLANT_NAME;
+        const bReview = b.name === PLAY_REVIEW_PLANT_NAME;
+        if (aReview !== bReview) return aReview ? -1 : 1;
+      }
+      const promoted = Number(Boolean(b.promoted)) - Number(Boolean(a.promoted));
+      if (promoted) return promoted;
+      if (userLocation) {
         const distance = (a.distance_km ?? Number.POSITIVE_INFINITY) - (b.distance_km ?? Number.POSITIVE_INFINITY);
         if (distance) return distance;
         const enabled = Number(Boolean(b.order_enabled)) - Number(Boolean(a.order_enabled));
         if (enabled) return enabled;
-        return (a.name || "").localeCompare(b.name || "");
-      });
-    } else {
-      list.sort((a, b) => (a.promoted === b.promoted ? (a.name || "").localeCompare(b.name || "") : a.promoted ? -1 : 1));
-    }
+      }
+      return (a.name || "").localeCompare(b.name || "");
+    });
     return list;
-  }, [data, userLocation]);
+  }, [data, isPlayReviewCustomer, userLocation]);
 
   const filtered = useMemo(() => {
     if (!q.trim()) return ranked;
@@ -339,6 +350,14 @@ export default function CustomerPlants() {
               </View>
 
               <LocationBanner status={locationStatus} locating={locating} onEnable={enableLocation} onRetry={refreshLocation} />
+              {isPlayReviewCustomer ? (
+                <View testID="play-review-nearby-hint" style={[styles.reviewHint, { backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }]}>
+                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.brand} />
+                  <AppText style={[styles.reviewHintText, { color: colors.onSurfaceSecondary }]}>
+                    Google Play review: {PLAY_REVIEW_PLANT_NAME} is included in this list. Location is optional; choose Not now and the review plant remains available for inspection.
+                  </AppText>
+                </View>
+              ) : null}
               {discoveryError ? <AppText variant="caption" color={colors.warning}>{discoveryError}</AppText> : null}
 
               <View style={styles.registeredHeading}>
@@ -489,6 +508,8 @@ const styles = StyleSheet.create({
   dotDivider: { width: 1, height: 18, marginHorizontal: 3 },
   findMore: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   registeredHeading: { gap: 2, paddingTop: spacing.xs },
+  reviewHint: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  reviewHintText: { flex: 1, fontFamily: fonts.medium, fontSize: 12, lineHeight: 17 },
   locationBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
   locationBannerText: { flex: 1, fontFamily: fonts.medium, fontSize: 12, lineHeight: 17 },
   locationBannerBtn: { minHeight: 34, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },

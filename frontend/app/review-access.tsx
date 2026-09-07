@@ -21,6 +21,21 @@ const ROLES: { role: PlayReviewRole; label: string; description: string; icon: k
   { role: "driver", label: "Driver", description: "Trip, live delivery tracking and POD", icon: "car-outline" },
 ];
 
+const REVIEW_GUIDANCE: Record<PlayReviewRole, { title: string; text: string }> = {
+  customer: {
+    title: "Nearby Plants review path",
+    text: "After login, open Nearby Plants. TrackMyRMC shows an in-app location explanation before Android asks for location. The seeded TrackMyRMC Play Review Plant remains visible even if you choose Not now.",
+  },
+  plant_owner: {
+    title: "Plant Owner review path",
+    text: "After login, the isolated review plant, vehicle and review-only operational data are available from the Plant Owner dashboard.",
+  },
+  driver: {
+    title: "Background location review path",
+    text: "After login, open Current Trip PLAY-REVIEW-001. Before Android asks for location, TrackMyRMC shows the prominent delivery-location disclosure. Continue to see the foreground and background permission flow used only for an active delivery.",
+  },
+};
+
 export default function ReviewAccess() {
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -48,6 +63,8 @@ export default function ReviewAccess() {
     }
   };
 
+  const guidance = REVIEW_GUIDANCE[role];
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
@@ -67,6 +84,16 @@ export default function ReviewAccess() {
           <AppText variant="heading">Choose a review role</AppText>
           <AppText variant="bodyMuted">
             These accounts contain review-only demo data. The fixed six-digit reviewer OTP works only while Play reviewer access is explicitly enabled on the server.
+          </AppText>
+        </Card>
+
+        <Card testID="play-review-background-location-route" style={{ gap: spacing.sm, backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <Ionicons name="location-outline" size={20} color={colors.brand} />
+            <AppText variant="label">Reviewing BACKGROUND_LOCATION?</AppText>
+          </View>
+          <AppText variant="bodyMuted">
+            Background location applies only to active Driver deliveries. Select Driver below, sign in, then open Current Trip PLAY-REVIEW-001 to see TrackMyRMC&apos;s prominent disclosure before Android permission prompts.
           </AppText>
         </Card>
 
@@ -104,6 +131,14 @@ export default function ReviewAccess() {
             );
           })}
         </View>
+
+        <Card testID="play-review-guidance" style={{ gap: spacing.sm, backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.brand} />
+            <AppText variant="label">{guidance.title}</AppText>
+          </View>
+          <AppText variant="bodyMuted">{guidance.text}</AppText>
+        </Card>
 
         <Input
           label="6-digit reviewer OTP"

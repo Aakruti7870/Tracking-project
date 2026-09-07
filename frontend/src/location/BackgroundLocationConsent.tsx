@@ -8,21 +8,13 @@ import { Button } from "@/src/components/ui/Button";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { fonts, fontSize, spacing } from "@/src/theme/tokens";
 
-// Imperative bridge so the non-React location module (tripTracking.ts) can show
-// the Google Play "Prominent Disclosure and Consent" screen BEFORE the OS
-// permission prompts. Play policy (Location Permissions -> Prominent
-// Disclosure) requires that the in-app disclosure:
-//   - Clearly names the app that is requesting access.
-//   - Explicitly names the data ("precise location, latitude and longitude")
-//     and features it powers ("live delivery tracking, ETA").
-//   - Uses "in the background, even when the app is closed or not in use"
-//     phrasing for background access.
-//   - Requires affirmative user action (a real button, not just dismiss).
-//   - Is shown BEFORE requesting the runtime OS permission.
-//   - Links to the Privacy Policy.
-// If the driver declines, tripTracking.ts falls back to foreground-only.
+// Imperative bridge so non-React location helpers can show TrackMyRMC's
+// app-owned disclosure BEFORE Android/iOS runtime permission prompts.
+// Background delivery tracking keeps the full Google Play prominent-disclosure
+// language, while customer nearby-plant discovery uses a separate foreground-
+// only explanation so reviewers can see why location is requested.
 type Resolver = (granted: boolean) => void;
-type Scope = "foreground" | "background";
+type Scope = "foreground" | "background" | "nearby-plants";
 type Payload = { scope: Scope; resolver: Resolver };
 
 let showFn: ((payload: Payload) => void) | null = null;
@@ -30,7 +22,8 @@ let showFn: ((payload: Payload) => void) | null = null;
 function requestConsent(scope: Scope): Promise<boolean> {
   return new Promise((resolve) => {
     if (!showFn) {
-      // Provider not mounted (e.g. web / unit test) -> no explicit consent captured.
+      // Provider not mounted (for example web/unit test) -> do not request OS
+      // permission because no explicit app-owned consent was captured.
       resolve(false);
       return;
     }
@@ -44,6 +37,10 @@ export function requestBackgroundLocationConsent(): Promise<boolean> {
 
 export function requestForegroundLocationConsent(): Promise<boolean> {
   return requestConsent("foreground");
+}
+
+export function requestNearbyPlantsLocationConsent(): Promise<boolean> {
+  return requestConsent("nearby-plants");
 }
 
 const PRIVACY_URL = "https://trackmyrmc.com/privacy";
@@ -91,6 +88,24 @@ const BACKGROUND_POINTS: Point[] = [
   },
 ];
 
+const NEARBY_PLANTS_POINTS: Point[] = [
+  {
+    icon: "business-outline",
+    text:
+      "TrackMyRMC uses this device's precise location (latitude and longitude) to show and rank nearby RMC plants and calculate distance from you.",
+  },
+  {
+    icon: "phone-portrait-outline",
+    text:
+      "For Nearby Plants, location is used only while TrackMyRMC is open. This customer feature does not use background location.",
+  },
+  {
+    icon: "shield-checkmark-outline",
+    text:
+      "You can choose Not now and still browse all registered plants by name or area. Nearby-plant location is not sold to advertisers.",
+  },
+];
+
 export function BackgroundLocationConsentProvider() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -116,17 +131,24 @@ export function BackgroundLocationConsentProvider() {
   };
 
   const isBackground = state.scope === "background";
-  const points = isBackground ? BACKGROUND_POINTS : FOREGROUND_POINTS;
+  const isNearbyPlants = state.scope === "nearby-plants";
+  const points = isBackground ? BACKGROUND_POINTS : isNearbyPlants ? NEARBY_PLANTS_POINTS : FOREGROUND_POINTS;
   const title = isBackground
     ? "Allow background location for delivery tracking?"
-    : "Allow TrackMyRMC to use location for delivery tracking?";
-  const intro = isBackground
-    ? "Before Android asks for permission, here is exactly what TrackMyRMC does with your location."
-    : "Before Android asks for permission, here is exactly what TrackMyRMC does with your location.";
-  const allowLabel = isBackground ? "Allow background tracking" : "Allow location for delivery";
+    : isNearbyPlants
+      ? "Use your location to find nearby RMC plants?"
+      : "Allow TrackMyRMC to use location for delivery tracking?";
+  const intro = "Before Android asks for permission, here is exactly what TrackMyRMC does with your location.";
+  const allowLabel = isBackground
+    ? "Allow background tracking"
+    : isNearbyPlants
+      ? "Use my location"
+      : "Allow location for delivery";
   const declineFooter = isBackground
     ? "You can change this anytime in Android Settings. If you decline, live tracking still works while the app is open."
-    : "You can change this anytime in Android Settings. Without location, delivery tracking and ETA will not work.";
+    : isNearbyPlants
+      ? "Location is optional for browsing registered plants. You can enable it later from Nearby Plants."
+      : "You can change this anytime in Android Settings. Without location, delivery tracking and ETA will not work.";
 
   return (
     <Modal
@@ -149,7 +171,7 @@ export function BackgroundLocationConsentProvider() {
         >
           <View style={[styles.iconWrap, { backgroundColor: colors.brand + "1A" }]}>
             <Ionicons
-              name={isBackground ? "location-outline" : "navigate-outline"}
+              name={isBackground ? "location-outline" : isNearbyPlants ? "business-outline" : "navigate-outline"}
               size={30}
               color={colors.brand}
             />
