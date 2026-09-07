@@ -95,7 +95,7 @@ jobs:
           grep -F 'control_center_reauth_required' admin-web/public/recovery.html
           grep -F 'control-center-recovery-link' admin-web/index.html
           ! grep -E 'localStorage|sessionStorage' admin-web/public/recovery.html
-          grep -F 'control_center_recovery_bootstrap' backend/routers/admin_auth.py
+          grep -F '_issue_mfa_bootstrap_session(recovered, recovery=True)' backend/routers/admin_auth.py
           grep -F 'control_center_admin_must_reauth' backend/routers/staff_mfa.py
           echo 'Central Admin restricted bootstrap/recovery contract passed.'
 
