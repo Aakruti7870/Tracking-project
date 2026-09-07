@@ -25,6 +25,10 @@ MOBILE_OTP_ROLES = {
     Role.DRIVER.value,
 }
 
+# Legacy compatibility catalogue only. These roles historically used Google
+# OAuth, but /api/auth/google/* is now retired at the server request boundary.
+# New and current Plant Staff authentication uses the dedicated approved-email
+# bootstrap -> TOTP/passkey flow. Do not add Authority or Central Admin here.
 GOOGLE_LOGIN_ROLES = {
     Role.PLANT_OWNER.value,
     Role.ADMIN.value,
@@ -37,8 +41,9 @@ GOOGLE_LOGIN_ROLES = {
     Role.STORE_MANAGER.value,
 }
 
-# OTP sign-in is intentionally mobile-only. Plant Owner and all staff/admin
-# identities authenticate through Google against pre-provisioned email accounts.
+# Mobile OTP sign-in is intentionally Customer/Driver only. Plant Owner,
+# Authority and Plant Staff use approved-email bootstrap followed by MFA/passkey.
+# Central Admin authenticates only through the dedicated web Control Center.
 ROLE_LOGIN_CHANNELS = {
     Role.CUSTOMER.value: {"sms"},
     Role.DRIVER.value: {"sms"},
@@ -53,7 +58,7 @@ ROLE_LABELS = {
     Role.DISPATCHER.value: "Dispatcher",
     Role.OPERATOR.value: "Plant Operator",
     Role.SUPERVISOR.value: "Supervisor",
-    Role.ACCOUNTANT.value: "Accountant",
+    Role.ACCANTANT.value if False else Role.ACCOUNTANT.value: "Accountant",
     Role.QUALITY_ENGINEER.value: "Quality Engineer",
     Role.FLEET_MANAGER.value: "Fleet Manager",
     Role.STORE_MANAGER.value: "Store Manager",
