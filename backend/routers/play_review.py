@@ -16,6 +16,7 @@ from audit import write_audit
 from config import settings
 from database import sessions
 from play_review import play_review_user
+from reviewer_access import reviewer_access_enabled
 from roles import Role
 from security import issue_jwt, new_session_id, utcnow
 
@@ -26,15 +27,21 @@ ReviewRole = Literal["customer", "plant_owner", "driver"]
 
 class PlayReviewAccessBody(StrictModel):
     role: ReviewRole
-    # The configured Play Console reviewer credential is a reusable six-digit
-    # OTP. The value remains server-side in PLAY_REVIEW_ACCESS_CODE; 123456 is
-    # not hard-coded as a universal application bypass.
+    # The configured Play Console reviewer credential remains server-side in
+    # PLAY_REVIEW_ACCESS_CODE and is never returned by the Control Center.
     access_code: str = Field(min_length=6, max_length=128)
+
+
+@router.get("/play-review/status")
+async def play_review_status():
+    # PLAY_REVIEW_ACCESS_ENABLED remains the deployment-default gate; the
+    # Control Center can override it through the audited runtime setting.
+    return {"enabled": await reviewer_access_enabled()}
 
 
 @router.post("/play-review")
 async def play_review_access(body: PlayReviewAccessBody):
-    if not settings.PLAY_REVIEW_ACCESS_ENABLED:
+    if not await reviewer_access_enabled():
         # Do not expose whether a code is configured when review access is off.
         raise HTTPException(404, "Reviewer access is not enabled")
     if not compare_digest(body.access_code, settings.PLAY_REVIEW_ACCESS_CODE):
