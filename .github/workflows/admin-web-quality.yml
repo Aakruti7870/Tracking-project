@@ -104,11 +104,11 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: admin-web/package.json
+          cache-dependency-path: admin-web/package-lock.json
 
       - name: Install admin web dependencies
         working-directory: admin-web
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Lint admin web
         working-directory: admin-web
