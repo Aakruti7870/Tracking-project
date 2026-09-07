@@ -19,6 +19,7 @@ from control_center_security import (
 from database import sessions, users
 from reviewer_access import reviewer_access_state, set_reviewer_access
 from roles import Role
+from routers import plant_discovery
 from routers.admin_auth import _has_recent_admin_step_up
 from security import utcnow
 from validation import StrictModel
@@ -131,6 +132,43 @@ async def run_command(
     if status_value == "denied":
         raise HTTPException(403, message)
     return CommandDecision(command_id=command_id, intent=intent, risk=risk, status=status_value, message=message)
+
+
+@router.post("/owners/requests/{request_id}/approve")
+async def approve_owner_onboarding(
+    request_id: str,
+    ctx: dict = Depends(require_permission(Permission.OWNER_APPROVE)),
+):
+    """Approve self-onboarding through a fresh-MFA, permission-gated web flow."""
+    _require_step_up(ctx)
+    result = await plant_discovery.approve_listing(request_id, None, ctx)
+    await write_audit(
+        ctx["user_id"],
+        "control_center.owner_onboarding.approved",
+        "plant_listing_request",
+        request_id,
+        {"plant_id": result.get("plant_id"), "owner_id": result.get("owner_id")},
+    )
+    return result
+
+
+@router.post("/owners/plants/{plant_id}/assign")
+async def assign_owner_from_control_center(
+    plant_id: str,
+    body: plant_discovery.OwnerAssignmentBody,
+    ctx: dict = Depends(require_permission(Permission.OWNER_ASSIGN)),
+):
+    """Assign the first Plant Owner through a fresh-MFA Control Center action."""
+    _require_step_up(ctx)
+    result = await plant_discovery.assign_first_owner(plant_id, body, ctx)
+    await write_audit(
+        ctx["user_id"],
+        "control_center.owner_access.assigned",
+        "plant",
+        plant_id,
+        {"owner_id": result.get("owner_id")},
+    )
+    return result
 
 
 @router.get("/reviewer-access")
