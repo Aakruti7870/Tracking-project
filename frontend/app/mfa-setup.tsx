@@ -25,6 +25,7 @@ export default function MfaSetup() {
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const centralAdminSetup = user?.role === "central_admin";
 
   useEffect(() => {
     if (!token || !user) {
@@ -97,6 +98,11 @@ export default function MfaSetup() {
   };
 
   const finish = async () => {
+    if (centralAdminSetup) {
+      await signOut();
+      router.replace("/login" as any);
+      return;
+    }
     await refreshMe();
     router.replace("/passkey-setup" as any);
   };
@@ -119,8 +125,8 @@ export default function MfaSetup() {
           </View>
 
           <Button label="Share / Save Recovery Codes" onPress={shareRecoveryCodes} icon={<Ionicons name="share-outline" size={18} color={colors.onBrand} />} />
-          <Button label="I Saved Them — Add Passkey" onPress={finish} icon={<Ionicons name="finger-print-outline" size={18} color={colors.onBrand} />} />
-          <AppText variant="caption" center>Keep recovery codes outside the phone when possible. Each code is invalidated after one use.</AppText>
+          <Button label={centralAdminSetup ? "I Saved Them — Sign Out" : "I Saved Them — Add Passkey"} onPress={finish} icon={<Ionicons name={centralAdminSetup ? "log-out-outline" : "finger-print-outline"} size={18} color={colors.onBrand} />} />
+          <AppText variant="caption" center>{centralAdminSetup ? "Central Admin setup is complete. Future privileged sign-in is web-only at control.trackmyrmc.com." : "Keep recovery codes outside the phone when possible. Each code is invalidated after one use."}</AppText>
         </ScrollView>
       </View>
     );
