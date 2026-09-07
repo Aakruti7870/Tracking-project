@@ -419,6 +419,8 @@ async def update_admin_access(
     user_id = str(user["_id"])
     current_approved = is_control_center_approved_user(user)
     target_is_root = email in APPROVED_CONTROL_CENTER_EMAILS
+    if body.enabled != current_approved and Permission.ADMIN_ACCESS_MANAGE not in caller_permissions:
+        raise HTTPException(403, "admin_access.manage is required to enable or disable administrator access")
     if user_id == ctx["user_id"] and not body.enabled:
         raise HTTPException(409, "You cannot disable your current Control Center identity")
     if permissions is not None and user_id == ctx["user_id"] and not is_root_control_center_user(ctx.get("user")):
