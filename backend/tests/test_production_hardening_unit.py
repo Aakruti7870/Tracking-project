@@ -24,6 +24,7 @@ from routers.maps import _valid_coords
 class _FakeCollection:
     def __init__(self, value):
         self.value = value
+        self.last_update = None
 
     async def find_one(self, _query, **_kwargs):
         # Mirror Motor/PyMongo's real signature: find_one() accepts extra
@@ -33,6 +34,13 @@ class _FakeCollection:
         # session whose _id matches the issued token, so returning it honors
         # the "newest session is authoritative" contract for these unit tests.
         return self.value
+
+    async def update_one(self, query, update, **_kwargs):
+        # current_user records safe session activity metadata after all auth
+        # checks. Keep the unit fake compatible with Motor without weakening
+        # the production write path.
+        self.last_update = (query, update)
+
 
 
 def _auth_context_for(monkeypatch, *, role: str, plant_id=None):
