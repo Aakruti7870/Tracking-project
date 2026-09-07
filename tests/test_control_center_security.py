@@ -9,6 +9,7 @@ from control_center_security import (
     permissions_for,
 )
 from routers.control_center import Risk, classify_command
+from security import _is_control_center_session
 
 
 def context(role: str, email: str, *, web: bool = True, permissions=None) -> dict:
@@ -44,9 +45,36 @@ def test_mobile_jwt_cannot_be_upgraded_by_role_or_email():
     assert denied.value.status_code == 403
 
 
+def test_control_center_provenance_requires_both_server_markers():
+    assert _is_control_center_session({
+        CONTROL_CENTER_SESSION_FLAG: True,
+        "auth_surface": "control_center_web",
+    }) is True
+    assert _is_control_center_session({
+        CONTROL_CENTER_SESSION_FLAG: True,
+        "auth_surface": "android_app",
+    }) is False
+    assert _is_control_center_session({
+        CONTROL_CENTER_SESSION_FLAG: False,
+        "auth_surface": "control_center_web",
+    }) is False
+    assert _is_control_center_session({}) is False
+
+
 def test_explicit_permissions_cannot_bypass_policy():
     ctx = context("central_admin", "support@trackmyrmc.com", permissions=[Permission.PLANT_VIEW.value, "permissions.superuser"])
     assert permissions_for(ctx) == {Permission.PLANT_VIEW}
+
+
+def test_ai_draft_permission_is_distinct_from_diagnostic_permission():
+    ctx = context(
+        "central_admin",
+        "support@trackmyrmc.com",
+        permissions=[Permission.AI_DIAGNOSE.value],
+    )
+    granted = permissions_for(ctx)
+    assert Permission.AI_DIAGNOSE in granted
+    assert Permission.AI_CREATE_DRAFT not in granted
 
 
 @pytest.mark.parametrize("prompt", [
