@@ -2,15 +2,16 @@
 
 The production auth contract is intentionally split:
 - Customer/Driver -> mobile OTP
-- Plant/platform staff -> Google OAuth
+- Plant staff -> approved email bootstrap followed by MFA/passkey
+- Central Admin -> dedicated web-only Control Center authentication
 
 Several older integration modules pre-date that split and use an email-OTP
-helper only as a convenient way to obtain a staff bearer token before testing
-unrelated dispatch, payroll, dashboard, POD and order behavior.  Re-enabling
-staff OTP in the application would weaken the production contract, so these
-legacy modules receive a CI-only persisted session from the test process
-instead.  Auth-policy regression tests are deliberately excluded and continue
-to exercise the real HTTP auth routes.
+helper only as a convenient way to obtain a bearer token before testing
+unrelated dispatch, payroll, dashboard, POD and order behavior. Re-enabling
+legacy staff/platform OTP in the application would weaken the production
+contract, so these modules receive a CI-only persisted session from the test
+process instead. Auth-policy regression tests are deliberately excluded and
+continue to exercise the real HTTP auth routes.
 """
 
 import json as jsonlib
@@ -21,12 +22,20 @@ import pytest
 import requests
 from pymongo import MongoClient
 
-from roles import GOOGLE_LOGIN_ROLES
-from security import identifier_key, issue_jwt, new_session_id, normalize_identifier, utcnow
+from roles import GOOGLE_LOGIN_ROLES, Role
+from security import (
+    CONTROL_CENTER_AUTH_SURFACE,
+    CONTROL_CENTER_SESSION_FLAG,
+    identifier_key,
+    issue_jwt,
+    new_session_id,
+    normalize_identifier,
+    utcnow,
+)
 
 
 # Only modules whose login helper is test setup for non-auth behavior belong
-# here.  Dedicated auth tests must always hit the real /api/auth routes.
+# here. Dedicated auth tests must always hit the real /api/auth routes.
 LEGACY_STAFF_SESSION_MODULES = {
     "test_account_deletion.py",
     "test_dispatch_workflow.py",
@@ -37,6 +46,14 @@ LEGACY_STAFF_SESSION_MODULES = {
     "test_phase6_sos_prod_invoice_track.py",
     "test_staff_actions.py",
     "test_staff_dashboards.py",
+}
+
+# Authority and Central Admin were intentionally removed from the public/mobile
+# staff-login role set. Legacy business-integration modules still need seeded
+# bearer sessions for those roles so they can test unrelated RBAC behavior.
+LEGACY_INTEGRATION_EMAIL_ROLES = set(GOOGLE_LOGIN_ROLES) | {
+    Role.AUTHORITY.value,
+    Role.CENTRAL_ADMIN.value,
 }
 
 _TEST_OTP = "909090"
@@ -51,8 +68,8 @@ def _json_response(status_code: int, payload: dict) -> requests.Response:
     return response
 
 
-def _find_google_staff(identifier: str):
-    """Resolve a provisioned Google-only staff user from the CI Mongo database."""
+def _find_legacy_staff(identifier: str):
+    """Resolve a provisioned staff/platform user from the CI Mongo database."""
     try:
         channel, normalized = normalize_identifier(identifier)
     except Exception:
@@ -70,7 +87,7 @@ def _find_google_staff(identifier: str):
         user = client[db_name].users.find_one(
             {"identifier_keys": identifier_key(normalized)}
         )
-        if not user or user.get("primary_role") not in GOOGLE_LOGIN_ROLES:
+        if not user or user.get("primary_role") not in LEGACY_INTEGRATION_EMAIL_ROLES:
             return None
         return user
     finally:
@@ -78,25 +95,31 @@ def _find_google_staff(identifier: str):
 
 
 def _staff_session_payload(user: dict) -> dict:
-    """Create the same persisted session shape consumed by current_user()."""
+    """Create a CI-only persisted session accepted by current_user()."""
     mongo_url = os.environ["MONGO_URL"]
     db_name = os.environ["DB_NAME"]
     role = user["primary_role"]
     sid = new_session_id()
     token, expires = issue_jwt(str(user["_id"]), sid, role)
 
+    session_doc = {
+        "_id": sid,
+        "user_id": str(user["_id"]),
+        "role": role,
+        "revoked": False,
+        "created_at": utcnow(),
+        "expires_at": expires,
+    }
+    if role == Role.CENTRAL_ADMIN.value:
+        # Central Admin is web-only even in integration coverage. Model the
+        # server-side provenance that /api/admin/auth/verify-totp establishes;
+        # never relax current_user() merely to satisfy legacy business tests.
+        session_doc[CONTROL_CENTER_SESSION_FLAG] = True
+        session_doc["auth_surface"] = CONTROL_CENTER_AUTH_SURFACE
+
     client = MongoClient(mongo_url)
     try:
-        client[db_name].sessions.insert_one(
-            {
-                "_id": sid,
-                "user_id": str(user["_id"]),
-                "role": role,
-                "revoked": False,
-                "created_at": utcnow(),
-                "expires_at": expires,
-            }
-        )
+        client[db_name].sessions.insert_one(session_doc)
     finally:
         client.close()
 
@@ -110,10 +133,10 @@ def _staff_session_payload(user: dict) -> dict:
 
 
 def _legacy_staff_auth_response(url: str, kwargs: dict):
-    """Return a CI-only auth response for a provisioned Google staff login."""
+    """Return a CI-only auth response for a provisioned legacy integration login."""
     body = kwargs.get("json") or {}
     identifier = str(body.get("identifier") or "").strip()
-    user = _find_google_staff(identifier) if identifier else None
+    user = _find_legacy_staff(identifier) if identifier else None
     if not user:
         return None
 
@@ -143,9 +166,9 @@ def pre_aab_e2e_vehicle_capacity(request):
     """Guarantee one isolated available mixer for the deterministic E2E flow.
 
     The normal full backend suite intentionally leaves some dispatch/production
-    vehicles occupied while exercising state guards.  Without an isolated mixer,
+    vehicles occupied while exercising state guards. Without an isolated mixer,
     a later pre-AAB E2E test could fail for test-ordering reasons rather than an
-    application defect.  This fixture only applies to that E2E module.
+    application defect. This fixture only applies to that E2E module.
     """
     test_path = Path(str(request.fspath)).name
     if test_path != "test_pre_aab_e2e.py":
@@ -187,13 +210,13 @@ def legacy_staff_session_adapter(request):
     """Adapt legacy staff email-OTP setup without touching production auth.
 
     The adapter is module-scoped because the legacy bearer-token fixtures it
-    supports are also module-scoped.  It covers both ``requests.Session.post``
+    supports are also module-scoped. It covers both ``requests.Session.post``
     and the module-level ``requests.post`` helper because the legacy integration
     modules use both styles.
 
     Customer/Driver mobile OTP calls and all requests from dedicated auth test
-    modules pass through unchanged.  For the explicitly listed legacy modules,
-    only provisioned Google staff email identifiers are intercepted.
+    modules pass through unchanged. For the explicitly listed legacy modules,
+    only provisioned staff/platform email identifiers are intercepted.
     """
     test_path = Path(str(request.fspath)).name
     if test_path not in LEGACY_STAFF_SESSION_MODULES:
