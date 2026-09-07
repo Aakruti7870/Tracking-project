@@ -19,8 +19,6 @@ CENTRAL_ADMIN_ROLE = "central_admin"
 CONTROL_CENTER_SESSION_FLAG = "control_center_mfa_authenticated"
 CONTROL_CENTER_AUTH_SURFACE = "control_center_web"
 
-# Email OTP is only a bootstrap identity proof when Plant Staff MFA is configured.
-# Until TOTP enrollment completes, the session cannot reach business APIs.
 MFA_BOOTSTRAP_ALLOWED_PATHS = {
     "/api/me",
     "/api/auth/logout",
@@ -28,6 +26,14 @@ MFA_BOOTSTRAP_ALLOWED_PATHS = {
     "/api/auth/staff/mfa/enroll/start",
     "/api/auth/staff/mfa/enroll/confirm",
 }
+
+# Authority continues to use these operational routes. Central Admin has a
+# dedicated permission/MFA-gated Control Center surface and cannot reuse the
+# Authority route family as a privilege bypass.
+CENTRAL_ADMIN_LEGACY_DENIED_PREFIXES = (
+    "/api/plant-discovery/",
+    "/api/assistant/support/staff/",
+)
 
 
 def utcnow() -> datetime:
@@ -97,7 +103,6 @@ def issue_jwt(user_id: str, sid: str, role: str) -> tuple[str, datetime]:
 
 
 def _is_control_center_session(session: dict) -> bool:
-    """Return True only for the server-marked web Control Center provenance."""
     return bool(
         session.get(CONTROL_CENTER_SESSION_FLAG)
         and session.get("auth_surface") == CONTROL_CENTER_AUTH_SURFACE
@@ -126,10 +131,6 @@ async def current_user(
     if not session or as_aware(session["expires_at"]) <= utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or revoked")
 
-    # TrackMyRMC single-session policy: the newest session ever created for an
-    # account is the only session permitted to authorize API requests. We do
-    # not filter revoked sessions here on purpose: logging out of the newest
-    # session must never resurrect an older still-stored session.
     latest_session = await sessions.find_one(
         {"user_id": payload["sub"]},
         sort=[("created_at", -1), ("_id", -1)],
@@ -140,11 +141,9 @@ async def current_user(
             "Session ended because this account was signed in on another device",
         )
 
+    request_path = request.url.path if request is not None else ""
     if session.get("mfa_bootstrap_only"):
-        # Normal FastAPI requests provide Request automatically. Direct/internal
-        # calls remain compatible for regular sessions, but a bootstrap session
-        # without request context must fail closed instead of bypassing MFA.
-        if request is None or request.url.path not in MFA_BOOTSTRAP_ALLOWED_PATHS:
+        if request is None or request_path not in MFA_BOOTSTRAP_ALLOWED_PATHS:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 "Authenticator App setup is required before this Plant Staff session can access the app",
@@ -165,13 +164,7 @@ async def current_user(
             "Plant assignment required for this staff account",
         )
 
-    # Central Admin is web-only. A role claim, staff-email bootstrap session or
-    # post-enrollment staff bearer session can never authorize normal APIs. The
-    # only exception is the tightly scoped first-time MFA bootstrap allowlist
-    # above (plus logout), after which the administrator must authenticate again
-    # through /api/admin/auth to obtain server-marked Control Center provenance.
     if role == CENTRAL_ADMIN_ROLE and not _is_control_center_session(session):
-        request_path = request.url.path if request is not None else ""
         bootstrap_allowed = bool(
             session.get("mfa_bootstrap_only")
             and request_path in MFA_BOOTSTRAP_ALLOWED_PATHS
@@ -181,6 +174,22 @@ async def current_user(
                 status.HTTP_403_FORBIDDEN,
                 "Central Admin access requires the web Control Center",
             )
+
+    if role == CENTRAL_ADMIN_ROLE and _is_control_center_session(session):
+        if any(request_path.startswith(prefix) for prefix in CENTRAL_ADMIN_LEGACY_DENIED_PREFIXES):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Central Admin must use the permission-gated Control Center route",
+            )
+
+    # Safe metadata for the Sessions workspace. This never stores credentials,
+    # bearer values, or request bodies.
+    now = utcnow()
+    await sessions.update_one(
+        {"_id": payload["sid"], "user_id": payload["sub"], "revoked": False},
+        {"$set": {"last_activity_at": now}},
+    )
+    session["last_activity_at"] = now
 
     return {
         "user_id": payload["sub"],
