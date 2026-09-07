@@ -2,16 +2,17 @@
 
 The production auth contract is intentionally split:
 - Customer/Driver -> mobile OTP
-- Plant staff -> approved email bootstrap followed by MFA/passkey
+- Plant staff, including Authority -> approved email bootstrap followed by MFA/passkey
 - Central Admin -> dedicated web-only Control Center authentication
 
 Several older integration modules pre-date that split and use an email-OTP
 helper only as a convenient way to obtain a bearer token before testing
 unrelated dispatch, payroll, dashboard, POD and order behavior. Re-enabling
-legacy staff/platform OTP in the application would weaken the production
+legacy Central Admin OTP in the application would weaken the production
 contract, so these modules receive a CI-only persisted session from the test
-process instead. Auth-policy regression tests are deliberately excluded and
-continue to exercise the real HTTP auth routes.
+process instead. Authority itself remains in the real Plant Staff email/MFA
+contract. Auth-policy regression tests are deliberately excluded and continue
+to exercise the real HTTP auth routes.
 """
 
 import json as jsonlib
@@ -48,9 +49,12 @@ LEGACY_STAFF_SESSION_MODULES = {
     "test_staff_dashboards.py",
 }
 
-# Authority and Central Admin were intentionally removed from the public/mobile
-# staff-login role set. Legacy business-integration modules still need seeded
-# bearer sessions for those roles so they can test unrelated RBAC behavior.
+# The CI adapter exists only for older business-integration modules whose
+# historical setup helper still calls legacy email-OTP endpoints. Authority is
+# still a real Plant Staff email/MFA role in production. Central Admin is the
+# role that must never rely on ordinary staff OTP; its seeded CI bearer below
+# therefore carries explicit Control Center provenance rather than relaxing the
+# production boundary.
 LEGACY_INTEGRATION_EMAIL_ROLES = set(GOOGLE_LOGIN_ROLES) | {
     Role.AUTHORITY.value,
     Role.CENTRAL_ADMIN.value,
