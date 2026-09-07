@@ -16,6 +16,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Trip = { id: string; order_number: string; status: string; grade: string; quantity: number; tm_number: string; site_name: string };
 type Home = { name: string; vehicle: string | null; active_trip: Trip | null; completed_today: number; checked_in: boolean };
+type Attendance = { date: string; check_in: string | null; check_out: string | null };
 
 const PLAY_REVIEW_DRIVER_NAME = "Google Play Review Driver";
 const PLAY_REVIEW_ORDER_NUMBER = "PLAY-REVIEW-001";
@@ -26,7 +27,23 @@ export default function DriverHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data, loading, error, refetch, reload } = useGet<Home>("/driver/home");
+  const { data: attendance, loading: attendanceLoading, refetch: refetchAttendance } = useGet<Attendance>("/driver/attendance");
   const isPlayReviewDriver = user?.name === PLAY_REVIEW_DRIVER_NAME;
+
+  const shiftComplete = !!attendance?.check_out;
+  const attendanceKnown = !!attendance;
+  const summaryTitle = data?.active_trip
+    ? "Delivery underway"
+    : shiftComplete
+      ? "Shift complete"
+      : data?.checked_in
+        ? "Ready for assignment"
+        : attendanceKnown
+          ? "Start your shift"
+          : "Attendance";
+  const attendanceLabel = data?.checked_in ? "On Duty" : shiftComplete ? "Shift Done" : attendanceKnown ? "Check In" : "Attendance";
+  const attendanceIcon: keyof typeof Ionicons.glyphMap = data?.checked_in ? "checkmark-circle" : shiftComplete ? "checkmark-done" : "time-outline";
+  const attendanceColor = data?.checked_in || shiftComplete ? colors.success : colors.warning;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -50,9 +67,9 @@ export default function DriverHome() {
         <ScrollView
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120, gap: spacing.lg }}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.brand} />}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={() => { void refetch(); void refetchAttendance(); }} tintColor={colors.brand} />}
         >
-          {loading && !data ? (
+          {(loading && !data) || (attendanceLoading && !attendance) ? (
             <>
               <Skeleton height={70} style={{ borderRadius: radius.md }} />
               <Skeleton height={180} style={{ borderRadius: radius.lg }} />
@@ -62,15 +79,29 @@ export default function DriverHome() {
               <Card variant="brand" style={styles.summary} testID="driver-home-summary">
                 <View style={{ flex: 1, gap: spacing.xs }}>
                   <AppText variant="caption">TODAY&apos;S SHIFT</AppText>
-                  <AppText style={styles.summaryTitle}>{data.active_trip ? "Delivery underway" : data.checked_in ? "Ready for assignment" : "Start your shift"}</AppText>
-                  <AppText variant="bodyMuted" numberOfLines={1}>{data.active_trip ? `${data.active_trip.order_number} · ${data.active_trip.site_name}` : data.vehicle ? `Assigned to ${data.vehicle}` : "No vehicle assigned"}</AppText>
+                  <AppText style={styles.summaryTitle}>{summaryTitle}</AppText>
+                  <AppText variant="bodyMuted" numberOfLines={1}>
+                    {data.active_trip
+                      ? `${data.active_trip.order_number} · ${data.active_trip.site_name}`
+                      : shiftComplete
+                        ? "Today's attendance is complete"
+                        : data.vehicle
+                          ? `Assigned to ${data.vehicle}`
+                          : "No vehicle assigned"}
+                  </AppText>
                 </View>
-                <Pressable onPress={() => data.active_trip ? router.push(`/trip/${data.active_trip.id}` as any) : router.push("/driver/attendance")} style={[styles.summaryAction, { backgroundColor: colors.brand }]}><Ionicons name={data.active_trip ? "navigate" : "finger-print"} size={20} color={colors.onBrand} /></Pressable>
+                <Pressable
+                  accessibilityLabel={data.active_trip ? "Open active trip" : "Open attendance"}
+                  onPress={() => data.active_trip ? router.push(`/trip/${data.active_trip.id}` as any) : router.push("/driver/attendance")}
+                  style={[styles.summaryAction, { backgroundColor: colors.brand }]}
+                >
+                  <Ionicons name={data.active_trip ? "navigate" : shiftComplete ? "checkmark-done" : "finger-print"} size={20} color={colors.onBrand} />
+                </Pressable>
               </Card>
               <View style={{ flexDirection: "row", gap: spacing.sm }}>
                 <Pressable onPress={() => router.push("/driver/attendance")} style={[styles.stat, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                  <Ionicons name={data.checked_in ? "checkmark-circle" : "time-outline"} size={20} color={data.checked_in ? colors.success : colors.warning} />
-                  <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>{data.checked_in ? "On Duty" : "Check In"}</AppText>
+                  <Ionicons name={attendanceIcon} size={20} color={attendanceColor} />
+                  <AppText style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }}>{attendanceLabel}</AppText>
                 </Pressable>
                 <View style={[styles.stat, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                   <AppText style={{ fontFamily: fonts.displayBold, fontSize: fontSize.xl, color: colors.brand }}>{data.completed_today}</AppText>
