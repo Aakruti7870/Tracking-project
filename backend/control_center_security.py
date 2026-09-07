@@ -1,6 +1,6 @@
 """Fail-closed authorization and policy primitives for the web Control Center.
 
-This module deliberately has no knowledge of the mobile authentication flows.  A
+This module deliberately has no knowledge of the mobile authentication flows. A
 Control Center request must carry a server-side session minted by the dedicated
 admin MFA endpoint; JWT role claims and an email address are never sufficient.
 """
@@ -40,6 +40,8 @@ class Permission(str, Enum):
     MARKETING_SEND = "marketing.send"
     INCIDENT_RESOLVE = "incident.resolve"
     PERMISSIONS_MANAGE = "permissions.manage"
+    REVIEWER_ACCESS_MANAGE = "reviewer_access.manage"
+    ADMIN_ACCESS_MANAGE = "admin_access.manage"
     AI_DIAGNOSE = "ai.diagnose"
     AI_CREATE_DRAFT = "ai.create_draft"
 
@@ -51,12 +53,26 @@ def normalized_email(ctx: dict) -> str:
     return str((ctx.get("user") or {}).get("email") or "").strip().casefold()
 
 
+def is_control_center_approved_user(user: dict | None) -> bool:
+    """Return whether a Central Admin identity is currently approved.
+
+    The three root identities remain code-pinned so an accidental database edit
+    cannot remove every recovery path. Any approved identity can still be
+    suspended from the Control Center through the explicit disabled flag.
+    """
+    user = user or {}
+    if user.get("control_center_access_disabled"):
+        return False
+    email = str(user.get("email") or "").strip().casefold()
+    return email in APPROVED_CONTROL_CENTER_EMAILS or bool(user.get("control_center_approved"))
+
+
 def authorize_control_center_context(ctx: dict) -> dict:
-    """Validate all four independent privileged-access requirements."""
+    """Validate all independent privileged-access requirements."""
     session = ctx.get("session") or {}
     if ctx.get("role") != Role.CENTRAL_ADMIN.value:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Control Center access denied")
-    if normalized_email(ctx) not in APPROVED_CONTROL_CENTER_EMAILS:
+    if not is_control_center_approved_user(ctx.get("user") or {}):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Control Center access denied")
     if not session.get(CONTROL_CENTER_SESSION_FLAG):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Web administrator MFA session required")
