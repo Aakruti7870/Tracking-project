@@ -1,7 +1,7 @@
 """
-Backend tests for the 10 staff role dashboards.
+Backend tests for the Plant Staff role dashboards.
 Covers:
-  - Common EMAIL OTP login for each staff role
+  - Approved-email OTP login for each Plant Staff role
   - GET /api/staff/home (role-aware KPIs + primary)
   - GET /api/staff/collection/{kind} for supported kinds
   - RBAC 403 for customer / driver / plant_owner on /api/staff/*
@@ -27,7 +27,6 @@ STAFF_IDS = {
     "fleet_manager": "fleet@trackmyrmc.test",
     "store_manager": "store@trackmyrmc.test",
     "authority": "authority@trackmyrmc.test",
-    "central_admin": "central@trackmyrmc.test",
 }
 
 NON_STAFF_IDS = {
@@ -37,7 +36,7 @@ NON_STAFF_IDS = {
 }
 
 # kind -> roles that will typically have visibility. We simply assert the
-# endpoint returns 200 + expected schema for every kind for every staff role
+# endpoint returns 200 + expected schema for every kind for every Plant Staff role
 # (the router does not gate by role, only by staff_only). Also assert
 # non-staff -> 403.
 COLLECTION_KINDS = [
@@ -85,7 +84,6 @@ EXPECTED_PRIMARY_KIND = {
     "fleet_manager": "fleet",
     "store_manager": "inventory",
     "authority": "plants",
-    "central_admin": "users",
 }
 
 
@@ -139,13 +137,10 @@ def test_authority_plants_platform_wide(staff_tokens):
     assert len(items) >= 3, f"authority should see all seeded plants, got {len(items)}"
 
 
-def test_central_admin_users_platform_wide(staff_tokens):
-    token = staff_tokens["central_admin"]
+def test_central_admin_is_blocked_from_legacy_staff_dashboard():
+    token = _login("central@trackmyrmc.test")
     r = requests.get(f"{BASE}/api/staff/collection/users", headers={"Authorization": f"Bearer {token}"}, timeout=15)
-    assert r.status_code == 200
-    items = r.json().get("items", [])
-    # We seed 13 accounts (customer, driver, owner + 10 staff)
-    assert len(items) >= 13, f"central_admin users list too small: {len(items)}"
+    assert r.status_code == 403
 
 
 def test_dispatcher_plant_scoped(staff_tokens):
