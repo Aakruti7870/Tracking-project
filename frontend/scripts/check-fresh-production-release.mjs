@@ -10,8 +10,8 @@ function requireInvariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-requireInvariant(app.expo.version === '2.0.26', 'Expected Expo version 2.0.26');
-requireInvariant(app.expo.android?.versionCode === 84, 'Expected Android versionCode 84');
+requireInvariant(app.expo.version === '2.0.28', 'Expected Expo version 2.0.28');
+requireInvariant(app.expo.android?.versionCode === 86, 'Expected Android versionCode 86');
 requireInvariant(app.expo.android?.package === 'com.trackmyrmc.concreteking', 'Unexpected Android application id');
 requireInvariant(indexRoute.includes('<Redirect href="/login"'), 'Root route must start at /login');
 
@@ -20,8 +20,8 @@ requireInvariant(
   'Signed AAB must be pinned to https://trackmyrmc.com',
 );
 requireInvariant(
-  releaseWorkflow.includes("android:versionCode=\"84\"") && releaseWorkflow.includes("android:versionName=\"2.0.26\""),
-  'Signed AAB workflow must validate vc84 / v2.0.26',
+  releaseWorkflow.includes("android:versionCode=\"86\"") && releaseWorkflow.includes("android:versionName=\"2.0.28\""),
+  'Signed AAB workflow must validate vc86 / v2.0.28',
 );
 requireInvariant(
   releaseWorkflow.includes("Legacy api.trackmyrmc.com origin detected"),

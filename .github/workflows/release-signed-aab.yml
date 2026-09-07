@@ -106,21 +106,56 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          actual_sha1="$({ keytool -list -v \
+          certificate_info="$({ keytool -list -v \
             -keystore upload-keystore.jks \
             -alias "$KEY_ALIAS" \
-            -storepass "$STORE_PASSWORD"; } 2>/dev/null | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
-          test -n "$actual_sha1" || {
-            echo "Unable to read SHA1 from configured upload keystore/alias"
+            -storepass "$STORE_PASSWORD"; } 2>/dev/null)"
+          actual_sha1="$(printf '%s\n' "$certificate_info" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          actual_sha256="$(printf '%s\n' "$certificate_info" | awk -F'SHA256: ' '/SHA256:/{print $2; exit}' | tr -d '\r')"
+          test -n "$actual_sha1" && test -n "$actual_sha256" || {
+            echo "Unable to read public certificate fingerprints from configured upload keystore/alias"
             exit 1
           }
-          echo "Configured upload certificate SHA1: $actual_sha1"
+          echo "CONFIGURED_KEYSTORE_SHA1=$actual_sha1"
+          echo "CONFIGURED_KEYSTORE_SHA256=$actual_sha256"
           if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
-            echo "ERROR: Wrong Android signing keystore configured."
-            echo "Expected by Google Play: $EXPECTED_PLAY_UPLOAD_SHA1"
-            echo "Configured keystore:       $actual_sha1"
-            echo "Refusing to build/upload a Play release candidate."
+            echo "SIGNING_CERT_MATCH=FAIL"
+            echo "AAB_BUILD=BLOCKED"
+            echo "ERROR: Configured upload certificate does not match Google Play."
             exit 1
+          fi
+          echo "SIGNING_CERT_MATCH=PASS"
+
+      - name: Verify private key password
+        working-directory: frontend/android/app
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          PRIMARY_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/keycheck
+          mkdir -p /tmp/keycheck
+          printf 'TrackMyRMC signing probe\n' >/tmp/keycheck/probe.txt
+          (cd /tmp/keycheck && jar --create --file probe.jar probe.txt)
+
+          if jarsigner -keystore upload-keystore.jks \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$PRIMARY_KEY_PASSWORD" \
+              /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "KEY_PASSWORD_MODE=primary" >> "$GITHUB_ENV"
+          else
+            rm -f /tmp/keycheck/probe.jar
+            (cd /tmp/keycheck && jar --create --file probe.jar probe.txt)
+            if jarsigner -keystore upload-keystore.jks \
+                -storepass "$STORE_PASSWORD" \
+                -keypass "$STORE_PASSWORD" \
+                /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+              echo "KEY_PASSWORD_MODE=store" >> "$GITHUB_ENV"
+            else
+              echo "ERROR: Neither configured password can unlock the private signing key."
+              exit 1
+            fi
           fi
 
       - name: Wire release signingConfig into build.gradle
@@ -131,11 +166,19 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
+          if [ "$KEY_PASSWORD_MODE" = "primary" ]; then
+            RESOLVED_KEY_PASSWORD="$KEY_PASSWORD"
+          elif [ "$KEY_PASSWORD_MODE" = "store" ]; then
+            RESOLVED_KEY_PASSWORD="$STORE_PASSWORD"
+          else
+            echo "ERROR: No validated private-key password mode is available"
+            exit 1
+          fi
           cat >> gradle.properties <<EOF
           TRACKMYRMC_UPLOAD_STORE_FILE=upload-keystore.jks
           TRACKMYRMC_UPLOAD_STORE_PASSWORD=${STORE_PASSWORD}
           TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
-          TRACKMYRMC_UPLOAD_KEY_PASSWORD=${KEY_PASSWORD}
+          TRACKMYRMC_UPLOAD_KEY_PASSWORD=${RESOLVED_KEY_PASSWORD}
           EOF
           python3 - <<'PY'
           import pathlib
@@ -231,12 +274,15 @@ jobs:
           echo "Size: $size bytes"
           echo "SHA-256: $sha"
 
-          actual_aab_sha1="$(keytool -printcert -jarfile "$aab" 2>/dev/null | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
-          test -n "$actual_aab_sha1" || {
-            echo "ERROR: Unable to read signer certificate from final AAB"
+          signer_info="$(keytool -printcert -jarfile "$aab" 2>/dev/null)"
+          actual_aab_sha1="$(printf '%s\n' "$signer_info" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          actual_aab_sha256="$(printf '%s\n' "$signer_info" | awk -F'SHA256: ' '/SHA256:/{print $2; exit}' | tr -d '\r')"
+          test -n "$actual_aab_sha1" && test -n "$actual_aab_sha256" || {
+            echo "ERROR: Unable to read public signer certificate fingerprints from final AAB"
             exit 1
           }
-          echo "Final AAB signer SHA1: $actual_aab_sha1"
+          echo "FINAL_AAB_SIGNER_SHA1=$actual_aab_sha1"
+          echo "FINAL_AAB_SIGNER_SHA256=$actual_aab_sha256"
           if [ "$actual_aab_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
             echo "ERROR: Final AAB was signed with the wrong certificate."
             echo "Expected by Google Play: $EXPECTED_PLAY_UPLOAD_SHA1"
@@ -249,8 +295,8 @@ jobs:
           unzip -p "$aab" BundleConfig.pb > /dev/null
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
           grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="84"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.26"' /tmp/aab-manifest.xml
+          grep -F 'android:versionCode="86"' /tmp/aab-manifest.xml
+          grep -F 'android:versionName="2.0.28"' /tmp/aab-manifest.xml
 
           bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
           test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
@@ -267,7 +313,7 @@ jobs:
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.26-vc84-signed-aab
+          name: trackmyrmc-v2.0.28-vc86-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
