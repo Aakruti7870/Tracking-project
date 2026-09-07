@@ -15,6 +15,9 @@ PLANT_SCOPED_STAFF_ROLES = {
     "admin", "dispatcher", "operator", "supervisor", "accountant",
     "quality_engineer", "fleet_manager", "store_manager",
 }
+CENTRAL_ADMIN_ROLE = "central_admin"
+CONTROL_CENTER_SESSION_FLAG = "control_center_mfa_authenticated"
+CONTROL_CENTER_AUTH_SURFACE = "control_center_web"
 
 # Email OTP is only a bootstrap identity proof when Plant Staff MFA is configured.
 # Until TOTP enrollment completes, the session cannot reach business APIs.
@@ -93,6 +96,14 @@ def issue_jwt(user_id: str, sid: str, role: str) -> tuple[str, datetime]:
     return token, expires
 
 
+def _is_control_center_session(session: dict) -> bool:
+    """Return True only for the server-marked web Control Center provenance."""
+    return bool(
+        session.get(CONTROL_CENTER_SESSION_FLAG)
+        and session.get("auth_surface") == CONTROL_CENTER_AUTH_SURFACE
+    )
+
+
 async def current_user(
     request: Request = None,
     authorization: str = Header(default=""),
@@ -153,6 +164,23 @@ async def current_user(
             status.HTTP_403_FORBIDDEN,
             "Plant assignment required for this staff account",
         )
+
+    # Central Admin is web-only. A role claim, staff-email bootstrap session or
+    # post-enrollment staff bearer session can never authorize normal APIs. The
+    # only exception is the tightly scoped first-time MFA bootstrap allowlist
+    # above (plus logout), after which the administrator must authenticate again
+    # through /api/admin/auth to obtain server-marked Control Center provenance.
+    if role == CENTRAL_ADMIN_ROLE and not _is_control_center_session(session):
+        request_path = request.url.path if request is not None else ""
+        bootstrap_allowed = bool(
+            session.get("mfa_bootstrap_only")
+            and request_path in MFA_BOOTSTRAP_ALLOWED_PATHS
+        )
+        if not bootstrap_allowed and request_path != "/api/auth/logout":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Central Admin access requires the web Control Center",
+            )
 
     return {
         "user_id": payload["sub"],

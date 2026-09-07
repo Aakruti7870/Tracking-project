@@ -8,7 +8,6 @@ from routers import permanent_access
 from routers.permanent_access import (
     DEMO_CUSTOMER_PHONE,
     DEMO_DRIVER_PHONE,
-    DEMO_OTP,
     DEMO_OWNER_EMAIL,
     PERMANENT_AUTHORITY_EMAILS,
     PERMANENT_CENTRAL_ADMIN_EMAILS,
@@ -18,8 +17,11 @@ from routers.permanent_access import (
 )
 
 
-def test_permanent_demo_otp_is_the_play_console_code():
-    assert DEMO_OTP == "123456"
+def test_permanent_demo_otp_uses_server_side_play_console_code():
+    with patch.object(permanent_access.settings, "PLAY_REVIEW_ACCESS_CODE", "654321"):
+        assert permanent_access._review_code_valid("654321") is True
+        assert permanent_access._review_code_valid("123456") is False
+        assert permanent_access._review_code_valid("") is False
 
 
 def test_customer_demo_number_routes_only_to_customer():
@@ -41,8 +43,8 @@ def test_owner_demo_email_is_the_only_staff_demo_allowlist_entry():
 
 
 def test_support_platform_admins_never_inherit_demo_otp_allowlist():
-    assert PERMANENT_AUTHORITY_EMAILS == ("support@goldetech.com",)
-    assert PERMANENT_CENTRAL_ADMIN_EMAILS == ("support@trackmyrmc.com",)
+    assert "support@goldetech.com" in PERMANENT_AUTHORITY_EMAILS
+    assert "support@trackmyrmc.com" in PERMANENT_CENTRAL_ADMIN_EMAILS
     for email in (*PERMANENT_AUTHORITY_EMAILS, *PERMANENT_CENTRAL_ADMIN_EMAILS):
         assert demo_staff_role(email) is None
 

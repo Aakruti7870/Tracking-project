@@ -9,23 +9,34 @@ from routers import admin_auth, admin_portal
 
 
 def _portal_ctx(role="central_admin", authenticated=True):
-    session = {admin_auth.PORTAL_SESSION_FLAG: True} if authenticated else {}
+    session = (
+        {
+            admin_auth.PORTAL_SESSION_FLAG: True,
+            "auth_surface": "control_center_web",
+        }
+        if authenticated
+        else {}
+    )
     return {
         "user_id": "admin-1",
         "sid": "session-1",
         "role": role,
         "roles": [role],
         "plant_id": None,
-        "user": {"_id": "admin-1", "primary_role": role},
+        "user": {
+            "_id": "admin-1",
+            "primary_role": role,
+            "email": "support@trackmyrmc.com",
+        },
         "session": session,
     }
 
 
-def test_platform_admin_requires_portal_totp_provenance():
+def test_platform_admin_requires_control_center_totp_provenance():
     with pytest.raises(HTTPException) as exc:
         admin_auth.platform_admin(_portal_ctx(authenticated=False))
     assert exc.value.status_code == 403
-    assert "portal authentication" in exc.value.detail.lower()
+    assert "web administrator" in exc.value.detail.lower()
 
     accepted = admin_auth.platform_admin(_portal_ctx(authenticated=True))
     assert accepted["role"] == "central_admin"
@@ -40,15 +51,15 @@ def test_authority_portal_session_cannot_use_central_admin_only_dependency():
     assert accepted["role"] == "central_admin"
 
 
-def test_admin_totp_login_marks_server_side_session_provenance():
+def test_admin_totp_login_marks_server_side_control_center_provenance():
     source = Path(admin_auth.__file__).read_text(encoding="utf-8")
-    assert 'PORTAL_SESSION_FLAG = "admin_portal_totp_authenticated"' in source
-    assert "{PORTAL_SESSION_FLAG: True" in source
-    assert "ctx.get(\"session\")" in source
-    assert "Privileged portal authentication required" in source
+    assert "PORTAL_SESSION_FLAG = CONTROL_CENTER_SESSION_FLAG" in source
+    assert "PORTAL_SESSION_FLAG: True" in source
+    assert '"auth_surface": "control_center_web"' in source
+    assert "authorize_control_center_context" in source
 
 
-def test_role_only_admin_session_can_establish_step_up_without_portal_access(monkeypatch):
+def test_role_only_admin_session_can_establish_step_up_without_control_center_access(monkeypatch):
     ctx = _portal_ctx(authenticated=False)
     update_filters = []
 
@@ -78,7 +89,7 @@ def test_role_only_admin_session_can_establish_step_up_without_portal_access(mon
     with pytest.raises(HTTPException) as exc:
         admin_auth.platform_admin(ctx)
     assert exc.value.status_code == 403
-    assert "portal authentication" in exc.value.detail.lower()
+    assert "web administrator" in exc.value.detail.lower()
 
 
 def test_plan_payment_provider_is_cashfree_without_gateway_secret_projection():

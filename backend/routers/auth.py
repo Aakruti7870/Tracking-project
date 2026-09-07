@@ -283,7 +283,6 @@ DEMO_LOGIN_ACCOUNTS: dict[str, dict[str, str]] = {
     Role.CUSTOMER.value: {"identifier": "+919000000001", "name": "Demo Customer"},
     Role.DRIVER.value: {"identifier": "+919000000002", "name": "Demo Driver"},
     Role.PLANT_OWNER.value: {"identifier": "owner@trackmyrmc.test", "name": "Demo Plant Owner"},
-    Role.AUTHORITY.value: {"identifier": "authority@trackmyrmc.test", "name": "Demo Authority"},
     Role.ADMIN.value: {"identifier": "admin@trackmyrmc.test", "name": "Demo Plant Admin"},
     Role.DISPATCHER.value: {"identifier": "dispatcher@trackmyrmc.test", "name": "Demo Dispatcher"},
     Role.OPERATOR.value: {"identifier": "operator@trackmyrmc.test", "name": "Demo Operator"},
@@ -292,14 +291,12 @@ DEMO_LOGIN_ACCOUNTS: dict[str, dict[str, str]] = {
     Role.QUALITY_ENGINEER.value: {"identifier": "quality@trackmyrmc.test", "name": "Demo Quality Engineer"},
     Role.FLEET_MANAGER.value: {"identifier": "fleet@trackmyrmc.test", "name": "Demo Fleet Manager"},
     Role.STORE_MANAGER.value: {"identifier": "store@trackmyrmc.test", "name": "Demo Store Manager"},
-    Role.CENTRAL_ADMIN.value: {"identifier": "central@trackmyrmc.test", "name": "Demo Central Admin"},
 }
 
 SELF_PROVISION_DEMO_ROLES = {
     Role.CUSTOMER.value,
     Role.DRIVER.value,
     Role.PLANT_OWNER.value,
-    Role.AUTHORITY.value,
 }
 
 

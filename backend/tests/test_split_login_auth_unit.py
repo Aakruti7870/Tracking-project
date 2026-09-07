@@ -16,7 +16,7 @@ def test_only_customer_and_driver_can_use_mobile_otp():
     }
 
 
-def test_all_plant_and_platform_staff_are_google_roles():
+def test_plant_staff_google_roles_exclude_privileged_platform_admins():
     expected = {
         Role.PLANT_OWNER.value,
         Role.ADMIN.value,
@@ -27,10 +27,10 @@ def test_all_plant_and_platform_staff_are_google_roles():
         Role.QUALITY_ENGINEER.value,
         Role.FLEET_MANAGER.value,
         Role.STORE_MANAGER.value,
-        Role.AUTHORITY.value,
-        Role.CENTRAL_ADMIN.value,
     }
     assert GOOGLE_LOGIN_ROLES == expected
+    assert Role.AUTHORITY.value not in GOOGLE_LOGIN_ROLES
+    assert Role.CENTRAL_ADMIN.value not in GOOGLE_LOGIN_ROLES
     assert not (GOOGLE_LOGIN_ROLES & MOBILE_OTP_ROLES)
 
 

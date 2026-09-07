@@ -6,21 +6,27 @@ staff MFA. Failed and unauthorized attempts intentionally share one response.
 """
 from datetime import timedelta
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 from validation import StrictModel
 
 from audit import write_audit
 from config import settings
-from database import sessions
+from database import sessions, users
 from roles import Role
+from control_center_security import (
+    CONTROL_CENTER_SESSION_FLAG,
+    authorize_control_center_context,
+    is_control_center_approved_user,
+)
 from routers import staff_mfa
 from security import as_aware, current_user, utcnow
 
 router = APIRouter(prefix="/api/admin/auth", tags=["admin-auth"])
-PLATFORM_ROLES = {Role.AUTHORITY.value, Role.CENTRAL_ADMIN.value}
+PLATFORM_ROLES = {Role.CENTRAL_ADMIN.value}
 ADMIN_STEP_UP_SECONDS = 300
-PORTAL_SESSION_FLAG = "admin_portal_totp_authenticated"
+PORTAL_SESSION_FLAG = CONTROL_CENTER_SESSION_FLAG
 
 
 class AdminLoginBody(StrictModel):
@@ -55,6 +61,13 @@ def _token_payload(access_token: str) -> dict:
     return decode(access_token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
 
 
+def _user_oid(value: str):
+    try:
+        return ObjectId(value)
+    except Exception:
+        return value
+
+
 @router.post("/method")
 async def admin_auth_method():
     # Deliberately static: callers cannot use this endpoint to enumerate admins.
@@ -64,15 +77,17 @@ async def admin_auth_method():
 @router.post("/verify-totp")
 async def verify_admin_totp(body: AdminLoginBody):
     try:
-        result = await staff_mfa.verify_staff_totp(
-            staff_mfa.TotpLoginBody(identifier=body.identifier, code=body.code)
+        result = await staff_mfa.verify_totp_for_roles(
+            staff_mfa.TotpLoginBody(identifier=body.identifier, code=body.code),
+            PLATFORM_ROLES,
         )
     except HTTPException:
         await write_audit(None, "admin.auth.failed", "admin_session", meta={"result": "denied"})
         raise _failed()
 
     payload = _token_payload(result["access_token"])
-    if result.get("role") not in PLATFORM_ROLES:
+    user = await users.find_one({"_id": _user_oid(payload["sub"])})
+    if result.get("role") not in PLATFORM_ROLES or not is_control_center_approved_user(user):
         # The shared verifier issued a session; revoke it before returning the
         # same generic response used for unknown accounts and bad MFA.
         await sessions.update_one(
@@ -88,7 +103,11 @@ async def verify_admin_totp(body: AdminLoginBody):
     # flag and therefore fail closed at platform_admin().
     updated = await sessions.update_one(
         {"_id": payload["sid"], "user_id": payload["sub"], "revoked": False},
-        {"$set": {PORTAL_SESSION_FLAG: True, "admin_portal_authenticated_at": utcnow()}},
+        {"$set": {
+            PORTAL_SESSION_FLAG: True,
+            "auth_surface": "control_center_web",
+            "admin_portal_authenticated_at": utcnow(),
+        }},
     )
     if updated.modified_count != 1:
         await write_audit(payload["sub"], "admin.auth.failed", "admin_session", payload["sid"], {"result": "session_mark_failed"})
@@ -107,9 +126,7 @@ def platform_admin_role(ctx: dict = Depends(current_user)) -> dict:
 
 def platform_admin(ctx: dict = Depends(platform_admin_role)) -> dict:
     """Require platform role plus dedicated admin-portal TOTP provenance."""
-    if not (ctx.get("session") or {}).get(PORTAL_SESSION_FLAG):
-        raise HTTPException(403, "Privileged portal authentication required")
-    return ctx
+    return authorize_control_center_context(ctx)
 
 
 async def require_recent_admin_step_up(ctx: dict = Depends(platform_admin_role)) -> dict:

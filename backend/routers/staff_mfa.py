@@ -29,7 +29,7 @@ from config import settings
 from database import plants, sessions, users
 from roles import Role
 from routers.auth import _assert_account_available, _find_login_user, _issue_session
-from routers.staff_auth import _staff_role_allowed
+from routers.staff_auth import _mfa_bootstrap_role_allowed, _staff_role_allowed
 from security import as_aware, current_user, normalize_identifier, utcnow
 
 router = APIRouter(prefix="/api/auth/staff/mfa", tags=["staff-mfa"])
@@ -195,14 +195,19 @@ async def _record_success(user: dict) -> None:
     )
 
 
-async def _resolve_staff(identifier: str) -> tuple[str, dict]:
+async def _resolve_staff(identifier: str, allowed_roles: set[str] | None = None) -> tuple[str, dict]:
     channel, value = normalize_identifier(identifier)
     if channel != "email":
         raise HTTPException(422, "Plant Staff Login requires a valid email address")
     user = await _find_login_user(channel, value)
     if not user:
         raise HTTPException(403, "This email is not approved for Plant Staff access")
-    if not _staff_role_allowed(user.get("primary_role")):
+    role_allowed = (
+        user.get("primary_role") in allowed_roles
+        if allowed_roles is not None
+        else _staff_role_allowed(user.get("primary_role"))
+    )
+    if not role_allowed:
         raise HTTPException(403, "This account cannot use Plant Staff Login")
     _assert_account_available(user)
     return value, user
@@ -239,10 +244,12 @@ async def staff_auth_method(body: IdentifierBody):
     }
 
 
-@router.post("/verify-totp")
-async def verify_staff_totp(body: TotpLoginBody):
+async def verify_totp_for_roles(body: TotpLoginBody, allowed_roles: set[str]):
+    """Internal verifier with an explicit caller-owned role boundary."""
     _ensure_mfa_configured()
-    _value, user = await _resolve_staff(body.identifier)
+    _value, user = await _resolve_staff(body.identifier, allowed_roles)
+    if user.get("primary_role") not in allowed_roles:
+        raise HTTPException(403, "This account cannot use this login surface")
     if not _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is not activated for this account")
     _assert_not_locked(user)
@@ -252,6 +259,22 @@ async def verify_staff_totp(body: TotpLoginBody):
         raise HTTPException(400, "Invalid Authenticator code")
     await _record_success(user)
     return await _issue_session(user, "staff_totp")
+
+
+@router.post("/verify-totp")
+async def verify_staff_totp(body: TotpLoginBody):
+    # Authority/Central Admin identities never receive sessions from the normal
+    # app-facing staff endpoint. The Control Center invokes the internal helper
+    # with its own narrower role set and adds web-session provenance.
+    return await verify_totp_for_roles(
+        body,
+        {
+            Role.PLANT_OWNER.value, Role.ADMIN.value, Role.DISPATCHER.value,
+            Role.OPERATOR.value, Role.SUPERVISOR.value, Role.ACCOUNTANT.value,
+            Role.QUALITY_ENGINEER.value, Role.FLEET_MANAGER.value,
+            Role.STORE_MANAGER.value, Role.AUTHORITY.value,
+        },
+    )
 
 
 @router.post("/verify-recovery")
@@ -287,7 +310,7 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
 @router.get("/status")
 async def mfa_status(ctx: dict = Depends(current_user)):
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA settings are available only to Plant Staff accounts")
     mfa = _mfa_doc(user)
     return {
@@ -302,7 +325,7 @@ async def mfa_status(ctx: dict = Depends(current_user)):
 async def start_totp_enrollment(ctx: dict = Depends(current_user)):
     _ensure_mfa_configured()
     user = ctx["user"]
-    if not _staff_role_allowed(ctx.get("role")):
+    if not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is available only to Plant Staff accounts")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
@@ -348,7 +371,7 @@ async def confirm_totp_enrollment(
 ):
     _ensure_mfa_configured()
     user = await users.find_one({"_id": ObjectId(ctx["user_id"])})
-    if not user or not _staff_role_allowed(user.get("primary_role")):
+    if not user or not _mfa_bootstrap_role_allowed(user):
         raise HTTPException(403, "MFA enrollment is unavailable")
     if _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is already activated")
