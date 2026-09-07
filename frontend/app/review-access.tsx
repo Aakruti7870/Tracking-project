@@ -87,6 +87,16 @@ export default function ReviewAccess() {
           </AppText>
         </Card>
 
+        <Card testID="play-review-background-location-route" style={{ gap: spacing.sm, backgroundColor: colors.brandSoft, borderColor: colors.brand + "44" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <Ionicons name="location-outline" size={20} color={colors.brand} />
+            <AppText variant="label">Reviewing BACKGROUND_LOCATION?</AppText>
+          </View>
+          <AppText variant="bodyMuted">
+            Background location applies only to active Driver deliveries. Select Driver below, sign in, then open Current Trip PLAY-REVIEW-001 to see TrackMyRMC&apos;s prominent disclosure before Android permission prompts.
+          </AppText>
+        </Card>
+
         <View style={{ gap: spacing.sm }}>
           {ROLES.map((item) => {
             const selected = role === item.role;
