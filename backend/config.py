@@ -175,9 +175,13 @@ class Settings:
                 "APP_ENV must be one of: " + ", ".join(sorted(self.VALID_ENVIRONMENTS))
             )
 
-        if self.PLAY_REVIEW_ACCESS_ENABLED and len(self.PLAY_REVIEW_ACCESS_CODE) < 10:
+        if self.PLAY_REVIEW_ACCESS_CODE and (
+            len(self.PLAY_REVIEW_ACCESS_CODE) != 6 or not self.PLAY_REVIEW_ACCESS_CODE.isdigit()
+        ):
+            raise RuntimeError("PLAY_REVIEW_ACCESS_CODE must be exactly 6 digits when configured")
+        if self.PLAY_REVIEW_ACCESS_ENABLED and not self.PLAY_REVIEW_ACCESS_CODE:
             raise RuntimeError(
-                "PLAY_REVIEW_ACCESS_CODE must contain at least 10 characters when reviewer access is enabled"
+                "PLAY_REVIEW_ACCESS_CODE must be configured when reviewer access is enabled"
             )
 
         if self.MFA_ENCRYPTION_KEY and len(self.MFA_ENCRYPTION_KEY) < 32:
