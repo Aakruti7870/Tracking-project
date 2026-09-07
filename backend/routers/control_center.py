@@ -13,6 +13,7 @@ from control_center_security import (
     APPROVED_CONTROL_CENTER_EMAILS,
     Permission,
     is_control_center_approved_user,
+    permissions_for,
     require_permission,
 )
 from database import sessions, users
@@ -107,11 +108,14 @@ async def run_command(
 ) -> CommandDecision:
     command_id = str(uuid4())
     intent, risk = classify_command(body.prompt)
+    granted = permissions_for(ctx)
     status_value = "completed"
     message = "Diagnostic accepted. Results are limited to approved, redacted operational data sources."
 
     if risk is Risk.DENIED:
         status_value, message = "denied", "This capability is prohibited by the Control Center AI policy."
+    elif risk in {Risk.MEDIUM, Risk.HIGH} and Permission.AI_CREATE_DRAFT not in granted:
+        status_value, message = "denied", "Your Control Center permissions do not allow AI workflow or draft creation."
     elif risk is Risk.MEDIUM and not body.confirmed:
         status_value, message = "confirmation_required", "Review and confirm this draft workflow before it can continue."
     elif risk is Risk.HIGH and not (body.confirmed and _has_recent_admin_step_up(ctx.get("session") or {}) and body.reason):
@@ -124,7 +128,7 @@ async def run_command(
         command_id,
         {"intent": intent, "risk": risk.value, "result": status_value},
     )
-    if risk is Risk.DENIED:
+    if status_value == "denied":
         raise HTTPException(403, message)
     return CommandDecision(command_id=command_id, intent=intent, risk=risk, status=status_value, message=message)
 
