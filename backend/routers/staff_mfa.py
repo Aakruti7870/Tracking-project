@@ -263,9 +263,8 @@ async def verify_totp_for_roles(body: TotpLoginBody, allowed_roles: set[str]):
 
 @router.post("/verify-totp")
 async def verify_staff_totp(body: TotpLoginBody):
-    # Authority/Central Admin identities never receive sessions from the normal
-    # app-facing staff endpoint. The Control Center invokes the internal helper
-    # with its own narrower role set and adds web-session provenance.
+    # Authority remains in the normal Plant Staff MFA flow. Central Admin does
+    # not: its dedicated web verifier calls verify_totp_for_roles directly.
     return await verify_totp_for_roles(
         body,
         {
@@ -283,6 +282,7 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
     _value, user = await _resolve_staff(body.identifier)
     if not _mfa_enabled(user):
         raise HTTPException(409, "Authenticator App is not activated for this account")
+    _assert_not_locked(user)
     recovery_hash = _recovery_hash(str(user["_id"]), body.recovery_code)
     consumed = await users.find_one_and_update(
         {
@@ -297,7 +297,9 @@ async def verify_staff_recovery(body: RecoveryLoginBody):
         return_document=ReturnDocument.AFTER,
     )
     if not consumed:
+        await _record_failure(user)
         raise HTTPException(400, "Invalid or already used recovery code")
+    await _record_success(consumed)
     await write_audit(
         str(user["_id"]),
         "auth.mfa_recovery_used",
@@ -421,31 +423,55 @@ async def confirm_totp_enrollment(
     )
 
     session = ctx.get("session") or {}
+    control_center_reauth_required = False
     if session.get("mfa_bootstrap_only"):
-        full_expires = session.get("post_mfa_expires_at")
-        await sessions.update_one(
-            {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
-            {
-                "$set": {
-                    "mfa_bootstrap_only": False,
-                    "auth_method": "staff_totp",
-                    "mfa_completed_at": now,
-                    **({"expires_at": full_expires} if full_expires else {}),
+        if user.get("primary_role") == Role.CENTRAL_ADMIN.value:
+            # A Central Admin bootstrap token is never promoted to an ordinary
+            # bearer. Enrollment ends the bootstrap and a dedicated web TOTP
+            # login must mint fresh Control Center provenance.
+            await sessions.update_one(
+                {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
+                {"$set": {
+                    "revoked": True,
+                    "revoked_at": now,
+                    "revoke_reason": "control_center_admin_must_reauth",
+                }},
+            )
+            control_center_reauth_required = True
+        else:
+            full_expires = session.get("post_mfa_expires_at")
+            await sessions.update_one(
+                {"_id": ctx["sid"], "user_id": ctx["user_id"], "revoked": False},
+                {
+                    "$set": {
+                        "mfa_bootstrap_only": False,
+                        "auth_method": "staff_totp",
+                        "mfa_completed_at": now,
+                        **({"expires_at": full_expires} if full_expires else {}),
+                    },
+                    "$unset": {"post_mfa_expires_at": ""},
                 },
-                "$unset": {"post_mfa_expires_at": ""},
-            },
-        )
+            )
     await write_audit(
         str(user["_id"]),
         "auth.mfa_enrolled",
         "user",
         str(user["_id"]),
-        {"method": "totp", "recovery_codes": RECOVERY_CODE_COUNT},
+        {
+            "method": "totp",
+            "recovery_codes": RECOVERY_CODE_COUNT,
+            "control_center_reauth_required": control_center_reauth_required,
+        },
     )
     return {
         "status": "MFA_ENABLED",
         "recovery_codes": plain_codes,
-        "message": "Save these recovery codes now. They will not be shown again.",
+        "control_center_reauth_required": control_center_reauth_required,
+        "message": (
+            "Save these recovery codes now. Sign in again through the secure Control Center."
+            if control_center_reauth_required
+            else "Save these recovery codes now. They will not be shown again."
+        ),
     }
 
 
