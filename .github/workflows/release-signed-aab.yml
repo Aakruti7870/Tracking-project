@@ -10,6 +10,11 @@ name: Release Signed AAB
 # IMPORTANT: Google Play currently expects the upload certificate SHA1 below.
 # The workflow validates BOTH the restored keystore and the final AAB against it.
 # A wrong/debug key therefore fails CI before any release artifact is uploaded.
+#
+# NOTE: Expo/AGP-generated release signing can crash in FinalizeBundleTask on some
+# runner/AGP combinations. To avoid that AGP signing-path failure, this workflow
+# deliberately builds an unsigned AAB, then signs the completed bundle with the
+# validated Play upload key via jarsigner. AABs use standard JAR signing.
 
 on:
   workflow_dispatch:
@@ -38,6 +43,7 @@ jobs:
     timeout-minutes: 75
     env:
       CI: "1"
+      NODE_ENV: production
       EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
       GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
       EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
@@ -77,7 +83,6 @@ jobs:
           [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ] || missing+=("ANDROID_KEY_ALIAS")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Missing required signing secrets: ${missing[*]}"
-            echo "Add them at: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
 
@@ -158,28 +163,11 @@ jobs:
             fi
           fi
 
-      - name: Wire release signingConfig into build.gradle
+      - name: Prepare unsigned release bundle
         working-directory: frontend/android
-        env:
-          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [ "$KEY_PASSWORD_MODE" = "primary" ]; then
-            RESOLVED_KEY_PASSWORD="$KEY_PASSWORD"
-          elif [ "$KEY_PASSWORD_MODE" = "store" ]; then
-            RESOLVED_KEY_PASSWORD="$STORE_PASSWORD"
-          else
-            echo "ERROR: No validated private-key password mode is available"
-            exit 1
-          fi
-          cat >> gradle.properties <<EOF
-          TRACKMYRMC_UPLOAD_STORE_FILE=upload-keystore.jks
-          TRACKMYRMC_UPLOAD_STORE_PASSWORD=${STORE_PASSWORD}
-          TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
-          TRACKMYRMC_UPLOAD_KEY_PASSWORD=${RESOLVED_KEY_PASSWORD}
-          EOF
           python3 - <<'PY'
           import pathlib
           import re
@@ -194,73 +182,70 @@ jobs:
               open_brace = source.find("{", start + match.start())
               depth = 0
               for i in range(open_brace, len(source)):
-                  ch = source[i]
-                  if ch == "{":
+                  if source[i] == "{":
                       depth += 1
-                  elif ch == "}":
+                  elif source[i] == "}":
                       depth -= 1
                       if depth == 0:
                           return open_brace, i + 1
               raise SystemExit(f"unterminated {name} block")
 
-          if "TRACKMYRMC_UPLOAD_STORE_FILE" not in text:
-              signing_block = """
-              signingConfigs {
-                  release {
-                      if (project.hasProperty('TRACKMYRMC_UPLOAD_STORE_FILE')) {
-                          storeFile file(TRACKMYRMC_UPLOAD_STORE_FILE)
-                          storePassword TRACKMYRMC_UPLOAD_STORE_PASSWORD
-                          keyAlias TRACKMYRMC_UPLOAD_KEY_ALIAS
-                          keyPassword TRACKMYRMC_UPLOAD_KEY_PASSWORD
-                      }
-                  }
-              }
-              """
-              text, inserted = re.subn(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', text, count=1)
-              if inserted != 1:
-                  raise SystemExit("failed to insert release signingConfig")
-
-          debug_signing = "signingConfig signingConfigs.debug"
-          release_signing = "signingConfig signingConfigs.release"
-
           build_open, build_end = named_block_span(text, "buildTypes")
           build_text = text[build_open:build_end]
-          release_open_local, release_end_local = named_block_span(build_text, "release")
-          release_text = build_text[release_open_local:release_end_local]
+          release_open, release_end = named_block_span(build_text, "release")
+          release_text = build_text[release_open:release_end]
 
-          if release_signing not in release_text:
-              count = release_text.count(debug_signing)
-              if count != 1:
-                  print("Generated release block was:")
-                  print(release_text)
-                  raise SystemExit(
-                      f"expected exactly one debug signing assignment inside release block, found {count}"
-                  )
-              release_text = release_text.replace(debug_signing, release_signing, 1)
-              build_text = (
-                  build_text[:release_open_local]
-                  + release_text
-                  + build_text[release_end_local:]
-              )
-              text = text[:build_open] + build_text + text[build_end:]
+          patterns = [
+              r"^\s*signingConfig\s+signingConfigs\.debug\s*$",
+              r"^\s*signingConfig\s+signingConfigs\.release\s*$",
+          ]
+          original = release_text
+          for pattern in patterns:
+              release_text = re.sub(pattern, "", release_text, flags=re.MULTILINE)
 
-          build_open, build_end = named_block_span(text, "buildTypes")
-          build_text = text[build_open:build_end]
-          release_open_local, release_end_local = named_block_span(build_text, "release")
-          release_text = build_text[release_open_local:release_end_local]
-          if release_signing not in release_text:
-              raise SystemExit("release build is not wired to signingConfigs.release")
+          if release_text == original:
+              raise SystemExit("expected generated release signing assignment was not found")
 
+          build_text = build_text[:release_open] + release_text + build_text[release_end:]
+          text = text[:build_open] + build_text + text[build_end:]
           gradle.write_text(text)
-          print("release build is wired to signingConfigs.release")
+          print("release bundle will be built unsigned and signed after packaging")
           PY
 
-      - name: Build signed release AAB
+      - name: Build unsigned release AAB
         working-directory: frontend/android
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:bundleRelease --no-daemon --stacktrace
+          test -s app/build/outputs/bundle/release/app-release.aab
+
+      - name: Sign completed AAB with Play upload key
+        working-directory: frontend/android
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          PRIMARY_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          aab='app/build/outputs/bundle/release/app-release.aab'
+          if [ "$KEY_PASSWORD_MODE" = "primary" ]; then
+            RESOLVED_KEY_PASSWORD="$PRIMARY_KEY_PASSWORD"
+          elif [ "$KEY_PASSWORD_MODE" = "store" ]; then
+            RESOLVED_KEY_PASSWORD="$STORE_PASSWORD"
+          else
+            echo "ERROR: No validated private-key password mode is available"
+            exit 1
+          fi
+
+          jarsigner \
+            -keystore app/upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$RESOLVED_KEY_PASSWORD" \
+            "$aab" "$KEY_ALIAS"
+
+          jarsigner -verify -verbose -certs "$aab" >/tmp/aab-jarsigner-verify.txt
+          grep -F 'jar verified.' /tmp/aab-jarsigner-verify.txt >/dev/null
 
       - name: Verify signed AAB and Play certificate
         working-directory: frontend/android
