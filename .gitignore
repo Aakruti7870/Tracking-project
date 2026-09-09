@@ -90,6 +90,8 @@ agenthub/agents/youtube/db
 
 # Build caches
 .cache/
+.agent-cache/*
+!.agent-cache/.gitkeep
 
 # Generated repository reports
 /BUILD_REPORT.md
