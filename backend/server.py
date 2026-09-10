@@ -33,6 +33,7 @@ from routers import (
     kyc_recovery,
     loads,
     maps,
+    meta_whatsapp,
     master_data,
     me,
     notify,
@@ -181,6 +182,7 @@ app.include_router(payroll_closure.router)
 app.include_router(loads.router)
 app.include_router(notify.router)
 app.include_router(maps.router)
+app.include_router(meta_whatsapp.router)
 app.include_router(plant_discovery.router)
 app.include_router(plant_onboarding.router)
 app.include_router(storage.router)
