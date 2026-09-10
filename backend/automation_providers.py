@@ -41,6 +41,18 @@ def _secret(name: str, minimum: int = 24) -> str:
     return value
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ProviderConfigurationError(f"{name} must be a boolean")
+
+
 @dataclass(frozen=True)
 class DeliveryResult:
     provider: str
@@ -153,7 +165,115 @@ class TwilioMessageAdapter:
                 await client.aclose()
 
 
+class MetaWhatsAppAdapter:
+    """Direct Meta WhatsApp Cloud API transport for in-session text messages.
+
+    Meta permits free-form text only inside the customer-service window. Proactive
+    notifications outside that window require an approved template. The routing
+    adapter below therefore retains the existing Twilio path as a cutover fallback
+    until status-template delivery is enabled for every automation event.
+    """
+
+    name = "meta_whatsapp"
+    graph_version = "v25.0"
+
+    async def send(self, destination: str, message: str,
+                   client: httpx.AsyncClient | None = None) -> DeliveryResult:
+        access_token = _secret("META_WHATSAPP_ACCESS_TOKEN", 32)
+        phone_number_id = _secret("META_WHATSAPP_PHONE_NUMBER_ID", 8)
+        raw_destination = str(destination or "").strip()
+        digits = raw_destination[1:] if raw_destination.startswith("+") else raw_destination
+        if not digits.isdigit() or not 8 <= len(digits) <= 15:
+            raise ProviderDeliveryError("Meta WhatsApp destination must be E.164")
+        body = str(message or "").strip()
+        if not body:
+            raise ProviderDeliveryError("Meta WhatsApp message is empty")
+        if len(body) > 4096:
+            raise ProviderDeliveryError("Meta WhatsApp message exceeds 4096 characters")
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": digits,
+            "type": "text",
+            "text": {"preview_url": False, "body": body},
+        }
+        owned = client is None
+        client = client or httpx.AsyncClient(timeout=15)
+        try:
+            response = await client.post(
+                f"https://graph.facebook.com/{self.graph_version}/{phone_number_id}/messages",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            if not 200 <= response.status_code < 300:
+                raise ProviderDeliveryError(f"Meta WhatsApp returned HTTP {response.status_code}")
+            try:
+                data = response.json()
+            except Exception as exc:
+                raise ProviderDeliveryError("Meta WhatsApp returned an invalid response") from exc
+            messages = data.get("messages") or []
+            first = messages[0] if messages and isinstance(messages[0], dict) else {}
+            provider_id = str(first.get("id") or "")
+            if not provider_id:
+                raise ProviderDeliveryError("Meta WhatsApp response omitted message id")
+            return DeliveryResult(
+                self.name,
+                provider_id,
+                str(first.get("message_status") or "accepted"),
+            )
+        finally:
+            if owned:
+                await client.aclose()
+
+
+class MessageChannelRouter:
+    """Preserve SMS on Twilio while preferring Meta for WhatsApp cutover.
+
+    ``WHATSAPP_PROVIDER`` accepts ``auto`` (default), ``meta`` or ``twilio``.
+    In ``auto`` mode, the presence of the Meta access token and phone-number ID
+    selects Meta. ``WHATSAPP_TWILIO_FALLBACK`` defaults to true so a Meta policy or
+    transient delivery rejection does not interrupt existing order notifications.
+    """
+
+    def __init__(self, twilio: TwilioMessageAdapter | None = None,
+                 meta: MetaWhatsAppAdapter | None = None):
+        self.twilio = twilio or TwilioMessageAdapter()
+        self.meta = meta or MetaWhatsAppAdapter()
+
+    async def send(self, channel: str, destination: str, message: str,
+                   client: httpx.AsyncClient | None = None) -> DeliveryResult:
+        if channel == "sms":
+            return await self.twilio.send(channel, destination, message, client)
+        if channel != "whatsapp":
+            raise ProviderDeliveryError("Unsupported message channel")
+
+        provider = os.getenv("WHATSAPP_PROVIDER", "auto").strip().lower() or "auto"
+        if provider not in {"auto", "meta", "twilio"}:
+            raise ProviderConfigurationError("WHATSAPP_PROVIDER must be auto, meta or twilio")
+        if provider == "twilio":
+            return await self.twilio.send(channel, destination, message, client)
+
+        meta_configured = bool(
+            os.getenv("META_WHATSAPP_ACCESS_TOKEN", "").strip()
+            and os.getenv("META_WHATSAPP_PHONE_NUMBER_ID", "").strip()
+        )
+        if provider == "auto" and not meta_configured:
+            return await self.twilio.send(channel, destination, message, client)
+
+        try:
+            return await self.meta.send(destination, message, client)
+        except (ProviderConfigurationError, ProviderDeliveryError):
+            if not _bool_env("WHATSAPP_TWILIO_FALLBACK", True):
+                raise
+            return await self.twilio.send(channel, destination, message, client)
+
+
 n8n = N8nWebhookAdapter()
 vapi = VapiCallAdapter()
 cod_confirmation = CodConfirmationService()
-twilio_messages = TwilioMessageAdapter()
+meta_whatsapp = MetaWhatsAppAdapter()
+twilio_messages = MessageChannelRouter(meta=meta_whatsapp)
