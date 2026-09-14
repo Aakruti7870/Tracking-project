@@ -208,7 +208,7 @@ jobs:
           echo "Signing AAB with verified upload keystore..."
 
           jarsigner \
-            -keystore upload-keystore.jks \
+            -keystore app/upload-keystore.jks \
             -storetype JKS \
             -storepass "$STORE_PASSWORD" \
             -keypass "$RESOLVED_KEY_PASSWORD" \
