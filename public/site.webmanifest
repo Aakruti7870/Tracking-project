@@ -1,0 +1,16 @@
+{
+  "name": "TrackMyRMC — RMC Plant Management & Transit Mixer Tracking Software",
+  "short_name": "TrackMyRMC",
+  "description": "TrackMyRMC helps Ready Mix Concrete businesses manage plant operations, transit mixer tracking, dispatch, delivery and digital proof of delivery from one platform.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1116",
+  "theme_color": "#0E1116",
+  "icons": [
+    {
+      "src": "/assets/images/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

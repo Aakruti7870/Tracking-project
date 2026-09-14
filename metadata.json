@@ -1,0 +1,6 @@
+{
+  "name": "TrackMyRMC",
+  "description": "TrackMyRMC helps Ready Mix Concrete businesses manage plant operations, transit mixer tracking, dispatch, delivery and digital proof of delivery from one platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

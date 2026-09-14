@@ -1,0 +1,22 @@
+# TrackMyRMC
+
+> Ready Mix Concrete (RMC) Supply Chain Management & Transit Mixer Telematics Platform
+
+TrackMyRMC is a software platform designed to help Ready Mix Concrete businesses manage plant operations, transit mixer tracking, dispatch, delivery and digital documentation.
+
+## Core Capabilities
+- **Transit Mixer Tracking**: Vehicle GPS and telematics to monitor truck location, transit routes, road speed, drum rotation status, and estimated time of arrival.
+- **Plant Operations**: Silo inventory monitoring and automated batch dispatch integration.
+- **Digital Documentation**: Digital delivery challans and electronic Proof of Delivery (POD) capturing slump test results, batch specifications, site arrival timestamps, and digital customer signatures.
+- **Pour Planning**: Concrete volume estimation for structural elements (slabs, columns, beams, footings).
+
+## Primary Users
+- RMC Plant Owners & Operations Directors
+- Batching Supervisors & Plant Operators
+- Fleet Dispatchers & Logistics Managers
+- Transit Mixer Drivers / Pilots
+- Construction Contractors & Site Engineers
+
+## Website & Access
+- Website: https://trackmyrmc.com/
+- Canonical URL: https://trackmyrmc.com/

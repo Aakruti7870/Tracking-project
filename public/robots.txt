@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /auth/
+Disallow: /admin-web/
+Disallow: /recovery.html
+
+Sitemap: https://trackmyrmc.com/sitemap.xml
