@@ -275,10 +275,63 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Upload AAB to Google Play Internal Testing
-        uses: joutvhu/publish-android@v2
-        with:
-          serviceAccountJson: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          packageName: com.trackmyrmc.concreteking
-          releaseFile: frontend/android/app/build/outputs/bundle/release/app-release.aab
-          track: internal
-          status: completed
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PACKAGE_NAME: com.trackmyrmc.concreteking
+          AAB_PATH: frontend/android/app/build/outputs/bundle/release/app-release.aab
+        run: |
+          set -euo pipefail
+
+          jwt=$(ruby <<'RUBY'
+          require "base64"
+          require "json"
+          require "openssl"
+          require "time"
+
+          credentials = JSON.parse(ENV.fetch("GOOGLE_SERVICE_ACCOUNT_JSON"))
+          now = Time.now.to_i
+          encode = ->(value) { Base64.urlsafe_encode64(value, padding: false) }
+          header = encode.call(JSON.generate({ alg: "RS256", typ: "JWT" }))
+          claims = encode.call(JSON.generate({
+            iss: credentials.fetch("client_email"),
+            scope: "https://www.googleapis.com/auth/androidpublisher",
+            aud: credentials.fetch("token_uri"),
+            iat: now,
+            exp: now + 3600
+          }))
+          signing_input = "#{header}.#{claims}"
+          key = OpenSSL::PKey::RSA.new(credentials.fetch("private_key"))
+          signature = key.sign(OpenSSL::Digest::SHA256.new, signing_input)
+          puts "#{signing_input}.#{encode.call(signature)}"
+          RUBY
+          )
+
+          access_token=$(curl --fail-with-body --silent --show-error \
+            --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" \
+            --data-urlencode "assertion=$jwt" \
+            https://oauth2.googleapis.com/token | jq -er '.access_token')
+
+          api="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE_NAME}"
+          auth_header="Authorization: Bearer ${access_token}"
+          edit_id=$(curl --fail-with-body --silent --show-error -X POST \
+            -H "$auth_header" \
+            -H 'Content-Type: application/json' \
+            "$api/edits" | jq -er '.id')
+
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "$auth_header" \
+            -H 'Content-Type: application/octet-stream' \
+            --data-binary "@$AAB_PATH" \
+            "$api/edits/$edit_id/bundles?uploadType=media" >/tmp/google-play-upload.json
+          version_code=$(jq -er '.versionCode' /tmp/google-play-upload.json)
+
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "$auth_header" \
+            -H 'Content-Type: application/json' \
+            --data "{\"releases\":[{\"versionCodes\":[\"$version_code\"],\"status\":\"completed\"}]}" \
+            "$api/edits/$edit_id/tracks/internal" >/tmp/google-play-track.json
+
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "$auth_header" \
+            -H 'Content-Type: application/json' \
+            "$api/edits/$edit_id:commit" >/tmp/google-play-commit.json
