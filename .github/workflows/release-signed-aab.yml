@@ -176,6 +176,7 @@ jobs:
           fi
           cat >> gradle.properties <<EOF
           TRACKMYRMC_UPLOAD_STORE_FILE=upload-keystore.jks
+          TRACKMYRMC_UPLOAD_STORE_TYPE=JKS
           TRACKMYRMC_UPLOAD_STORE_PASSWORD=${STORE_PASSWORD}
           TRACKMYRMC_UPLOAD_KEY_ALIAS=${KEY_ALIAS}
           TRACKMYRMC_UPLOAD_KEY_PASSWORD=${RESOLVED_KEY_PASSWORD}
@@ -209,6 +210,7 @@ jobs:
                   release {
                       if (project.hasProperty('TRACKMYRMC_UPLOAD_STORE_FILE')) {
                           storeFile file(TRACKMYRMC_UPLOAD_STORE_FILE)
+                          storeType TRACKMYRMC_UPLOAD_STORE_TYPE
                           storePassword TRACKMYRMC_UPLOAD_STORE_PASSWORD
                           keyAlias TRACKMYRMC_UPLOAD_KEY_ALIAS
                           keyPassword TRACKMYRMC_UPLOAD_KEY_PASSWORD
