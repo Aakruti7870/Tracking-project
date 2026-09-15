@@ -1,16 +1,5 @@
 name: Release Signed AAB
 
-# Produces a Google Play upload-signed .aab for com.trackmyrmc.concreteking.
-# Required GitHub Actions secrets (Repo -> Settings -> Secrets and variables -> Actions):
-#   ANDROID_KEYSTORE_BASE64      - base64 of the Play upload keystore .jks / .p12
-#   ANDROID_KEYSTORE_PASSWORD    - key password
-#   ANDROID_STORE_PASSWORD       - keystore password
-#   ANDROID_KEY_ALIAS            - alias inside the Play upload keystore
-#
-# IMPORTANT: Google Play currently expects the upload certificate SHA1 below.
-# The workflow validates BOTH the restored keystore and the final AAB against it.
-# A wrong/debug key therefore fails CI before any release artifact is uploaded.
-
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +7,11 @@ on:
         description: Branch, tag or SHA to release-sign
         required: false
         default: main
+      upload_to_play:
+        description: Upload verified AAB to Google Play Internal Testing
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - "release/signed-aab-v*"
@@ -31,59 +25,70 @@ concurrency:
   group: release-signed-aab-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CI: "1"
+  EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
+  GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+  EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
+  PACKAGE_NAME: com.trackmyrmc.concreteking
+  VERSION_CODE: "89"
+  VERSION_NAME: "2.0.31"
+
 jobs:
   build-signed-aab:
-    name: Build signed release AAB
+    name: Build and verify signed release AAB
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    env:
-      CI: "1"
-      EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
-      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
-      EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.candidate_ref || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "20.19.4"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - uses: actions/setup-java@v5
+      - name: Setup Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify canonical production backend
+      - name: Verify production backend
         shell: bash
         run: |
           set -euo pipefail
-          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
-            "${EXPO_PUBLIC_BACKEND_URL}/api/health" >/tmp/production-health.json
-          grep -F 'healthy' /tmp/production-health.json >/dev/null
-          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS \
-            "${EXPO_PUBLIC_BACKEND_URL}/.well-known/assetlinks.json" >/tmp/assetlinks.json
-          grep -F 'com.trackmyrmc.concreteking' /tmp/assetlinks.json >/dev/null
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS "${EXPO_PUBLIC_BACKEND_URL}/api/health" >/tmp/health.json
+          grep -F 'healthy' /tmp/health.json >/dev/null
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsS "${EXPO_PUBLIC_BACKEND_URL}/.well-known/assetlinks.json" >/tmp/assetlinks.json
+          grep -F "${PACKAGE_NAME}" /tmp/assetlinks.json >/dev/null
 
-      - name: Verify required secrets are configured
+      - name: Verify required signing secrets
+        shell: bash
         run: |
+          set -euo pipefail
           missing=()
-          [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || missing+=("ANDROID_KEYSTORE_BASE64")
-          [ -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || missing+=("ANDROID_KEYSTORE_PASSWORD")
-          [ -n "${{ secrets.ANDROID_STORE_PASSWORD }}" ] || missing+=("ANDROID_STORE_PASSWORD")
-          [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ] || missing+=("ANDROID_KEY_ALIAS")
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "Missing required signing secrets: ${missing[*]}"
-            echo "Add them at: https://github.com/${{ github.repository }}/settings/secrets/actions"
-            exit 1
-          fi
+          [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || missing+=(ANDROID_KEYSTORE_BASE64)
+          [ -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || missing+=(ANDROID_KEYSTORE_PASSWORD)
+          [ -n "${{ secrets.ANDROID_STORE_PASSWORD }}" ] || missing+=(ANDROID_STORE_PASSWORD)
+          [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ] || missing+=(ANDROID_KEY_ALIAS)
+          if [ ${#missing[@]} -gt 0 ]; then echo "Missing required signing secrets: ${missing[*]}"; exit 1; fi
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Run release invariants
+        working-directory: frontend
+        run: node scripts/check-fresh-production-release.mjs
+
+      - name: Run Play policy readiness gate
+        working-directory: frontend
+        run: node scripts/check-play-policy-readiness.mjs
 
       - name: Generate Android project
         working-directory: frontend
@@ -95,70 +100,64 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          printf "%s" "$KEYSTORE_B64" | base64 -d > upload-keystore.jks
+          printf '%s' "$KEYSTORE_B64" | base64 -d > upload-keystore.jks
           test -s upload-keystore.jks
-          echo "keystore size: $(stat -c%s upload-keystore.jks) bytes"
 
-      - name: Verify Play upload keystore fingerprint
+      - name: Verify upload certificate
         working-directory: frontend/android/app
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          certificate_info="$({ keytool -list -v \
-            -keystore upload-keystore.jks \
-            -alias "$KEY_ALIAS" \
-            -storepass "$STORE_PASSWORD"; } 2>/dev/null)"
-          actual_sha1="$(printf '%s\n' "$certificate_info" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
-          actual_sha256="$(printf '%s\n' "$certificate_info" | awk -F'SHA256: ' '/SHA256:/{print $2; exit}' | tr -d '\r')"
-          test -n "$actual_sha1" && test -n "$actual_sha256" || {
-            echo "Unable to read public certificate fingerprints from configured upload keystore/alias"
-            exit 1
-          }
-          echo "CONFIGURED_KEYSTORE_SHA1=$actual_sha1"
-          echo "CONFIGURED_KEYSTORE_SHA256=$actual_sha256"
-          if [ "$actual_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
-            echo "SIGNING_CERT_MATCH=FAIL"
-            echo "AAB_BUILD=BLOCKED"
-            echo "ERROR: Configured upload certificate does not match Google Play."
-            exit 1
-          fi
-          echo "SIGNING_CERT_MATCH=PASS"
+          info="$(keytool -list -v -keystore upload-keystore.jks -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" 2>/dev/null)"
+          sha1="$(printf '%s\n' "$info" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          sha256="$(printf '%s\n' "$info" | awk -F'SHA256: ' '/SHA256:/{print $2; exit}' | tr -d '\r')"
+          test -n "$sha1" && test -n "$sha256"
+          echo "Upload SHA1: $sha1"
+          echo "Upload SHA256: $sha256"
+          test "$sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" || { echo "ERROR: upload certificate does not match Google Play certificate"; exit 1; }
 
-      - name: Verify private key password
+      - name: Detect private-key password
         working-directory: frontend/android/app
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          PRIMARY_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          rm -rf /tmp/keycheck
-          mkdir -p /tmp/keycheck
-          printf 'TrackMyRMC signing probe\n' >/tmp/keycheck/probe.txt
+          rm -rf /tmp/keycheck && mkdir -p /tmp/keycheck
+          printf 'probe\n' >/tmp/keycheck/probe.txt
           (cd /tmp/keycheck && jar --create --file probe.jar probe.txt)
-
-          if jarsigner -keystore upload-keystore.jks \
-              -storepass "$STORE_PASSWORD" \
-              -keypass "$PRIMARY_KEY_PASSWORD" \
-              /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "KEY_PASSWORD_MODE=primary" >> "$GITHUB_ENV"
+          if jarsigner -keystore upload-keystore.jks -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo KEY_PASSWORD_MODE=primary >> "$GITHUB_ENV"
           else
             rm -f /tmp/keycheck/probe.jar
             (cd /tmp/keycheck && jar --create --file probe.jar probe.txt)
-            if jarsigner -keystore upload-keystore.jks \
-                -storepass "$STORE_PASSWORD" \
-                -keypass "$STORE_PASSWORD" \
-                /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1; then
-              echo "KEY_PASSWORD_MODE=store" >> "$GITHUB_ENV"
-            else
-              echo "ERROR: Neither configured password can unlock the private signing key."
-              exit 1
-            fi
+            jarsigner -keystore upload-keystore.jks -storepass "$STORE_PASSWORD" -keypass "$STORE_PASSWORD" /tmp/keycheck/probe.jar "$KEY_ALIAS" >/dev/null 2>&1 || { echo "ERROR: private signing key cannot be unlocked"; exit 1; }
+            echo KEY_PASSWORD_MODE=store >> "$GITHUB_ENV"
           fi
 
-      - name: Build and sign release AAB
+      - name: Build unsigned release AAB
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/build.gradle')
+          s=p.read_text()
+          start=s.find('release {')
+          marker='signingConfig signingConfigs.debug'
+          pos=s.find(marker,start)
+          if start < 0 or pos < 0:
+              raise SystemExit('ERROR: release debug signingConfig not found')
+          p.write_text(s[:pos]+s[pos+len(marker):])
+          PY
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+          test -s app/build/outputs/bundle/release/app-release.aab
+
+      - name: Sign AAB with verified upload key
         working-directory: frontend/android
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
@@ -166,116 +165,48 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          chmod +x gradlew
-
-          python3 - <<'PY2'
-          from pathlib import Path
-
-          p = Path("app/build.gradle")
-          source = p.read_text()
-
-          marker = "signingConfig signingConfigs.debug"
-          release_start = source.find("release {")
-
-          if release_start == -1:
-              raise SystemExit("ERROR: release block not found")
-
-          signing_pos = source.find(marker, release_start)
-
-          if signing_pos == -1:
-              raise SystemExit("ERROR: release debug signingConfig not found")
-
-          source = source[:signing_pos] + source[signing_pos + len(marker):]
-          p.write_text(source)
-
-          print("Removed release debug signingConfig; AAB will be signed separately.")
-          PY2
-
-          ./gradlew :app:bundleRelease --no-daemon --stacktrace
-
-          aab='app/build/outputs/bundle/release/app-release.aab'
-          test -s "$aab"
-
-          if [ "$KEY_PASSWORD_MODE" = "primary" ]; then
-            RESOLVED_KEY_PASSWORD="$KEY_PASSWORD"
-          elif [ "$KEY_PASSWORD_MODE" = "store" ]; then
-            RESOLVED_KEY_PASSWORD="$STORE_PASSWORD"
-          else
-            echo "ERROR: No validated private-key password mode is available"
-            exit 1
-          fi
-
-          echo "Signing AAB with verified upload keystore..."
-
-          jarsigner \
-            -keystore app/upload-keystore.jks \
-            -storetype JKS \
-            -storepass "$STORE_PASSWORD" \
-            -keypass "$RESOLVED_KEY_PASSWORD" \
-            "$aab" \
-            "$KEY_ALIAS"
-
+          aab=app/build/outputs/bundle/release/app-release.aab
+          if [ "$KEY_PASSWORD_MODE" = primary ]; then keypass="$KEY_PASSWORD"; else keypass="$STORE_PASSWORD"; fi
+          jarsigner -keystore app/upload-keystore.jks -storetype JKS -storepass "$STORE_PASSWORD" -keypass "$keypass" "$aab" "$KEY_ALIAS"
           jarsigner -verify -verbose -certs "$aab"
 
-          echo "AAB signing completed successfully"
-
-      - name: Verify signed AAB and Play certificate
+      - name: Validate final AAB
         working-directory: frontend/android
         run: |
           set -euo pipefail
-          aab='app/build/outputs/bundle/release/app-release.aab'
+          aab=app/build/outputs/bundle/release/app-release.aab
           test -s "$aab"
-          size=$(stat -c%s "$aab")
-          sha=$(sha256sum "$aab" | awk '{print $1}')
-          echo "AAB: $aab"
-          echo "Size: $size bytes"
-          echo "SHA-256: $sha"
-
-          signer_info="$(keytool -printcert -jarfile "$aab" 2>/dev/null)"
-          actual_aab_sha1="$(printf '%s\n' "$signer_info" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
-          actual_aab_sha256="$(printf '%s\n' "$signer_info" | awk -F'SHA256: ' '/SHA256:/{print $2; exit}' | tr -d '\r')"
-          test -n "$actual_aab_sha1" && test -n "$actual_aab_sha256" || {
-            echo "ERROR: Unable to read public signer certificate fingerprints from final AAB"
-            exit 1
-          }
-          echo "FINAL_AAB_SIGNER_SHA1=$actual_aab_sha1"
-          echo "FINAL_AAB_SIGNER_SHA256=$actual_aab_sha256"
-          if [ "$actual_aab_sha1" != "$EXPECTED_PLAY_UPLOAD_SHA1" ]; then
-            echo "ERROR: Final AAB was signed with the wrong certificate."
-            echo "Expected by Google Play: $EXPECTED_PLAY_UPLOAD_SHA1"
-            echo "Final AAB signer:        $actual_aab_sha1"
-            exit 1
-          fi
-
-          curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
+          signer="$(keytool -printcert -jarfile "$aab" 2>/dev/null)"
+          sha1="$(printf '%s\n' "$signer" | awk -F'SHA1: ' '/SHA1:/{print $2; exit}' | tr -d '\r')"
+          test "$sha1" = "$EXPECTED_PLAY_UPLOAD_SHA1" || { echo "ERROR: final AAB signer does not match Google Play upload certificate"; exit 1; }
+          curl -fsSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
-          unzip -p "$aab" BundleConfig.pb > /dev/null
-          java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/aab-manifest.xml
-          grep -F 'package="com.trackmyrmc.concreteking"' /tmp/aab-manifest.xml
-          grep -F 'android:versionCode="88"' /tmp/aab-manifest.xml
-          grep -F 'android:versionName="2.0.30"' /tmp/aab-manifest.xml
-
-          bundle_entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
-          test -n "$bundle_entry" || { echo "Android JS bundle not found in AAB"; exit 1; }
-          unzip -p "$aab" "$bundle_entry" >/tmp/index.android.bundle
-          grep -F 'https://trackmyrmc.com' /tmp/index.android.bundle >/dev/null || {
-            echo "Canonical production origin is not baked into the Android bundle"
-            exit 1
-          }
+          java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/manifest.xml
+          grep -F "package=\"${PACKAGE_NAME}\"" /tmp/manifest.xml
+          grep -F 'android:versionCode="89"' /tmp/manifest.xml
+          grep -F 'android:versionName="2.0.31"' /tmp/manifest.xml
+          entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
+          test -n "$entry" || { echo "ERROR: Android JS bundle not found"; exit 1; }
+          unzip -p "$aab" "$entry" >/tmp/index.android.bundle
+          grep -F 'https://trackmyrmc.com' /tmp/index.android.bundle >/dev/null || { echo "ERROR: canonical production origin missing"; exit 1; }
           if grep -F 'https://api.trackmyrmc.com' /tmp/index.android.bundle >/dev/null; then
-            echo "Legacy api.trackmyrmc.com origin detected in Android release bundle"
+            echo "Legacy api.trackmyrmc.com origin detected"
             exit 1
           fi
+          echo "AAB_VALIDATION=PASS"
+          echo "AAB_SHA256=$(sha256sum "$aab" | awk '{print $1}')"
 
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v2.0.30-vc88-signed-aab
+          name: trackmyrmc-v2.0.31-vc89-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
-      - name: Authenticate to Google Cloud
+
+      - name: Authenticate Google Play
         id: auth
+        if: ${{ inputs.upload_to_play == true }}
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -284,96 +215,33 @@ jobs:
           create_credentials_file: true
           cleanup_credentials: true
 
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
-        with:
-          project_id: tracking-project-preview
-
       - name: Upload AAB to Google Play Internal Testing
+        if: ${{ inputs.upload_to_play == true }}
         env:
-          PACKAGE_NAME: com.trackmyrmc.concreteking
-          AAB_FILE: frontend/android/app/build/outputs/bundle/release/app-release.aab
-          VERSION_CODE: "88"
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         shell: bash
         run: |
           set -euo pipefail
-
-          ACCESS_TOKEN="${{ steps.auth.outputs.access_token }}"
-          test -n "$ACCESS_TOKEN"
           API="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE_NAME}"
-
-          PLAY_RESPONSE="$(
-            curl -sS -w '\nHTTP_STATUS:%{http_code}' \
-              -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "${API}/edits"
-          )"
-
-          printf '%s\n' "$PLAY_RESPONSE"
-
-          HTTP_STATUS="$(printf '%s\n' "$PLAY_RESPONSE" | sed -n 's/^HTTP_STATUS://p')"
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Google Play API request failed with HTTP $HTTP_STATUS"
+          response=$(curl -sS -w '\nHTTP_STATUS:%{http_code}' -X POST -H "Authorization: Bearer ${ACCESS_TOKEN}" -H 'Content-Type: application/json' "${API}/edits")
+          status=$(printf '%s\n' "$response" | sed -n 's/^HTTP_STATUS://p')
+          body=$(printf '%s\n' "$response" | sed '/^HTTP_STATUS:/d')
+          if [ "$status" != 200 ]; then
+            echo "Google Play API /edits returned HTTP $status"
+            printf '%s\n' "$body"
+            if [ "$status" = 403 ]; then echo "Google service account is authenticated but lacks Play Console app permission for ${PACKAGE_NAME}."; fi
             exit 1
           fi
-
-          EDIT_ID="$(
-            printf '%s\n' "$PLAY_RESPONSE" |
-              sed '/^HTTP_STATUS:/d' |
-              python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'
-          )"
-
-          test -n "$EDIT_ID"
-          echo "Google Play edit created: ${EDIT_ID}"
-
-          UPLOAD_RESPONSE="$(
-            curl -fsS -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@${AAB_FILE}" \
-              "${API}/edits/${EDIT_ID}/bundles?uploadType=media"
-          )"
-
-          VERSION_CODE_FROM_GOOGLE="$(
-            printf '%s' "$UPLOAD_RESPONSE" |
-              python3 -c 'import sys,json; print(json.load(sys.stdin)["versionCode"])'
-          )"
-
-          echo "Uploaded Google Play versionCode: ${VERSION_CODE_FROM_GOOGLE}"
-
-          test "$VERSION_CODE_FROM_GOOGLE" = "$VERSION_CODE"
-
-          TRACK_BODY="$(
-            python3 - <<PY
+          edit_id=$(printf '%s' "$body" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+          upload=$(curl -fsS -X POST -H "Authorization: Bearer ${ACCESS_TOKEN}" -H 'Content-Type: application/octet-stream' --data-binary @"frontend/android/app/build/outputs/bundle/release/app-release.aab" "${API}/edits/${edit_id}/bundles?uploadType=media")
+          uploaded=$(printf '%s' "$upload" | python3 -c 'import sys,json; print(json.load(sys.stdin)["versionCode"])')
+          test "$uploaded" = "$VERSION_CODE"
+          body=$(python3 - <<PY
           import json
-          print(json.dumps({
-              "releases": [{
-                  "versionCodes": ["${VERSION_CODE}"],
-                  "status": "completed"
-              }]
-          }))
+          print(json.dumps({'releases':[{'versionCodes':['${VERSION_CODE}'],'status':'completed'}]}))
           PY
-          )"
-
-          curl -fsS -X PUT \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            -d "$TRACK_BODY" \
-            "${API}/edits/${EDIT_ID}/tracks/internal" \
-            >/tmp/google-play-track.json
-
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "${API}/edits/${EDIT_ID}:validate" \
-            >/tmp/google-play-validation.json
-
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "${API}/edits/${EDIT_ID}:commit" \
-            >/tmp/google-play-commit.json
-
+          )
+          curl -fsS -X PUT -H "Authorization: Bearer ${ACCESS_TOKEN}" -H 'Content-Type: application/json' -d "$body" "${API}/edits/${edit_id}/tracks/internal" >/tmp/play-track.json
+          curl -fsS -X POST -H "Authorization: Bearer ${ACCESS_TOKEN}" -H 'Content-Type: application/json' "${API}/edits/${edit_id}:validate" >/tmp/play-validation.json
+          curl -fsS -X POST -H "Authorization: Bearer ${ACCESS_TOKEN}" -H 'Content-Type: application/json' "${API}/edits/${edit_id}:commit" >/tmp/play-commit.json
           echo "GOOGLE PLAY INTERNAL TESTING UPLOAD: SUCCESS"
