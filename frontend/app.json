@@ -19,10 +19,7 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
-      },
+      "icon": "./assets/images/icon.png",
       "edgeToEdgeEnabled": true,
       "package": "com.trackmyrmc.concreteking",
       "versionCode": 89,
@@ -46,9 +43,16 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            {"scheme": "https", "host": "trackmyrmc.com", "pathPrefix": "/kyc/return"}
+            {
+              "scheme": "https",
+              "host": "trackmyrmc.com",
+              "pathPrefix": "/kyc/return"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -80,6 +84,8 @@
       ],
       "./plugins/with-play-store-compatibility"
     ],
-    "experiments": {"typedRoutes": true}
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
