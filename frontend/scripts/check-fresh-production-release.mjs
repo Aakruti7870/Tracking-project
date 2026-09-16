@@ -12,29 +12,15 @@ const iconFile = iconPath.pathname;
 const iconTemp = `${iconFile}.normalized.png`;
 function requireInvariant(condition, message) { if (!condition) throw new Error(message); }
 
-// The checked-in 1024px icon contains excessive outer whitespace. Android launchers
-// mask and scale the supplied square, so that whitespace makes the visible logo too small.
-// Normalize the centered artwork before Expo prebuild. This keeps the source artwork intact
-// while ensuring the packaged launcher icon uses the full 1024x1024 canvas.
 try {
   const imageTool = (() => {
     for (const candidate of ['magick', 'convert']) {
-      try {
-        execFileSync(candidate, ['-version'], { stdio: 'ignore' });
-        return candidate;
-      } catch {}
+      try { execFileSync(candidate, ['-version'], { stdio: 'ignore' }); return candidate; } catch {}
     }
     return null;
   })();
   requireInvariant(imageTool, 'ImageMagick (magick/convert) is required to normalize the Android launcher icon');
-  execFileSync(imageTool, [
-    iconFile,
-    '-gravity', 'center',
-    '-crop', '700x700+0+0',
-    '+repage',
-    '-resize', '1024x1024!',
-    iconTemp,
-  ], { stdio: 'inherit' });
+  execFileSync(imageTool, [iconFile, '-gravity', 'center', '-crop', '700x700+0+0', '+repage', '-resize', '1024x1024!', iconTemp], { stdio: 'inherit' });
   fs.renameSync(iconTemp, iconFile);
   const header = fs.readFileSync(iconFile).subarray(0, 24);
   requireInvariant(header.toString('ascii', 1, 4) === 'PNG', 'Normalized launcher icon is not a PNG');
@@ -44,12 +30,12 @@ try {
   if (fs.existsSync(iconTemp)) fs.rmSync(iconTemp, { force: true });
 }
 
-requireInvariant(app.expo.version === '2.0.31', 'Expected Expo version 2.0.31');
-requireInvariant(app.expo.android?.versionCode === 89, 'Expected Android versionCode 89');
+requireInvariant(app.expo.version === '1.1.0', 'Expected Expo version 1.1.0');
+requireInvariant(app.expo.android?.versionCode === 90, 'Expected Android versionCode 90');
 requireInvariant(app.expo.android?.package === 'com.trackmyrmc.concreteking', 'Unexpected Android application id');
 requireInvariant(indexRoute.includes('<Redirect href="/login"'), 'Root route must start at /login');
 requireInvariant(releaseWorkflow.includes('EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com'), 'Signed AAB must be pinned to https://trackmyrmc.com');
-requireInvariant(releaseWorkflow.includes('android:versionCode=\"89\"') && releaseWorkflow.includes('android:versionName=\"2.0.31\"'), 'Signed AAB workflow must validate vc89 / v2.0.31');
+requireInvariant(releaseWorkflow.includes('android:versionCode=\"90\"') && releaseWorkflow.includes('android:versionName=\"1.1.0\"'), 'Signed AAB workflow must validate vc90 / v1.1.0');
 requireInvariant(releaseWorkflow.includes('Legacy api.trackmyrmc.com origin detected'), 'Signed AAB workflow must reject the legacy api.trackmyrmc.com origin');
 requireInvariant(!candidateWorkflow.includes('ref: feat/login-auth-rebuild'), 'Pre-AAB candidate validation must not check out the legacy login branch');
 requireInvariant(candidateWorkflow.includes('ref: ${{ github.sha }}'), 'Push candidate validation must use the exact pushed SHA');
