@@ -41,12 +41,12 @@ try {
   if (fs.existsSync(iconTemp)) fs.rmSync(iconTemp, { force: true });
 }
 
-requireInvariant(app.expo.version === '1.1.1', 'Expected Expo version 1.1.1');
-requireInvariant(app.expo.android?.versionCode === 91, 'Expected Android versionCode 91');
+requireInvariant(app.expo.version === '1.1.2', 'Expected Expo version 1.1.2');
+requireInvariant(app.expo.android?.versionCode === 92, 'Expected Android versionCode 92');
 requireInvariant(app.expo.android?.package === 'com.trackmyrmc.concreteking', 'Unexpected Android application id');
 requireInvariant(indexRoute.includes('<Redirect href="/login"'), 'Root route must start at /login');
 requireInvariant(releaseWorkflow.includes('EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com'), 'Signed AAB must be pinned to https://trackmyrmc.com');
-requireInvariant(releaseWorkflow.includes('android:versionCode=\"91\"') && releaseWorkflow.includes('android:versionName=\"1.1.1\"'), 'Signed AAB workflow must validate vc91 / v1.1.1');
+requireInvariant(releaseWorkflow.includes('android:versionCode=\"92\"') && releaseWorkflow.includes('android:versionName=\"1.1.2\"'), 'Signed AAB workflow must validate vc92 / v1.1.2');
 requireInvariant(releaseWorkflow.includes('Legacy api.trackmyrmc.com origin detected'), 'Signed AAB workflow must reject the legacy api.trackmyrmc.com origin');
 requireInvariant(!candidateWorkflow.includes('ref: feat/login-auth-rebuild'), 'Pre-AAB candidate validation must not check out the legacy login branch');
 requireInvariant(candidateWorkflow.includes('ref: ${{ github.sha }}'), 'Push candidate validation must use the exact pushed SHA');
