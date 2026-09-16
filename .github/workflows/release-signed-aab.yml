@@ -63,8 +63,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends imagemagick
+          sudo apt-get install -y --no-install-recommends imagemagick librsvg2-bin
           command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1
+          command -v rsvg-convert >/dev/null 2>&1
 
       - name: Verify production backend
         shell: bash
