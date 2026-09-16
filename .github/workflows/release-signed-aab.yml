@@ -29,7 +29,7 @@ env:
   CI: "1"
   EXPO_PUBLIC_BACKEND_URL: https://trackmyrmc.com
   GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
-  EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
+  EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:32:DC"
   PACKAGE_NAME: com.trackmyrmc.concreteking
   VERSION_CODE: "89"
   VERSION_NAME: "2.0.31"
@@ -57,6 +57,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Install release image tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends imagemagick
+          command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1
 
       - name: Verify production backend
         shell: bash
