@@ -9,23 +9,34 @@ const indexRoute = fs.readFileSync(new URL('../app/index.tsx', import.meta.url),
 
 const iconPath = new URL('../assets/images/icon.png', import.meta.url);
 const iconFile = iconPath.pathname;
-const iconTemp = `${iconFile}.normalized.png`;
+const iconSource = new URL('../assets/images/trackmyrmc-launcher.svg', import.meta.url).pathname;
+const iconTemp = `${iconFile}.generated.png`;
 function requireInvariant(condition, message) { if (!condition) throw new Error(message); }
 
+// Generate the actual launcher PNG from the checked-in vector source. Do not crop or
+// zoom the artwork: the emblem is intentionally inside the Android launcher safe area.
 try {
   const imageTool = (() => {
     for (const candidate of ['magick', 'convert']) {
-      try { execFileSync(candidate, ['-version'], { stdio: 'ignore' }); return candidate; } catch {}
+      try {
+        execFileSync(candidate, ['-version'], { stdio: 'ignore' });
+        return candidate;
+      } catch {}
     }
     return null;
   })();
-  requireInvariant(imageTool, 'ImageMagick (magick/convert) is required to normalize the Android launcher icon');
-  execFileSync(imageTool, [iconFile, '-gravity', 'center', '-crop', '700x700+0+0', '+repage', '-resize', '1024x1024!', iconTemp], { stdio: 'inherit' });
+  requireInvariant(imageTool, 'ImageMagick (magick/convert) is required to generate the Android launcher icon');
+  execFileSync(imageTool, [
+    '-background', 'white',
+    iconSource,
+    '-resize', '1024x1024!',
+    'PNG24:' + iconTemp,
+  ], { stdio: 'inherit' });
   fs.renameSync(iconTemp, iconFile);
   const header = fs.readFileSync(iconFile).subarray(0, 24);
-  requireInvariant(header.toString('ascii', 1, 4) === 'PNG', 'Normalized launcher icon is not a PNG');
-  requireInvariant(header.readUInt32BE(16) === 1024 && header.readUInt32BE(20) === 1024, 'Normalized launcher icon must be 1024x1024');
-  console.log('Android launcher icon normalization: PASS (700px centered crop -> 1024px)');
+  requireInvariant(header.toString('ascii', 1, 4) === 'PNG', 'Generated launcher icon is not a PNG');
+  requireInvariant(header.readUInt32BE(16) === 1024 && header.readUInt32BE(20) === 1024, 'Generated launcher icon must be exactly 1024x1024');
+  console.log('Android launcher icon generation: PASS (vector source -> exact 1024x1024 PNG; no crop)');
 } finally {
   if (fs.existsSync(iconTemp)) fs.rmSync(iconTemp, { force: true });
 }
