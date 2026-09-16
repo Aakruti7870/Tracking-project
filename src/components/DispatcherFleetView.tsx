@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Order, MixerTelemetry } from "../types";
+import { Order, MixerTelemetry, OrderStatus } from "../types";
 import { Truck, Radio, RotateCw, MapPin, Gauge, Phone, CheckCircle, Clock } from "lucide-react";
 
 interface DispatcherFleetViewProps {
   orders: Order[];
   telemetry: Record<string, MixerTelemetry>;
-  onUpdateStatus: (orderId: string, status: Order["status"]) => void;
+  onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onOpenChallan: (order: Order) => void;
 }
 

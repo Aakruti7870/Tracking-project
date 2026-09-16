@@ -23,11 +23,11 @@ export function Navbar({ currentRole, onSelectRole, onOpenNewOrder, orderCount }
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const roles: { role: UserRole; label: string; icon: typeof HardHat; badge?: string }[] = [
-    { role: "customer", label: "Customer / Builder", icon: HardHat },
-    { role: "driver", label: "Driver (Mixer Pilot)", icon: Truck },
-    { role: "plant_owner", label: "Plant Operations", icon: Building2 },
-    { role: "dispatcher", label: "Fleet & Dispatch", icon: Radio },
-    { role: "central_admin", label: "Central Admin", icon: ShieldCheck },
+    { role: UserRole.Customer, label: "Customer / Builder", icon: HardHat },
+    { role: UserRole.Driver, label: "Driver (Mixer Pilot)", icon: Truck },
+    { role: UserRole.PlantOwner, label: "Plant Operations", icon: Building2 },
+    { role: UserRole.Dispatcher, label: "Fleet & Dispatch", icon: Radio },
+    { role: UserRole.CentralAdmin, label: "Central Admin", icon: ShieldCheck },
   ];
 
   return (

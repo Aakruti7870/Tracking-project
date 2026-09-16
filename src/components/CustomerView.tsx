@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Order, Plant, MixerTelemetry, ConcreteGrade } from "../types";
+import {
+  Order,
+  Plant,
+  MixerTelemetry,
+  ConcreteGrade,
+  OrderStatus,
+  DrumDirection,
+  TelemetryStatus,
+} from "../types";
 import { PourPlanner } from "./PourPlanner";
 import { LiveTracker } from "./LiveTracker";
 import { 
@@ -25,7 +33,7 @@ interface CustomerViewProps {
   telemetry: Record<string, MixerTelemetry>;
   onOpenNewOrder: () => void;
   onApplyCalculation: (data: { grade: ConcreteGrade; quantity: number; notes: string }) => void;
-  onUpdateOrderStatus: (orderId: string, status: Order["status"]) => void;
+  onUpdateOrderStatus: (orderId: string, status: OrderStatus) => void;
   onOpenChallan: (order: Order) => void;
   onOpenPod: (order: Order) => void;
 }
@@ -45,7 +53,7 @@ export function CustomerView({
   const [searchFilter, setSearchFilter] = useState("");
 
   const activeOrder = orders.find((o) => o.id === selectedOrderId) || orders[0];
-  const activeTelemetry = telemetry[activeOrder?.id] || {
+  const activeTelemetry: MixerTelemetry = (activeOrder && telemetry[activeOrder.id]) || {
     order_id: activeOrder?.id || "",
     tm_number: activeOrder?.tm_number || "MH-04-EK-9214",
     driver_name: activeOrder?.driver_name || "Rameshwar Gurjar",
@@ -54,7 +62,7 @@ export function CustomerView({
     current_load_m3: activeOrder?.quantity_m3 || 6,
     speed_kmh: 36,
     drum_rpm: 3.2,
-    drum_direction: "AGITATING",
+    drum_direction: DrumDirection.Agitating,
     concrete_temp_c: 27.5,
     slump_measured_mm: 120,
     progress_percent: 65,
@@ -65,22 +73,22 @@ export function CustomerView({
     start_lng: 72.956,
     dest_lat: 19.232,
     dest_lng: 72.985,
-    status: "EN_ROUTE_SITE",
+    status: TelemetryStatus.EnRouteSite,
   };
 
-  const getStatusBadge = (status: Order["status"]) => {
+  const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
-      case "DISPATCHED":
+      case OrderStatus.Dispatched:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#FF6A00]/20 text-[#FF7A18] border border-[#FF6A00]/30 animate-pulse">In Transit</span>;
-      case "BATCHING":
+      case OrderStatus.Batching:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/30">Batching</span>;
-      case "ON_SITE":
+      case OrderStatus.OnSite:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#A855F7]/20 text-[#A855F7] border border-[#A855F7]/30">At Site</span>;
-      case "POURING":
+      case OrderStatus.Pouring:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#EC4899]/20 text-[#EC4899] border border-[#EC4899]/30">Pouring</span>;
-      case "DELIVERED":
+      case OrderStatus.Delivered:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#38A169]/20 text-[#38A169] border border-[#38A169]/30">Delivered</span>;
-      case "CONFIRMED":
+      case OrderStatus.Confirmed:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#DD6B20]/20 text-[#DD6B20] border border-[#DD6B20]/30">Confirmed</span>;
       default:
         return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-800 text-gray-400">Draft</span>;
@@ -94,7 +102,7 @@ export function CustomerView({
         <div className="p-4 rounded-2xl bg-[#14181F] border border-[#2D3748] flex items-center justify-between">
           <div>
             <span className="text-[11px] font-medium text-gray-400">Active Pour Orders</span>
-            <h3 className="text-2xl font-black text-white mt-0.5">{orders.filter(o => o.status !== "DELIVERED").length}</h3>
+            <h3 className="text-2xl font-black text-white mt-0.5">{orders.filter(o => o.status !== OrderStatus.Delivered).length}</h3>
           </div>
           <div className="p-3 rounded-xl bg-[#FF6A00]/10 text-[#FF7A18]">
             <Truck className="w-5 h-5" />

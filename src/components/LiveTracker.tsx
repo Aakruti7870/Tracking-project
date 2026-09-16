@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Order, MixerTelemetry } from "../types";
+import { Order, MixerTelemetry, OrderStatus } from "../types";
 import { 
   Navigation, 
   Clock, 
@@ -20,7 +20,7 @@ import {
 interface LiveTrackerProps {
   order: Order;
   telemetry: MixerTelemetry;
-  onUpdateStatus: (orderId: string, status: Order["status"]) => void;
+  onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onOpenChallan: (order: Order) => void;
   onOpenPod: (order: Order) => void;
 }
@@ -33,7 +33,7 @@ export function LiveTracker({ order, telemetry, onUpdateStatus, onOpenChallan, o
 
   // Live simulation tick
   useEffect(() => {
-    if (order.status !== "DISPATCHED") return;
+    if (order.status !== OrderStatus.Dispatched) return;
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 98) return 98;
@@ -45,13 +45,13 @@ export function LiveTracker({ order, telemetry, onUpdateStatus, onOpenChallan, o
     return () => clearInterval(interval);
   }, [order.status]);
 
-  const stages: { key: Order["status"]; label: string; desc: string }[] = [
-    { key: "CONFIRMED", label: "Confirmed", desc: "Batch scheduled" },
-    { key: "BATCHING", label: "Batching", desc: "Aggregates mixing" },
-    { key: "DISPATCHED", label: "In Transit", desc: "Mixer en-route" },
-    { key: "ON_SITE", label: "At Site", desc: "Truck positioned" },
-    { key: "POURING", label: "Pouring", desc: "Chute / Pump active" },
-    { key: "DELIVERED", label: "Delivered", desc: "POD signed" },
+  const stages: { key: OrderStatus; label: string; desc: string }[] = [
+    { key: OrderStatus.Confirmed, label: "Confirmed", desc: "Batch scheduled" },
+    { key: OrderStatus.Batching, label: "Batching", desc: "Aggregates mixing" },
+    { key: OrderStatus.Dispatched, label: "In Transit", desc: "Mixer en-route" },
+    { key: OrderStatus.OnSite, label: "At Site", desc: "Truck positioned" },
+    { key: OrderStatus.Pouring, label: "Pouring", desc: "Chute / Pump active" },
+    { key: OrderStatus.Delivered, label: "Delivered", desc: "POD signed" },
   ];
 
   const currentStageIndex = stages.findIndex((s) => s.key === order.status);
@@ -239,7 +239,7 @@ export function LiveTracker({ order, telemetry, onUpdateStatus, onOpenChallan, o
                 Advance +20%
               </button>
               <button
-                onClick={() => onUpdateStatus(order.id, "ON_SITE")}
+                onClick={() => onUpdateStatus(order.id, OrderStatus.OnSite)}
                 className="px-3 py-1 text-xs rounded bg-[#38A169]/20 text-[#38A169] border border-[#38A169]/40 font-bold hover:bg-[#38A169]/30"
               >
                 Trigger Arrival at Site

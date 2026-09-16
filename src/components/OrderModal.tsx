@@ -28,13 +28,13 @@ interface OrderModalProps {
 
 export function OrderModal({ isOpen, onClose, plants, initialData, onSubmit }: OrderModalProps) {
   const [selectedPlantId, setSelectedPlantId] = useState<string>(plants[0]?.id || "plant-1");
-  const [grade, setGrade] = useState<ConcreteGrade>(initialData?.grade || "M25");
+  const [grade, setGrade] = useState<ConcreteGrade>(initialData?.grade || ConcreteGrade.M25);
   const [quantity, setQuantity] = useState<number>(initialData?.quantity || 24);
   const [siteName, setSiteName] = useState<string>("Lodha World One - Phase 2");
   const [siteAddress, setSiteAddress] = useState<string>("Senapati Bapat Marg, Lower Parel, Mumbai 400013");
   const [deliveryDate, setDeliveryDate] = useState<string>("Today, 14 Sep 2026");
   const [deliveryTime, setDeliveryTime] = useState<string>("10:30 AM");
-  const [pumpType, setPumpType] = useState<PumpType>("Boom Pump (36m)");
+  const [pumpType, setPumpType] = useState<PumpType>(PumpType.Boom36m);
   const [slump, setSlump] = useState<string>("120 ± 25 mm");
 
   useEffect(() => {
@@ -48,19 +48,19 @@ export function OrderModal({ isOpen, onClose, plants, initialData, onSubmit }: O
   
   // Rate calculation
   const gradeMultiplier: Record<ConcreteGrade, number> = {
-    M10: 0.88,
-    M15: 0.92,
-    M20: 0.96,
-    M25: 1.0,
-    M30: 1.06,
-    M35: 1.12,
-    M40: 1.20,
-    M50: 1.35,
+    [ConcreteGrade.M10]: 0.88,
+    [ConcreteGrade.M15]: 0.92,
+    [ConcreteGrade.M20]: 0.96,
+    [ConcreteGrade.M25]: 1.0,
+    [ConcreteGrade.M30]: 1.06,
+    [ConcreteGrade.M35]: 1.12,
+    [ConcreteGrade.M40]: 1.20,
+    [ConcreteGrade.M50]: 1.35,
   };
 
   const baseRate = currentPlant?.base_rate_m25 || 4200;
   const ratePerM3 = Math.round(baseRate * (gradeMultiplier[grade] || 1));
-  const pumpCharge = pumpType.includes("Boom") ? 6500 : pumpType.includes("Line") ? 4500 : 0;
+  const pumpCharge = pumpType === PumpType.Boom36m ? 6500 : pumpType === PumpType.Line100m ? 4500 : 0;
   const subtotal = ratePerM3 * quantity + pumpCharge;
   const gst18 = Math.round(subtotal * 0.18);
   const totalAmount = subtotal + gst18;
@@ -83,7 +83,15 @@ export function OrderModal({ isOpen, onClose, plants, initialData, onSubmit }: O
     onClose();
   };
 
-  const grades: ConcreteGrade[] = ["M15", "M20", "M25", "M30", "M35", "M40", "M50"];
+  const grades: ConcreteGrade[] = [
+    ConcreteGrade.M15,
+    ConcreteGrade.M20,
+    ConcreteGrade.M25,
+    ConcreteGrade.M30,
+    ConcreteGrade.M35,
+    ConcreteGrade.M40,
+    ConcreteGrade.M50,
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
@@ -183,9 +191,9 @@ export function OrderModal({ isOpen, onClose, plants, initialData, onSubmit }: O
                 onChange={(e) => setPumpType(e.target.value as PumpType)}
                 className="w-full bg-[#1D232D] border border-[#2D3748] rounded-xl px-3 py-2 text-xs text-white font-medium focus:border-[#FF6A00] focus:outline-none"
               >
-                <option value="Boom Pump (36m)">Boom Pump (36m) - High rise / Slab</option>
-                <option value="Line Pump (100m)">Line Pump (100m) - Pipeline discharge</option>
-                <option value="None (Direct Discharge)">Direct Chute Discharge (No Pump)</option>
+                <option value={PumpType.Boom36m}>Boom Pump (36m) - High rise / Slab</option>
+                <option value={PumpType.Line100m}>Line Pump (100m) - Pipeline discharge</option>
+                <option value={PumpType.None}>Direct Chute Discharge (No Pump)</option>
               </select>
             </div>
 

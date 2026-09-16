@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { UserRole, Order, Plant, MixerTelemetry, ProofOfDelivery, ConcreteGrade } from "./types";
+import {
+  UserRole,
+  Order,
+  Plant,
+  MixerTelemetry,
+  ProofOfDelivery,
+  ConcreteGrade,
+  OrderStatus,
+  PaymentStatus,
+  DrumDirection,
+  TelemetryStatus,
+} from "./types";
 import { INITIAL_PLANTS, INITIAL_ORDERS, INITIAL_TELEMETRY } from "./mockData";
 import { Navbar } from "./components/Navbar";
 import { CustomerView } from "./components/CustomerView";
@@ -12,7 +23,7 @@ import { ChallanModal } from "./components/ChallanModal";
 import { ProofOfDeliveryModal } from "./components/ProofOfDeliveryModal";
 
 export function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole>("customer");
+  const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.Customer);
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
   const [plants, setPlants] = useState<Plant[]>(INITIAL_PLANTS);
   const [telemetry, setTelemetry] = useState<Record<string, MixerTelemetry>>(INITIAL_TELEMETRY);
@@ -55,8 +66,8 @@ export function App() {
       site_address: orderData.site_address,
       delivery_date: orderData.delivery_date,
       delivery_time: orderData.delivery_time,
-      status: "CONFIRMED",
-      payment_status: "PAID",
+      status: OrderStatus.Confirmed,
+      payment_status: PaymentStatus.Paid,
       pump_type: orderData.pump_type,
       slump: orderData.slump,
       tm_number: "MH-04-EK-9214",
@@ -82,7 +93,7 @@ export function App() {
         current_load_m3: Math.min(7, orderData.quantity_m3),
         speed_kmh: 0,
         drum_rpm: 3.2,
-        drum_direction: "AGITATING",
+        drum_direction: DrumDirection.Agitating,
         concrete_temp_c: 27.2,
         slump_measured_mm: 120,
         progress_percent: 0,
@@ -93,13 +104,13 @@ export function App() {
         start_lng: plant.lng,
         dest_lat: 19.232,
         dest_lng: 72.985,
-        status: "EN_ROUTE_SITE",
+        status: TelemetryStatus.EnRouteSite,
       },
     }));
   };
 
   // Update order status
-  const handleUpdateOrderStatus = (orderId: string, newStatus: Order["status"]) => {
+  const handleUpdateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
     );
@@ -110,13 +121,13 @@ export function App() {
       if (!current) return prev;
       let progress = current.progress_percent;
       let speed = current.speed_kmh;
-      if (newStatus === "DISPATCHED") {
+      if (newStatus === OrderStatus.Dispatched) {
         progress = 50;
         speed = 40;
-      } else if (newStatus === "ON_SITE" || newStatus === "POURING") {
+      } else if (newStatus === OrderStatus.OnSite || newStatus === OrderStatus.Pouring) {
         progress = 100;
         speed = 0;
-      } else if (newStatus === "DELIVERED") {
+      } else if (newStatus === OrderStatus.Delivered) {
         progress = 100;
         speed = 0;
       }
@@ -138,7 +149,7 @@ export function App() {
         o.id === orderId
           ? {
               ...o,
-              status: "DELIVERED",
+              status: OrderStatus.Delivered,
               pod,
             }
           : o
@@ -171,7 +182,7 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {currentRole === "customer" && (
+        {currentRole === UserRole.Customer && (
           <CustomerView
             orders={orders}
             plants={plants}
@@ -187,7 +198,7 @@ export function App() {
           />
         )}
 
-        {currentRole === "driver" && (
+        {currentRole === UserRole.Driver && (
           <DriverView
             orders={orders}
             telemetry={telemetry}
@@ -197,7 +208,7 @@ export function App() {
           />
         )}
 
-        {currentRole === "plant_owner" && (
+        {currentRole === UserRole.PlantOwner && (
           <PlantOperationsView
             plants={plants}
             orders={orders}
@@ -206,7 +217,7 @@ export function App() {
           />
         )}
 
-        {currentRole === "dispatcher" && (
+        {currentRole === UserRole.Dispatcher && (
           <DispatcherFleetView
             orders={orders}
             telemetry={telemetry}
@@ -215,7 +226,7 @@ export function App() {
           />
         )}
 
-        {currentRole === "central_admin" && (
+        {currentRole === UserRole.CentralAdmin && (
           <CentralAdminView orders={orders} plants={plants} />
         )}
       </main>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plant, Order, SiloLevels } from "../types";
+import { Plant, Order, SiloLevels, OrderStatus } from "../types";
 import { 
   Building2, 
   Droplets, 
@@ -16,7 +16,7 @@ import {
 interface PlantOperationsViewProps {
   plants: Plant[];
   orders: Order[];
-  onUpdateStatus: (orderId: string, status: Order["status"]) => void;
+  onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onOpenChallan: (order: Order) => void;
 }
 
@@ -46,9 +46,9 @@ export function PlantOperationsView({
 
   const startBatchingCycle = (orderId: string) => {
     setBatchingSimActive(true);
-    onUpdateStatus(orderId, "BATCHING");
+    onUpdateStatus(orderId, OrderStatus.Batching);
     setTimeout(() => {
-      onUpdateStatus(orderId, "DISPATCHED");
+      onUpdateStatus(orderId, OrderStatus.Dispatched);
       setBatchingSimActive(false);
       // Deplete silos slightly
       setSilos((prev) => ({

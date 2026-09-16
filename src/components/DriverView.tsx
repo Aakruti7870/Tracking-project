@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Order, MixerTelemetry } from "../types";
+import { Order, MixerTelemetry, OrderStatus } from "../types";
 import { 
   Truck, 
   MapPin, 
@@ -17,7 +17,7 @@ import {
 interface DriverViewProps {
   orders: Order[];
   telemetry: Record<string, MixerTelemetry>;
-  onUpdateStatus: (orderId: string, status: Order["status"]) => void;
+  onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onOpenChallan: (order: Order) => void;
   onOpenPod: (order: Order) => void;
 }
@@ -29,7 +29,7 @@ export function DriverView({
   onOpenChallan,
   onOpenPod,
 }: DriverViewProps) {
-  const activeOrder = orders.find((o) => o.status !== "DELIVERED") || orders[0];
+  const activeOrder = orders.find((o) => o.status !== OrderStatus.Delivered) || orders[0];
   const [drumSpeed, setDrumSpeed] = useState(3.4);
   const [dutyActive, setDutyActive] = useState(true);
 
@@ -175,9 +175,9 @@ export function DriverView({
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
-                onClick={() => onUpdateStatus(activeOrder.id, "DISPATCHED")}
+                onClick={() => onUpdateStatus(activeOrder.id, OrderStatus.Dispatched)}
                 className={`py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                  currentStatus === "DISPATCHED"
+                  currentStatus === OrderStatus.Dispatched
                     ? "bg-[#FF6A00] text-white shadow-lg shadow-[#FF6A00]/25"
                     : "bg-[#1D232D] text-gray-300 hover:text-white"
                 }`}
@@ -186,9 +186,9 @@ export function DriverView({
               </button>
 
               <button
-                onClick={() => onUpdateStatus(activeOrder.id, "ON_SITE")}
+                onClick={() => onUpdateStatus(activeOrder.id, OrderStatus.OnSite)}
                 className={`py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                  currentStatus === "ON_SITE"
+                  currentStatus === OrderStatus.OnSite
                     ? "bg-[#3B82F6] text-white shadow-lg shadow-blue-500/25"
                     : "bg-[#1D232D] text-gray-300 hover:text-white"
                 }`}

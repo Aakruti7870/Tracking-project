@@ -1,15 +1,13 @@
 import { useState, useMemo } from "react";
-import { ConcreteGrade } from "../types";
+import { ConcreteGrade, StructureType } from "../types";
 import { Calculator, CheckCircle2, ArrowRight, Layers, Box, Columns3, Compass } from "lucide-react";
 
 interface PourPlannerProps {
   onApplyCalculation: (data: { grade: ConcreteGrade; quantity: number; notes: string }) => void;
 }
 
-type StructureType = "slab" | "column" | "beam" | "footing" | "retaining_wall";
-
 export function PourPlanner({ onApplyCalculation }: PourPlannerProps) {
-  const [structure, setStructure] = useState<StructureType>("slab");
+  const [structure, setStructure] = useState<StructureType>(StructureType.Slab);
   
   // Dimensions in meters
   const [length, setLength] = useState<number>(12);
@@ -20,11 +18,11 @@ export function PourPlanner({ onApplyCalculation }: PourPlannerProps) {
 
   // Recommended grades by structure
   const gradeRecommendations: Record<StructureType, ConcreteGrade> = {
-    slab: "M25",
-    column: "M35",
-    beam: "M30",
-    footing: "M20",
-    retaining_wall: "M30",
+    [StructureType.Slab]: ConcreteGrade.M25,
+    [StructureType.Column]: ConcreteGrade.M35,
+    [StructureType.Beam]: ConcreteGrade.M30,
+    [StructureType.Footing]: ConcreteGrade.M20,
+    [StructureType.RetainingWall]: ConcreteGrade.M30,
   };
 
   const selectedGrade = gradeRecommendations[structure];
@@ -32,9 +30,9 @@ export function PourPlanner({ onApplyCalculation }: PourPlannerProps) {
   // Volume calculations
   const { netVolume, grossVolume, mixerLoads } = useMemo(() => {
     let baseVolume = 0;
-    if (structure === "slab" || structure === "footing" || structure === "retaining_wall") {
+    if (structure === StructureType.Slab || structure === StructureType.Footing || structure === StructureType.RetainingWall) {
       baseVolume = length * width * thickness * count;
-    } else if (structure === "column" || structure === "beam") {
+    } else if (structure === StructureType.Column || structure === StructureType.Beam) {
       baseVolume = length * width * thickness * count;
     }
     const net = Math.round(baseVolume * 100) / 100;
@@ -47,11 +45,11 @@ export function PourPlanner({ onApplyCalculation }: PourPlannerProps) {
     };
   }, [length, width, thickness, count, wastage, structure]);
 
-  const structureOptions = [
-    { id: "slab", label: "Slab & Raft", icon: Layers, desc: "Roof, floor, or foundation raft" },
-    { id: "column", label: "RCC Columns", icon: Columns3, desc: "Vertical structural columns" },
-    { id: "beam", label: "Plinth / Beams", icon: Box, desc: "Horizontal tie & roof beams" },
-    { id: "footing", label: "Footings", icon: Compass, desc: "Isolated or strip footings" },
+  const structureOptions: { id: StructureType; label: string; icon: typeof Layers; desc: string }[] = [
+    { id: StructureType.Slab, label: "Slab & Raft", icon: Layers, desc: "Roof, floor, or foundation raft" },
+    { id: StructureType.Column, label: "RCC Columns", icon: Columns3, desc: "Vertical structural columns" },
+    { id: StructureType.Beam, label: "Plinth / Beams", icon: Box, desc: "Horizontal tie & roof beams" },
+    { id: StructureType.Footing, label: "Footings", icon: Compass, desc: "Isolated or strip footings" },
   ];
 
   return (
