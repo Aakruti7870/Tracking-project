@@ -5,6 +5,7 @@
   <linearGradient id="silver" x1="0" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#e8e8e8"/><stop offset="1" stop-color="#a7a7a7"/></linearGradient>
   <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff18a"/><stop offset="0.2" stop-color="#ff9d00"/><stop offset="0.5" stop-color="#ff5a00"/><stop offset="0.8" stop-color="#ffd84a"/><stop offset="1" stop-color="#ff4b00"/></linearGradient>
   <filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="shadow"><feGaussianBlur stdDeviation="8"/></filter>
   <clipPath id="clip"><rect x="18" y="18" width="988" height="988" rx="150"/></clipPath>
 </defs>
 <rect width="1024" height="1024" fill="#fff"/>
@@ -16,17 +17,30 @@
 </g>
 <rect x="35" y="35" width="954" height="954" rx="138" fill="none" stroke="url(#rim)" stroke-width="18" filter="url(#glow)"/>
 <rect x="58" y="58" width="908" height="908" rx="122" fill="none" stroke="#ffffff" stroke-opacity=".34" stroke-width="3"/>
-<g stroke-linejoin="round">
-  <path d="M252 293 L510 108 L510 214 L355 325 L355 625 L510 738 L510 854 L252 666 Z" fill="url(#orange)" stroke="#8e1800" stroke-width="5"/>
-  <path d="M510 108 L777 293 L777 631 L670 559 L670 350 L510 214 Z" fill="url(#silver)" stroke="#5d5d5d" stroke-width="5"/>
-  <path d="M435 380 L510 325 L585 378 L585 496 L435 496 Z" fill="url(#orange)" stroke="#8e1800" stroke-width="5"/>
-  <path d="M435 496 L585 496 L690 574 L690 674 L510 543 L435 488 Z" fill="url(#silver)" stroke="#666" stroke-width="5"/>
-  <path d="M252 666 L355 625 L510 738 L670 625 L777 631 L510 854 Z" fill="url(#orange)" stroke="#8e1800" stroke-width="5" opacity=".98"/>
-  <path d="M510 108 L777 293 L670 350 L510 214 Z" fill="url(#silver)" stroke="#777" stroke-width="4"/>
-  <path d="M510 543 L690 674 L585 744 L510 684 Z" fill="url(#silver)" stroke="#777" stroke-width="4"/>
+
+<!-- Centered, unmistakable G emblem. Bounds approx. x=240..784, y=220..804, leaving generous safe margins. -->
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <!-- dark extrusion/shadow -->
+  <path d="M735 365 A255 255 0 1 0 748 620 L748 535 L585 535" stroke="#111111" stroke-width="112" opacity=".65" transform="translate(0 12)" filter="url(#shadow)"/>
+  <!-- orange lower/left body -->
+  <path d="M735 365 A255 255 0 1 0 748 620" stroke="url(#orange)" stroke-width="96"/>
+  <!-- silver upper/right body -->
+  <path d="M735 365 A255 255 0 0 0 410 270" stroke="url(#silver)" stroke-width="96"/>
+  <!-- silver G crossbar -->
+  <path d="M748 620 L748 535 L585 535" stroke="url(#silver)" stroke-width="96"/>
+  <!-- orange lower return for visual continuity -->
+  <path d="M410 705 A255 255 0 0 0 735 365" stroke="url(#orange)" stroke-width="96" opacity=".98"/>
 </g>
-<path d="M267 289 L506 118" stroke="#fff5a0" stroke-width="7" opacity=".8" stroke-linecap="round"/>
-<path d="M526 116 L764 286" stroke="#fff" stroke-width="6" opacity=".85" stroke-linecap="round"/>
+
+<!-- crisp bevel highlights -->
+<path d="M410 270 A255 255 0 0 0 288 415" fill="none" stroke="#fff6a5" stroke-width="9" opacity=".9" stroke-linecap="round"/>
+<path d="M410 270 A255 255 0 0 1 735 365" fill="none" stroke="#ffffff" stroke-width="8" opacity=".8" stroke-linecap="round"/>
+<path d="M748 535 L585 535" fill="none" stroke="#ffffff" stroke-width="8" opacity=".85" stroke-linecap="round"/>
+
+<!-- restrained center facet for the original geometric character -->
+<path d="M458 382 L520 338 L582 382 L582 455 L458 455 Z" fill="url(#orange)" stroke="#8e1800" stroke-width="5"/>
+<path d="M458 455 L582 455 L660 512 L660 548 L520 450 L458 410 Z" fill="url(#silver)" stroke="#666" stroke-width="4"/>
+
 <circle cx="90" cy="90" r="13" fill="#fff6a5" filter="url(#glow)"/>
 <circle cx="934" cy="934" r="12" fill="#fff6a5" filter="url(#glow)"/>
 </svg>
