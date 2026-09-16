@@ -31,8 +31,8 @@ env:
   GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
   EXPECTED_PLAY_UPLOAD_SHA1: "3D:5F:80:59:1C:BA:69:1B:03:28:4D:A1:74:91:38:1D:8F:A1:32:DC"
   PACKAGE_NAME: com.trackmyrmc.concreteking
-  VERSION_CODE: "90"
-  VERSION_NAME: "1.1.0"
+  VERSION_CODE: "91"
+  VERSION_NAME: "1.1.1"
 
 jobs:
   build-signed-aab:
@@ -192,8 +192,8 @@ jobs:
           java -jar /tmp/bundletool.jar validate --bundle="$aab"
           java -jar /tmp/bundletool.jar dump manifest --bundle="$aab" | tee /tmp/manifest.xml
           grep -F "package=\"${PACKAGE_NAME}\"" /tmp/manifest.xml
-          grep -F 'android:versionCode="90"' /tmp/manifest.xml
-          grep -F 'android:versionName="1.1.0"' /tmp/manifest.xml
+          grep -F 'android:versionCode="91"' /tmp/manifest.xml
+          grep -F 'android:versionName="1.1.1"' /tmp/manifest.xml
           entry=$(unzip -Z1 "$aab" | grep -E '(^|/)assets/index\.android\.bundle$' | head -n1)
           test -n "$entry" || { echo "ERROR: Android JS bundle not found"; exit 1; }
           unzip -p "$aab" "$entry" >/tmp/index.android.bundle
@@ -208,7 +208,7 @@ jobs:
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trackmyrmc-v1.1.0-vc90-signed-aab
+          name: trackmyrmc-v1.1.1-vc91-signed-aab
           path: frontend/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
