@@ -1,11 +1,49 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const app = JSON.parse(fs.readFileSync(new URL('../app.json', import.meta.url), 'utf8'));
 const releaseWorkflow = fs.readFileSync(new URL('../../.github/workflows/release-signed-aab.yml', import.meta.url), 'utf8');
 const candidateWorkflow = fs.readFileSync(new URL('../../.github/workflows/pre-aab-candidate-validation.yml', import.meta.url), 'utf8');
 const deployWorkflow = fs.readFileSync(new URL('../../.github/workflows/deploy-production-web.yml', import.meta.url), 'utf8');
 const indexRoute = fs.readFileSync(new URL('../app/index.tsx', import.meta.url), 'utf8');
+
+const iconPath = new URL('../assets/images/icon.png', import.meta.url);
+const iconFile = iconPath.pathname;
+const iconTemp = `${iconFile}.normalized.png`;
 function requireInvariant(condition, message) { if (!condition) throw new Error(message); }
+
+// The checked-in 1024px icon contains excessive outer whitespace. Android launchers
+// mask and scale the supplied square, so that whitespace makes the visible logo too small.
+// Normalize the centered artwork before Expo prebuild. This keeps the source artwork intact
+// while ensuring the packaged launcher icon uses the full 1024x1024 canvas.
+try {
+  const imageTool = (() => {
+    for (const candidate of ['magick', 'convert']) {
+      try {
+        execFileSync(candidate, ['-version'], { stdio: 'ignore' });
+        return candidate;
+      } catch {}
+    }
+    return null;
+  })();
+  requireInvariant(imageTool, 'ImageMagick (magick/convert) is required to normalize the Android launcher icon');
+  execFileSync(imageTool, [
+    iconFile,
+    '-gravity', 'center',
+    '-crop', '700x700+0+0',
+    '+repage',
+    '-resize', '1024x1024!',
+    iconTemp,
+  ], { stdio: 'inherit' });
+  fs.renameSync(iconTemp, iconFile);
+  const header = fs.readFileSync(iconFile).subarray(0, 24);
+  requireInvariant(header.toString('ascii', 1, 4) === 'PNG', 'Normalized launcher icon is not a PNG');
+  requireInvariant(header.readUInt32BE(16) === 1024 && header.readUInt32BE(20) === 1024, 'Normalized launcher icon must be 1024x1024');
+  console.log('Android launcher icon normalization: PASS (700px centered crop -> 1024px)');
+} finally {
+  if (fs.existsSync(iconTemp)) fs.rmSync(iconTemp, { force: true });
+}
+
 requireInvariant(app.expo.version === '2.0.31', 'Expected Expo version 2.0.31');
 requireInvariant(app.expo.android?.versionCode === 89, 'Expected Android versionCode 89');
 requireInvariant(app.expo.android?.package === 'com.trackmyrmc.concreteking', 'Unexpected Android application id');
